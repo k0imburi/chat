@@ -5,6 +5,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default("7d"),
   MOBILE_JWT_EXPIRES_IN: z.string().default("30d"),
+  GOOGLE_OAUTH_CLIENT_IDS: z.string().optional(),
+  APPLE_OAUTH_AUDIENCES: z.string().optional(),
   DEFAULT_ADMIN_EMAIL: z.string().email().default("admin@chatandtip.local"),
   DEFAULT_ADMIN_PASSWORD: z.string().min(6).default("123456"),
   R2_ACCOUNT_ID: z.string().optional(),

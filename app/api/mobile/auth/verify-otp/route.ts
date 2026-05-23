@@ -33,11 +33,11 @@ export async function POST(request: Request) {
     }
 
     const user = await upsertMobileProviderUser({
-      externalId: normalizedPhone,
+      provider: LoginProvider.PHONE,
+      providerUserId: normalizedPhone,
       phoneNumber: normalizedPhone,
       fullName: normalizedPhone,
       deviceSystem: parsed.deviceSystem,
-      loginProvider: LoginProvider.PHONE,
     })
 
     const token = await signMobileSessionToken({

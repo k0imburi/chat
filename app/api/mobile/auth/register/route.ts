@@ -22,7 +22,6 @@ const schema = z.object({
   interests: z.array(z.string()).optional(),
   links: z.array(z.string()).optional(),
   filter: z.record(z.string(), z.unknown()).optional(),
-  externalId: z.string().optional(),
   loginProvider: z.nativeEnum(LoginProvider).optional(),
   profileVideo: z
     .object({

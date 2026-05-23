@@ -1,7 +1,7 @@
 import "server-only"
 
 import bcrypt from "bcryptjs"
-import { LoginProvider, MediaKind, Prisma, UserRole, type User, type UserMedia } from "@prisma/client"
+import { LoginProvider, MediaKind, Prisma, UserRole, UserStatus, type User, type UserMedia } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 
 type UserWithMedia = User & {
@@ -26,7 +26,6 @@ type RegisterMobileUserInput = {
   interests?: string[]
   links?: string[]
   filter?: Record<string, unknown>
-  externalId?: string
   loginProvider?: LoginProvider
   profileVideo?: {
     videoUrl: string
@@ -208,6 +207,16 @@ export async function verifyMobileUserPassword(user: User, password: string) {
   return bcrypt.compare(password, user.passwordHash)
 }
 
+export function assertMobileUserCanAuthenticate(user: User) {
+  if (user.role !== UserRole.USER) {
+    throw new Error("Mobile access is restricted to user accounts")
+  }
+
+  if (!user.isActive || user.status === UserStatus.BLOCKED || user.status === UserStatus.HIDDEN) {
+    throw new Error("This account is not allowed to sign in")
+  }
+}
+
 export async function registerMobileUser(input: RegisterMobileUserInput) {
   if (input.email) {
     const existingEmail = await findMobileUserByEmail(input.email)
@@ -229,7 +238,6 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
 
   const created = (await prisma.user.create({
     data: {
-      externalId: input.externalId,
       fullName: fallbackFullName(input),
       username: input.username,
       gender: input.gender || "",
@@ -266,46 +274,162 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
   return created
 }
 
-export async function upsertMobileProviderUser(input: RegisterMobileUserInput): Promise<UserWithMedia> {
-  if (!input.externalId) {
-    throw new Error("externalId is required")
+export async function upsertMobileProviderUser(
+  input: RegisterMobileUserInput & {
+    provider: LoginProvider
+    providerUserId: string
+    verifiedEmail?: string
+  },
+): Promise<UserWithMedia> {
+  const provider = input.provider
+  const providerUserId = input.providerUserId.trim()
+  if (!providerUserId) {
+    throw new Error("providerUserId is required")
   }
 
-  const provider = input.loginProvider || LoginProvider.EMAIL
-  const existing = await prisma.user.findUnique({
-    where: { externalId: input.externalId },
-    include: { media: true },
+  const existingAccount = await prisma.providerAccount.findUnique({
+    where: {
+      provider_providerUserId: {
+        provider,
+        providerUserId,
+      },
+    },
+    include: {
+      user: {
+        include: { media: true },
+      },
+    },
   })
 
-  if (existing) {
+  if (existingAccount) {
+    assertMobileUserCanAuthenticate(existingAccount.user)
+
     return (await prisma.user.update({
-      where: { id: existing.id },
+      where: { id: existingAccount.userId },
       data: {
-        fullName: input.fullName?.trim() ? input.fullName : existing.fullName,
-        username: input.username ?? existing.username,
-        email: input.email ?? existing.email,
-        phoneNumber: input.phoneNumber ?? existing.phoneNumber,
-        bio: input.bio ?? existing.bio,
-        deviceToken: input.deviceToken ?? existing.deviceToken,
-        deviceSystem: input.deviceSystem ?? existing.deviceSystem,
-        country: input.country ?? existing.country,
-        city: input.city ?? existing.city,
-        latitude: input.latitude ?? existing.latitude,
-        longitude: input.longitude ?? existing.longitude,
-        interests: input.interests ? toJsonValue(input.interests) : existingJsonToInput(existing.interests),
-        links: input.links ? toJsonValue(input.links) : existingJsonToInput(existing.links),
-        filter: input.filter ? toJsonValue(input.filter) : existingJsonToInput(existing.filter),
+        fullName: input.fullName?.trim() ? input.fullName : existingAccount.user.fullName,
+        username: input.username ?? existingAccount.user.username,
+        email: input.verifiedEmail ?? input.email ?? existingAccount.user.email,
+        phoneNumber: input.phoneNumber ?? existingAccount.user.phoneNumber,
+        bio: input.bio ?? existingAccount.user.bio,
+        deviceToken: input.deviceToken ?? existingAccount.user.deviceToken,
+        deviceSystem: input.deviceSystem ?? existingAccount.user.deviceSystem,
+        country: input.country ?? existingAccount.user.country,
+        city: input.city ?? existingAccount.user.city,
+        latitude: input.latitude ?? existingAccount.user.latitude,
+        longitude: input.longitude ?? existingAccount.user.longitude,
+        interests: input.interests ? toJsonValue(input.interests) : existingJsonToInput(existingAccount.user.interests),
+        links: input.links ? toJsonValue(input.links) : existingJsonToInput(existingAccount.user.links),
+        filter: input.filter ? toJsonValue(input.filter) : existingJsonToInput(existingAccount.user.filter),
         loginProvider: provider,
         lastActiveAt: new Date(),
+        lastLoginAt: new Date(),
       },
       include: { media: true },
     })) as UserWithMedia
   }
 
-  return registerMobileUser({
-    ...input,
-    loginProvider: provider,
-  })
+  const normalizedEmail = input.verifiedEmail ?? input.email
+  let linkedUser: UserWithMedia | null = null
+
+  if (provider === LoginProvider.PHONE && input.phoneNumber) {
+    linkedUser = await findMobileUserByPhone(input.phoneNumber)
+  } else if (normalizedEmail) {
+    linkedUser = await findMobileUserByEmail(normalizedEmail)
+  }
+
+  if (linkedUser) {
+    assertMobileUserCanAuthenticate(linkedUser)
+
+    return (await prisma.$transaction(async (tx) => {
+      await tx.providerAccount.create({
+        data: {
+          userId: linkedUser!.id,
+          provider,
+          providerUserId,
+          email: normalizedEmail,
+        },
+      })
+
+      const updated = await tx.user.update({
+        where: { id: linkedUser!.id },
+        data: {
+          fullName: input.fullName?.trim() ? input.fullName : linkedUser!.fullName,
+          username: input.username ?? linkedUser!.username,
+          email: normalizedEmail ?? linkedUser!.email,
+          phoneNumber: input.phoneNumber ?? linkedUser!.phoneNumber,
+          bio: input.bio ?? linkedUser!.bio,
+          deviceToken: input.deviceToken ?? linkedUser!.deviceToken,
+          deviceSystem: input.deviceSystem ?? linkedUser!.deviceSystem,
+          country: input.country ?? linkedUser!.country,
+          city: input.city ?? linkedUser!.city,
+          latitude: input.latitude ?? linkedUser!.latitude,
+          longitude: input.longitude ?? linkedUser!.longitude,
+          interests: input.interests ? toJsonValue(input.interests) : undefined,
+          links: input.links ? toJsonValue(input.links) : undefined,
+          filter: input.filter ? toJsonValue(input.filter) : undefined,
+          loginProvider: provider,
+          lastActiveAt: new Date(),
+          lastLoginAt: new Date(),
+        },
+        include: { media: true },
+      })
+
+      return updated as UserWithMedia
+    })) as UserWithMedia
+  }
+
+  return (await prisma.$transaction(async (tx) => {
+    const created = (await tx.user.create({
+      data: {
+        fullName: fallbackFullName({
+          ...input,
+          email: normalizedEmail,
+        }),
+        username: input.username,
+        gender: input.gender || "",
+        birthday: normalizeDate(input.birthday),
+        email: normalizedEmail,
+        phoneNumber: input.phoneNumber,
+        bio: input.bio,
+        role: UserRole.USER,
+        isActive: true,
+        deviceToken: input.deviceToken,
+        deviceSystem: input.deviceSystem,
+        country: input.country,
+        city: input.city,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        interests: toJsonValue(input.interests),
+        links: toJsonValue(input.links),
+        filter: toJsonValue(input.filter),
+        loginProvider: provider,
+        lastActiveAt: new Date(),
+        lastLoginAt: new Date(),
+        media: input.profileVideo
+          ? {
+              create: {
+                kind: MediaKind.PROFILE_VIDEO,
+                url: input.profileVideo.videoUrl,
+                thumbnailUrl: input.profileVideo.thumbnailUrl,
+              },
+            }
+          : undefined,
+      },
+      include: { media: true },
+    })) as UserWithMedia
+
+    await tx.providerAccount.create({
+      data: {
+        userId: created.id,
+        provider,
+        providerUserId,
+        email: normalizedEmail,
+      },
+    })
+
+    return created
+  })) as UserWithMedia
 }
 
 export async function updateMobileUserProfile(

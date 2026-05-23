@@ -148,8 +148,24 @@ model User {
   receivedTipRequests TipRequest[] @relation("TipRequestReceiver")
   mpesaRequests  MpesaPaymentRequest[]
   verificationCodes VerificationCode[]
+  providerAccounts ProviderAccount[]
 
   @@map("users")
+}
+
+model ProviderAccount {
+  id             String        @id @default(cuid())
+  userId         String
+  provider       LoginProvider
+  providerUserId String
+  email          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@unique([userId, provider])
+  @@index([email])
 }
 
 model VerificationCode {

@@ -2,11 +2,13 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { signMobileSessionToken } from "@/lib/mobile-session"
 import {
+  assertMobileUserCanAuthenticate,
   findMobileUserByEmail,
   mapMobileLoginProvider,
   serializeMobileUser,
   verifyMobileUserPassword,
 } from "@/lib/mobile-users"
+import { prisma } from "@/lib/prisma"
 
 const schema = z.object({
   email: z.string().email(),
@@ -21,6 +23,16 @@ export async function POST(request: Request) {
     if (!user || !(await verifyMobileUserPassword(user, parsed.password))) {
       return NextResponse.json({ success: false, message: "Invalid credentials" }, { status: 401 })
     }
+
+    assertMobileUserCanAuthenticate(user)
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+        lastActiveAt: new Date(),
+      },
+    })
 
     const token = await signMobileSessionToken({
       userId: user.id,

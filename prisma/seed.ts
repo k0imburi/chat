@@ -128,6 +128,24 @@ async function main() {
     })
   )
 
+  await prisma.providerAccount.createMany({
+    data: [
+      {
+        userId: users[1].id,
+        provider: LoginProvider.GOOGLE,
+        providerUserId: "seed-google-daniel",
+        email: users[1].email,
+      },
+      {
+        userId: users[2].id,
+        provider: LoginProvider.PHONE,
+        providerUserId: users[2].phoneNumber ?? "",
+        email: users[2].email,
+      },
+    ].filter((account) => account.providerUserId),
+    skipDuplicates: true,
+  })
+
   await prisma.userMedia.createMany({
     data: users.flatMap((user, index) => [
       {
