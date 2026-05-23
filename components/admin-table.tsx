@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Search } from "lucide-react"
+import { ActionForm } from "@/components/action-form"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -102,7 +103,7 @@ export function AdminTable({ adminUsers }: { adminUsers: AdminUser[] }) {
           </Button>
         }
       >
-        <form id="create-admin-form" action={createAdminUserAction} className="grid gap-4 md:grid-cols-2">
+        <ActionForm id="create-admin-form" action={createAdminUserAction} className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
             <Input id="name" name="name" />
@@ -125,7 +126,7 @@ export function AdminTable({ adminUsers }: { adminUsers: AdminUser[] }) {
               ))}
             </select>
           </div>
-        </form>
+        </ActionForm>
       </AppModal>
     </div>
   )

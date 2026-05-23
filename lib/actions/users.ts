@@ -2,6 +2,12 @@
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import {
+  errorResult,
+  getActionFormData,
+  successResult,
+  type ActionResult,
+} from "@/lib/actions/action-result"
 import { prisma } from "@/lib/prisma"
 import { requireSessionUser } from "@/lib/auth"
 import { deleteFromR2 } from "@/lib/r2"
@@ -56,63 +62,92 @@ const deleteMediaSchema = z.object({
   userId: z.string().min(1),
 })
 
-export async function updateUserStatusAction(formData: FormData) {
-  await requireSessionUser()
+export async function updateUserStatusAction(
+  stateOrFormData: ActionResult | FormData,
+  maybeFormData?: FormData,
+) {
+  try {
+    const formData = getActionFormData(stateOrFormData, maybeFormData)
+    await requireSessionUser()
 
-  const parsed = userStatusSchema.parse({
-    userId: formData.get("userId"),
-    status: formData.get("status"),
-  })
+    const parsed = userStatusSchema.parse({
+      userId: formData.get("userId"),
+      status: formData.get("status"),
+    })
 
-  await prisma.user.update({
-    where: { id: parsed.userId },
-    data: { status: parsed.status },
-  })
+    await prisma.user.update({
+      where: { id: parsed.userId },
+      data: { status: parsed.status },
+    })
 
-  revalidatePath("/users")
-  revalidatePath(`/users/${parsed.userId}`)
-  revalidatePath("/dashboard")
-}
-
-export async function toggleUserVerificationAction(formData: FormData) {
-  await requireSessionUser()
-
-  const parsed = verifySchema.parse({
-    userId: formData.get("userId"),
-    verified: formData.get("verified"),
-  })
-
-  await prisma.user.update({
-    where: { id: parsed.userId },
-    data: { verified: parsed.verified },
-  })
-
-  revalidatePath("/users")
-  revalidatePath(`/users/${parsed.userId}`)
-}
-
-export async function deleteUserMediaAction(formData: FormData) {
-  await requireSessionUser()
-
-  const parsed = deleteMediaSchema.parse({
-    mediaId: formData.get("mediaId"),
-    userId: formData.get("userId"),
-  })
-
-  const media = await prisma.userMedia.findUnique({ where: { id: parsed.mediaId } })
-  if (!media) return
-
-  if (media.objectKey) {
-    try {
-      await deleteFromR2(media.objectKey)
-    } catch {
-      // Keep DB cleanup working even when storage is already missing.
-    }
+    revalidatePath("/users")
+    revalidatePath(`/users/${parsed.userId}`)
+    revalidatePath("/dashboard")
+    return successResult("User status updated successfully.")
+  } catch (error) {
+    return errorResult(error, "Unable to update user status.")
   }
+}
 
-  await prisma.userMedia.delete({ where: { id: parsed.mediaId } })
+export async function toggleUserVerificationAction(
+  stateOrFormData: ActionResult | FormData,
+  maybeFormData?: FormData,
+) {
+  try {
+    const formData = getActionFormData(stateOrFormData, maybeFormData)
+    await requireSessionUser()
 
-  revalidatePath(`/users/${parsed.userId}`)
-  revalidatePath("/users")
-  revalidatePath("/dashboard")
+    const parsed = verifySchema.parse({
+      userId: formData.get("userId"),
+      verified: formData.get("verified"),
+    })
+
+    await prisma.user.update({
+      where: { id: parsed.userId },
+      data: { verified: parsed.verified },
+    })
+
+    revalidatePath("/users")
+    revalidatePath(`/users/${parsed.userId}`)
+    return successResult(parsed.verified ? "User verified successfully." : "User verification removed successfully.")
+  } catch (error) {
+    return errorResult(error, "Unable to update verification status.")
+  }
+}
+
+export async function deleteUserMediaAction(
+  stateOrFormData: ActionResult | FormData,
+  maybeFormData?: FormData,
+) {
+  try {
+    const formData = getActionFormData(stateOrFormData, maybeFormData)
+    await requireSessionUser()
+
+    const parsed = deleteMediaSchema.parse({
+      mediaId: formData.get("mediaId"),
+      userId: formData.get("userId"),
+    })
+
+    const media = await prisma.userMedia.findUnique({ where: { id: parsed.mediaId } })
+    if (!media) {
+      return errorResult(new Error("Media not found."), "Media not found.")
+    }
+
+    if (media.objectKey) {
+      try {
+        await deleteFromR2(media.objectKey)
+      } catch {
+        // Keep DB cleanup working even when storage is already missing.
+      }
+    }
+
+    await prisma.userMedia.delete({ where: { id: parsed.mediaId } })
+
+    revalidatePath(`/users/${parsed.userId}`)
+    revalidatePath("/users")
+    revalidatePath("/dashboard")
+    return successResult("Media deleted successfully.")
+  } catch (error) {
+    return errorResult(error, "Unable to delete media.")
+  }
 }

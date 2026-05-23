@@ -1,3 +1,4 @@
+import { ActionForm } from "@/components/action-form"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,7 +30,7 @@ export default async function PaymentPlansPage() {
               </Button>
             }
           >
-            <form id="create-plan-form" action={upsertPaymentPlanAction} className="space-y-4">
+            <ActionForm id="create-plan-form" action={upsertPaymentPlanAction} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
                 <Input id="name" name="name" placeholder="VIP Monthly" required />
@@ -85,7 +86,7 @@ export default async function PaymentPlansPage() {
                 <input type="checkbox" name="isActive" defaultChecked className="h-4 w-4 rounded border-input" />
                 Active plan
               </label>
-            </form>
+            </ActionForm>
           </AppModal>
         }
       />
@@ -118,12 +119,12 @@ export default async function PaymentPlansPage() {
                     ))}
                   </ul>
                 ) : null}
-                <form action={deletePaymentPlanAction} className="mt-5">
+                <ActionForm action={deletePaymentPlanAction} className="mt-5">
                   <input type="hidden" name="id" value={plan.id} />
                   <Button type="submit" variant="destructive" size="sm">
                     Delete
                   </Button>
-                </form>
+                </ActionForm>
               </div>
             ))}
           </CardContent>

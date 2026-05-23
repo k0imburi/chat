@@ -2,6 +2,7 @@ import Image from "next/image"
 import { notFound } from "next/navigation"
 import { Cake, CheckCircle2, Clock, LogIn, Mail, Monitor, Phone, User, CalendarDays, XCircle } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
+import { ActionForm } from "@/components/action-form"
 import { prisma } from "@/lib/prisma"
 import { formatDateTime, formatRelative } from "@/lib/format"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -41,9 +42,9 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
     <div className="space-y-6">
       {/* Moderation actions — top right */}
       <div className="flex items-center justify-end gap-2">
-        <div className="flex overflow-hidden rounded-lg border border-border">
-          {(["ACTIVE", "BLOCKED", "REPORTED", "HIDDEN"] as const).map((s) => (
-            <form key={s} action={updateUserStatusAction}>
+          <div className="flex overflow-hidden rounded-lg border border-border">
+            {(["ACTIVE", "BLOCKED", "REPORTED", "HIDDEN"] as const).map((s) => (
+            <ActionForm key={s} action={updateUserStatusAction}>
               <input type="hidden" name="userId" value={user.id} />
               <input type="hidden" name="status" value={s} />
               <Button
@@ -54,16 +55,16 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
               >
                 {s.charAt(0) + s.slice(1).toLowerCase()}
               </Button>
-            </form>
+            </ActionForm>
           ))}
         </div>
-        <form action={toggleUserVerificationAction}>
+        <ActionForm action={toggleUserVerificationAction}>
           <input type="hidden" name="userId" value={user.id} />
           <input type="hidden" name="verified" value={String(!user.verified)} />
           <Button type="submit" variant="outline" size="sm">
             {user.verified ? "Unverify" : "Verify"}
           </Button>
-        </form>
+        </ActionForm>
       </div>
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
@@ -202,13 +203,13 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
                           <p className="truncate text-sm font-medium">{item.title || "Gallery media"}</p>
                           <p className="text-xs text-muted-foreground">{item.mimeType || "—"}</p>
                         </div>
-                        <form action={deleteUserMediaAction}>
+                        <ActionForm action={deleteUserMediaAction}>
                           <input type="hidden" name="mediaId" value={item.id} />
                           <input type="hidden" name="userId" value={user.id} />
                           <Button type="submit" variant="destructive" size="sm">
                             Delete
                           </Button>
-                        </form>
+                        </ActionForm>
                       </div>
                     </div>
                   ))}

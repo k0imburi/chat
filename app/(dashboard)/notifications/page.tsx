@@ -1,3 +1,4 @@
+import { ActionForm } from "@/components/action-form"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -71,7 +72,7 @@ export default async function NotificationsPage() {
               </Button>
             }
           >
-            <form id="send-campaign-form" action={createNotificationCampaignAction} className="space-y-4">
+            <ActionForm id="send-campaign-form" action={createNotificationCampaignAction} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="notif-title">Title</Label>
                 <Input id="notif-title" name="title" placeholder="Optional title" />
@@ -96,7 +97,7 @@ export default async function NotificationsPage() {
                   placeholder="Write the campaign message to be delivered..."
                 />
               </div>
-            </form>
+            </ActionForm>
           </AppModal>
         }
       />

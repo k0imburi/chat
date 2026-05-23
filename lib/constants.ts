@@ -1,7 +1,13 @@
 import {
+  Archive,
   BellRing,
+  CircleDollarSign,
   CreditCard,
   LayoutDashboard,
+  Landmark,
+  MessageSquareMore,
+  ShieldEllipsis,
+  ReceiptText,
   Settings,
   ShieldCheck,
   TriangleAlert,
@@ -15,9 +21,50 @@ export const NAV_ITEMS = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Users", url: "/users", icon: Users },
   { title: "Reports", url: "/reports", icon: TriangleAlert },
+  { title: "Wallets", url: "/wallets", icon: CircleDollarSign },
+  { title: "Withdrawals", url: "/withdrawals", icon: Landmark },
+  { title: "Tip Requests", url: "/tip-requests", icon: ReceiptText },
+  { title: "Chats", url: "/chats", icon: MessageSquareMore },
+  { title: "Assets", url: "/assets", icon: Archive },
+  { title: "Verification Logs", url: "/verification-logs", icon: ShieldEllipsis },
   { title: "Payment Plans", url: "/payment-plans", icon: CreditCard },
   { title: "Notifications", url: "/notifications", icon: BellRing },
   { title: "Settings", url: "/settings", icon: Settings },
+]
+
+export const NAV_GROUPS = [
+  {
+    label: "HOME",
+    items: [
+      { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+    ],
+  },
+  {
+    label: "MANAGEMENT",
+    items: [
+      { title: "Users", url: "/users", icon: Users },
+      { title: "Reports", url: "/reports", icon: TriangleAlert },
+      { title: "Chats", url: "/chats", icon: MessageSquareMore },
+      { title: "Assets", url: "/assets", icon: Archive },
+      { title: "Verification Logs", url: "/verification-logs", icon: ShieldEllipsis },
+    ],
+  },
+  {
+    label: "FINANCE",
+    items: [
+      { title: "Wallets", url: "/wallets", icon: CircleDollarSign },
+      { title: "Withdrawals", url: "/withdrawals", icon: Landmark },
+      { title: "Tip Requests", url: "/tip-requests", icon: ReceiptText },
+      { title: "Payment Plans", url: "/payment-plans", icon: CreditCard },
+    ],
+  },
+  {
+    label: "SYSTEM",
+    items: [
+      { title: "Notifications", url: "/notifications", icon: BellRing },
+      { title: "Settings", url: "/settings", icon: Settings },
+    ],
+  },
 ]
 
 export const ADMIN_ROLE_OPTIONS = [

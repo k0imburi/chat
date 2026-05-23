@@ -3,8 +3,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ActionForm } from "@/components/action-form"
 import { PageHeader } from "@/components/page-header"
 import { AdminTable } from "@/components/admin-table"
+import { SubmitButton } from "@/components/submit-button"
 import { saveGeneralSettingsAction, saveNotificationSettingsAction, saveR2SettingsAction } from "@/lib/actions/settings"
 import { SETTINGS_TABS } from "@/lib/constants"
 import { getSettingsBundle } from "@/lib/queries"
@@ -35,7 +37,7 @@ export default async function SettingsPage() {
               <CardTitle>General settings</CardTitle>
             </CardHeader>
             <CardContent>
-              <form action={saveGeneralSettingsAction} className="grid gap-4 md:grid-cols-2">
+              <ActionForm action={saveGeneralSettingsAction} className="grid gap-4 md:grid-cols-2">
                 <Field label="App name" name="appName" defaultValue={settings?.appName} />
                 <Field label="Contact email" name="contactEmail" defaultValue={settings?.contactEmail ?? ""} />
                 <Field label="Contact phone" name="contactPhone" defaultValue={settings?.contactPhone ?? ""} />
@@ -65,9 +67,9 @@ export default async function SettingsPage() {
                 <input type="hidden" name="allowSendImages" value={String(settings?.allowSendImages ?? true)} />
 
                 <div className="md:col-span-2">
-                  <Button type="submit">Save general settings</Button>
+                  <SubmitButton type="submit">Save general settings</SubmitButton>
                 </div>
-              </form>
+              </ActionForm>
             </CardContent>
           </Card>
         </TabsContent>
@@ -78,7 +80,7 @@ export default async function SettingsPage() {
               <CardTitle>Feature controls</CardTitle>
             </CardHeader>
             <CardContent>
-              <form action={saveGeneralSettingsAction} className="space-y-5">
+              <ActionForm action={saveGeneralSettingsAction} className="space-y-5">
                 <input type="hidden" name="appName" defaultValue={settings?.appName} />
                 <input type="hidden" name="contactEmail" defaultValue={settings?.contactEmail ?? ""} />
                 <input type="hidden" name="contactPhone" defaultValue={settings?.contactPhone ?? ""} />
@@ -110,14 +112,14 @@ export default async function SettingsPage() {
                   <CheckboxField label="Allow send images" name="allowSendImages" checked={settings?.allowSendImages ?? true} />
                 </div>
 
-                <Button type="submit">Save feature controls</Button>
-              </form>
+                <SubmitButton type="submit">Save feature controls</SubmitButton>
+              </ActionForm>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="payments">
-          <form action={saveGeneralSettingsAction} className="space-y-6">
+          <ActionForm action={saveGeneralSettingsAction} className="space-y-6">
             <div className="grid gap-6 xl:grid-cols-2">
               {/* Left column: Billing + PayPal */}
               <div className="space-y-6">
@@ -177,9 +179,9 @@ export default async function SettingsPage() {
             <input type="hidden" name="allowSendImages" value={String(settings?.allowSendImages ?? true)} />
 
             <div className="flex justify-end">
-              <Button type="submit">Save payment settings</Button>
+              <SubmitButton type="submit">Save payment settings</SubmitButton>
             </div>
-          </form>
+          </ActionForm>
         </TabsContent>
 
         <TabsContent value="storage">
@@ -188,7 +190,7 @@ export default async function SettingsPage() {
               <CardTitle>Cloudflare R2 storage</CardTitle>
             </CardHeader>
             <CardContent>
-              <form action={saveR2SettingsAction} className="grid gap-4 md:grid-cols-2">
+              <ActionForm action={saveR2SettingsAction} className="grid gap-4 md:grid-cols-2">
                 <Field label="Account ID" name="r2AccountId" defaultValue={settings?.r2AccountId ?? ""} />
                 <Field label="Access key ID" name="r2AccessKeyId" defaultValue={settings?.r2AccessKeyId ?? ""} />
                 <Field label="Secret access key" name="r2SecretAccessKey" defaultValue={settings?.r2SecretAccessKey ?? ""} />
@@ -199,15 +201,15 @@ export default async function SettingsPage() {
                   <Field label="Endpoint" name="r2Endpoint" defaultValue={settings?.r2Endpoint ?? ""} />
                 </div>
                 <div className="md:col-span-2">
-                  <Button type="submit">Save storage settings</Button>
+                  <SubmitButton type="submit">Save storage settings</SubmitButton>
                 </div>
-              </form>
+              </ActionForm>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="notifications">
-          <form action={saveNotificationSettingsAction} className="space-y-6">
+          <ActionForm action={saveNotificationSettingsAction} className="space-y-6">
             <div className="grid gap-6 xl:grid-cols-2">
               <Card className="rounded-lg">
                 <CardHeader>
@@ -267,9 +269,9 @@ export default async function SettingsPage() {
             </Card>
 
             <div className="flex justify-end">
-              <Button type="submit">Save notification settings</Button>
+              <SubmitButton type="submit">Save notification settings</SubmitButton>
             </div>
-          </form>
+          </ActionForm>
         </TabsContent>
 
         <TabsContent value="security">

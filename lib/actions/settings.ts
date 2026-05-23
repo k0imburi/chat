@@ -3,6 +3,12 @@
 import { UserRole } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import {
+  errorResult,
+  getActionFormData,
+  successResult,
+  type ActionResult,
+} from "@/lib/actions/action-result"
 import { hashPassword, requireSessionUser } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
@@ -72,9 +78,14 @@ const adminSchema = z.object({
   role: z.nativeEnum(UserRole),
 })
 
-export async function saveGeneralSettingsAction(formData: FormData) {
-  await requireSessionUser()
-  const parsed = generalSchema.parse({
+export async function saveGeneralSettingsAction(
+  stateOrFormData: ActionResult | FormData,
+  maybeFormData?: FormData,
+) {
+  try {
+    const formData = getActionFormData(stateOrFormData, maybeFormData)
+    await requireSessionUser()
+    const parsed = generalSchema.parse({
     appName: formData.get("appName"),
     contactEmail: formData.get("contactEmail") || "",
     contactPhone: formData.get("contactPhone") || "",
@@ -102,21 +113,30 @@ export async function saveGeneralSettingsAction(formData: FormData) {
     paypalClientId: formData.get("paypalClientId") || "",
     paypalClientSecret: formData.get("paypalClientSecret") || "",
     jwtExpiry: formData.get("jwtExpiry") || "7d",
-  })
+    })
 
-  await prisma.appSettings.upsert({
-    where: { id: 1 },
-    update: parsed,
-    create: { id: 1, ...parsed },
-  })
+    await prisma.appSettings.upsert({
+      where: { id: 1 },
+      update: parsed,
+      create: { id: 1, ...parsed },
+    })
 
-  revalidatePath("/settings")
-  revalidatePath("/dashboard")
+    revalidatePath("/settings")
+    revalidatePath("/dashboard")
+    return successResult("Settings saved successfully.")
+  } catch (error) {
+    return errorResult(error, "Unable to save settings.")
+  }
 }
 
-export async function saveR2SettingsAction(formData: FormData) {
-  await requireSessionUser()
-  const parsed = r2Schema.parse({
+export async function saveR2SettingsAction(
+  stateOrFormData: ActionResult | FormData,
+  maybeFormData?: FormData,
+) {
+  try {
+    const formData = getActionFormData(stateOrFormData, maybeFormData)
+    await requireSessionUser()
+    const parsed = r2Schema.parse({
     r2AccountId: formData.get("r2AccountId") || "",
     r2AccessKeyId: formData.get("r2AccessKeyId") || "",
     r2SecretAccessKey: formData.get("r2SecretAccessKey") || "",
@@ -124,20 +144,29 @@ export async function saveR2SettingsAction(formData: FormData) {
     r2PublicBaseUrl: formData.get("r2PublicBaseUrl") || "",
     r2Region: formData.get("r2Region") || "auto",
     r2Endpoint: formData.get("r2Endpoint") || "",
-  })
+    })
 
-  await prisma.appSettings.upsert({
-    where: { id: 1 },
-    update: parsed,
-    create: { id: 1, appName: "ChatAndTip", currency: "USD", jwtExpiry: "7d", ...parsed },
-  })
+    await prisma.appSettings.upsert({
+      where: { id: 1 },
+      update: parsed,
+      create: { id: 1, appName: "ChatAndTip", currency: "USD", jwtExpiry: "7d", ...parsed },
+    })
 
-  revalidatePath("/settings")
+    revalidatePath("/settings")
+    return successResult("Storage settings saved successfully.")
+  } catch (error) {
+    return errorResult(error, "Unable to save storage settings.")
+  }
 }
 
-export async function saveNotificationSettingsAction(formData: FormData) {
-  await requireSessionUser()
-  const parsed = notificationSchema.parse({
+export async function saveNotificationSettingsAction(
+  stateOrFormData: ActionResult | FormData,
+  maybeFormData?: FormData,
+) {
+  try {
+    const formData = getActionFormData(stateOrFormData, maybeFormData)
+    await requireSessionUser()
+    const parsed = notificationSchema.parse({
     emailEnabled: formData.get("emailEnabled") === "on",
     smtpHost: formData.get("smtpHost") || "",
     smtpPort: formData.get("smtpPort") || 587,
@@ -154,36 +183,49 @@ export async function saveNotificationSettingsAction(formData: FormData) {
     otpLength: formData.get("otpLength") || 6,
     otpExpiryMinutes: formData.get("otpExpiryMinutes") || 10,
     passwordResetExpiryMinutes: formData.get("passwordResetExpiryMinutes") || 15,
-  })
+    })
 
-  await prisma.appSettings.upsert({
-    where: { id: 1 },
-    update: parsed,
-    create: { id: 1, appName: "ChatAndTip", currency: "USD", jwtExpiry: "7d", ...parsed },
-  })
+    await prisma.appSettings.upsert({
+      where: { id: 1 },
+      update: parsed,
+      create: { id: 1, appName: "ChatAndTip", currency: "USD", jwtExpiry: "7d", ...parsed },
+    })
 
-  revalidatePath("/settings")
+    revalidatePath("/settings")
+    return successResult("Notification settings saved successfully.")
+  } catch (error) {
+    return errorResult(error, "Unable to save notification settings.")
+  }
 }
 
-export async function createAdminUserAction(formData: FormData) {
-  await requireSessionUser()
-  const parsed = adminSchema.parse({
+export async function createAdminUserAction(
+  stateOrFormData: ActionResult | FormData,
+  maybeFormData?: FormData,
+) {
+  try {
+    const formData = getActionFormData(stateOrFormData, maybeFormData)
+    await requireSessionUser()
+    const parsed = adminSchema.parse({
     name: formData.get("name"),
     email: formData.get("email"),
     password: formData.get("password"),
     role: formData.get("role"),
-  })
+    })
 
-  await prisma.user.create({
-    data: {
-      fullName: parsed.name,
-      email: parsed.email,
-      passwordHash: await hashPassword(parsed.password),
-      role: parsed.role,
-      isActive: true,
-      gender: "",
-    },
-  })
+    await prisma.user.create({
+      data: {
+        fullName: parsed.name,
+        email: parsed.email,
+        passwordHash: await hashPassword(parsed.password),
+        role: parsed.role,
+        isActive: true,
+        gender: "",
+      },
+    })
 
-  revalidatePath("/settings")
+    revalidatePath("/settings")
+    return successResult("Admin user created successfully.")
+  } catch (error) {
+    return errorResult(error, "Unable to create admin user.")
+  }
 }
