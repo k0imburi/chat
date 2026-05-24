@@ -4,6 +4,7 @@ import { ChatMessageType, Prisma, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
+import { createUserNotification } from "@/lib/mobile-notifications"
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -24,6 +25,19 @@ type ChatParticipantWithThread = Prisma.ChatParticipantGetPayload<{
 
 function parseChatMessageType(type: ChatMessageType) {
   return type.toLowerCase()
+}
+
+function normalizeReactions(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {} as Record<string, string[]>
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>).map(([emoji, users]) => [
+    emoji,
+    Array.isArray(users) ? users.map((userId) => String(userId)) : [],
+  ])
+
+  return Object.fromEntries(entries)
 }
 
 function serializeChatSummary(participant: ChatParticipantWithThread, receiver: UserWithMedia) {
@@ -48,6 +62,11 @@ function serializeChatMessage(message: {
   type: ChatMessageType
   text: string | null
   imageUrl: string | null
+  replyToId: string | null
+  replyToText: string | null
+  replyToSenderId: string | null
+  replyToSenderName: string | null
+  reactions: unknown
   isRead: boolean
   sentAt: Date
 }) {
@@ -58,6 +77,11 @@ function serializeChatMessage(message: {
     type: parseChatMessageType(message.type),
     textMsg: message.text || "",
     imageUrl: message.imageUrl || "",
+    replyToId: message.replyToId || "",
+    replyToText: message.replyToText || "",
+    replyToSenderId: message.replyToSenderId || "",
+    replyToSenderName: message.replyToSenderName || "",
+    reactions: normalizeReactions(message.reactions),
     isRead: message.isRead,
     sentAt: message.sentAt.toISOString(),
   }
@@ -301,6 +325,10 @@ export async function sendMessage(input: {
   receiverId: string
   textMsg?: string
   imageUrl?: string
+  replyToId?: string
+  replyToText?: string
+  replyToSenderId?: string
+  replyToSenderName?: string
 }) {
   const textMsg = input.textMsg?.trim() || ""
   const imageUrl = input.imageUrl?.trim() || ""
@@ -322,6 +350,11 @@ export async function sendMessage(input: {
         type: messageType,
         text: textMsg || null,
         imageUrl: imageUrl || null,
+        replyToId: input.replyToId || null,
+        replyToText: input.replyToText || null,
+        replyToSenderId: input.replyToSenderId || null,
+        replyToSenderName: input.replyToSenderName || null,
+        reactions: {},
       },
     })
 
@@ -355,20 +388,6 @@ export async function sendMessage(input: {
       },
     })
 
-    await tx.userNotification.create({
-      data: {
-        userId: input.receiverId,
-        senderId: input.senderId,
-        title: me.fullName,
-        message: textMsg || "Sent you a photo",
-        type: "message",
-        metadata: {
-          threadUserId: input.senderId,
-          messageId: message.id,
-        },
-      },
-    })
-
     const [senderSummary, receiverSummary] = await Promise.all([
       getChatSummaryForUser(tx, input.senderId, input.receiverId),
       getChatSummaryForUser(tx, input.receiverId, input.senderId),
@@ -385,6 +404,18 @@ export async function sendMessage(input: {
       senderSummary,
       receiverSummary,
     }
+  })
+
+  await createUserNotification({
+    userId: input.receiverId,
+    senderId: input.senderId,
+    title: me.fullName,
+    message: textMsg || "Sent you a photo",
+    type: "message",
+    metadata: {
+      threadUserId: input.senderId,
+      messageId: result.serializedMessage.id,
+    },
   })
 
   emitChatRealtimeToUser(input.senderId, {
@@ -420,6 +451,72 @@ export async function sendMessage(input: {
   }
 
   return result.response
+}
+
+export async function reactToMessage(input: {
+  userId: string
+  otherUserId: string
+  messageId: string
+  emoji: string
+}) {
+  await ensureUsersCanChat(input.userId, input.otherUserId)
+
+  const participant = await getParticipant(input.userId, input.otherUserId)
+  if (!participant) {
+    throw new Error("Chat not found")
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const message = await tx.chatMessage.findFirst({
+      where: {
+        id: input.messageId,
+        threadId: participant.threadId,
+      },
+    })
+
+    if (!message) {
+      throw new Error("Message not found")
+    }
+
+    const reactions = normalizeReactions(message.reactions)
+    const users = [...(reactions[input.emoji] ?? [])]
+    const existingIndex = users.indexOf(input.userId)
+
+    if (existingIndex >= 0) {
+      users.splice(existingIndex, 1)
+      if (users.length) {
+        reactions[input.emoji] = users
+      } else {
+        delete reactions[input.emoji]
+      }
+    } else {
+      reactions[input.emoji] = [...users, input.userId]
+    }
+
+    const updated = await tx.chatMessage.update({
+      where: { id: message.id },
+      data: {
+        reactions: reactions as Prisma.InputJsonValue,
+      },
+    })
+
+    return serializeChatMessage(updated)
+  })
+
+  emitChatRealtimeToUser(input.userId, {
+    channel: "chat",
+    type: "message_updated",
+    otherUserId: input.otherUserId,
+    data: result,
+  })
+  emitChatRealtimeToUser(input.otherUserId, {
+    channel: "chat",
+    type: "message_updated",
+    otherUserId: input.userId,
+    data: result,
+  })
+
+  return result
 }
 
 export async function markChatViewed(userId: string, otherUserId: string) {

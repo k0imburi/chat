@@ -11,6 +11,10 @@ const paramsSchema = z.object({
 const bodySchema = z.object({
   textMsg: z.string().optional(),
   imageUrl: z.string().url().optional().or(z.literal("")),
+  replyToId: z.string().optional(),
+  replyToText: z.string().optional(),
+  replyToSenderId: z.string().optional(),
+  replyToSenderName: z.string().optional(),
 })
 
 export async function GET(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
@@ -50,6 +54,10 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       receiverId: params.otherUserId,
       textMsg: body.textMsg,
       imageUrl: body.imageUrl,
+      replyToId: body.replyToId,
+      replyToText: body.replyToText,
+      replyToSenderId: body.replyToSenderId,
+      replyToSenderName: body.replyToSenderName,
     })
     return NextResponse.json({ success: true, data })
   } catch (error) {

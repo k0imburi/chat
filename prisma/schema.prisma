@@ -383,6 +383,11 @@ model ChatMessage {
   type       ChatMessageType @default(TEXT)
   text       String?         @db.Text
   imageUrl   String?
+  replyToId  String?
+  replyToText String?        @db.Text
+  replyToSenderId String?
+  replyToSenderName String?
+  reactions  Json?
   isRead     Boolean         @default(false)
   sentAt     DateTime        @default(now())
   thread     ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
