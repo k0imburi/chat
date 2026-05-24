@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { clearChat, markChatViewed } from "@/lib/mobile-chats"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { logError } from "@/lib/log-error"
 
 const paramsSchema = z.object({
   otherUserId: z.string().min(1),
@@ -22,6 +23,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ other
       return NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/chats/[otherUserId]", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to update chat" },
       { status: 500 },
@@ -44,6 +46,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ othe
       return NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/chats/[otherUserId]", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to delete chat" },
       { status: 500 },

@@ -4,6 +4,7 @@ import { z } from "zod"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { findMobileUserById, serializeMobileUser } from "@/lib/mobile-users"
 import { prisma } from "@/lib/prisma"
+import { logError } from "@/lib/log-error"
 
 const createSchema = z.object({
   kind: z.nativeEnum(MediaKind),
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
+    logError("/api/mobile/profile/media", error)
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to save media" }, { status: 500 })
   }
 }
@@ -92,6 +94,7 @@ export async function PATCH(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
+    logError("/api/mobile/profile/media", error)
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to update media" }, { status: 500 })
   }
 }

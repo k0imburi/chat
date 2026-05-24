@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { deleteMatch, getMatches, markMatchViewed } from "@/lib/mobile-social"
+import { logError } from "@/lib/log-error"
 
 const getSchema = z.object({
   userId: z.string().min(1),
@@ -35,6 +36,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/matches", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to update match" },
       { status: 500 },

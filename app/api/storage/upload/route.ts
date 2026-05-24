@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { uploadBufferToR2 } from "@/lib/r2"
+import { logError } from "@/lib/log-error"
 
 export async function POST(request: Request) {
   try {
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
       object_key: result.objectKey,
     })
   } catch (error) {
+    logError("/api/storage/upload", error)
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Upload failed" },
       { status: 500 },

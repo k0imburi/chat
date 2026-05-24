@@ -3,6 +3,7 @@ import { z } from "zod"
 import { findMobileUserByEmail, findMobileUserByPhone } from "@/lib/mobile-users"
 import { sendPasswordResetNotifications } from "@/lib/notifications"
 import { normalizePhoneNumber } from "@/lib/sms"
+import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   identifier: z.string().min(3),
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/auth/forgot-password", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to send password reset instructions" },
       { status: 500 },

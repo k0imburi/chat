@@ -5,6 +5,7 @@ import { signMobileSessionToken } from "@/lib/mobile-session"
 import { consumeVerificationCode } from "@/lib/notifications"
 import { mapMobileLoginProvider, serializeMobileUser, upsertMobileProviderUser } from "@/lib/mobile-users"
 import { normalizePhoneNumber } from "@/lib/sms"
+import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   phoneNumber: z.string().min(9),
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/auth/verify-otp", error)
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to verify OTP" }, { status: 500 })
   }
 }

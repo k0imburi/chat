@@ -3,6 +3,7 @@ import { LoginProvider } from "@prisma/client"
 import { z } from "zod"
 import { signMobileSessionToken } from "@/lib/mobile-session"
 import { mapMobileLoginProvider, registerMobileUser, serializeMobileUser } from "@/lib/mobile-users"
+import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   fullName: z.string().min(2),
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/auth/register", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to register account" },
       { status: 500 },

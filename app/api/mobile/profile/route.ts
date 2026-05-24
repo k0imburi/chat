@@ -3,6 +3,7 @@ import { z } from "zod"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { findMobileUserById, serializeMobileUser, updateMobileUserProfile } from "@/lib/mobile-users"
 import { prisma } from "@/lib/prisma"
+import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   fullName: z.string().min(2).optional(),
@@ -73,6 +74,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/profile", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to update profile" },
       { status: 500 },

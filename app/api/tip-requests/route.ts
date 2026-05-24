@@ -6,6 +6,7 @@ import {
   markTipAsSent,
   sendTipRequest,
 } from "@/lib/mobile-tip-requests"
+import { logError } from "@/lib/log-error"
 
 const getSchema = z.object({
   userId: z.string().min(1),
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/tip-requests", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to create tip request" },
       { status: 500 },
@@ -79,6 +81,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/tip-requests", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to update tip request" },
       { status: 500 },

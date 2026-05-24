@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { deleteFromR2 } from "@/lib/r2"
+import { logError } from "@/lib/log-error"
 
 function extractObjectKey(fileUrl: string) {
   try {
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    logError("/api/storage/delete", error)
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Delete failed" },
       { status: 500 },

@@ -3,6 +3,7 @@ import { VerificationChannel, VerificationPurpose } from "@prisma/client"
 import { z } from "zod"
 import { sendOtpNotification } from "@/lib/notifications"
 import { normalizePhoneNumber } from "@/lib/sms"
+import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   phoneNumber: z.string().min(9),
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/auth/request-otp", error)
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to send OTP" }, { status: 500 })
   }
 }

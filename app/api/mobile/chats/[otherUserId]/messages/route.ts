@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { getMessages, sendMessage } from "@/lib/mobile-chats"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { logError } from "@/lib/log-error"
 
 const paramsSchema = z.object({
   otherUserId: z.string().min(1),
@@ -27,6 +28,7 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
       return NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/chats/[otherUserId]/messages", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to load messages" },
       { status: 500 },
@@ -52,6 +54,7 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
     return NextResponse.json({ success: true, data })
   } catch (error) {
     if (error instanceof z.ZodError) {
+      logError("/api/mobile/chats/[otherUserId]/messages", error)
       return NextResponse.json(
         { success: false, message: error.issues[0]?.message ?? "Invalid request" },
         { status: 400 },

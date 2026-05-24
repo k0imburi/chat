@@ -6,7 +6,6 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import mime from "mime-types"
 import { prisma } from "@/lib/prisma"
-import { env } from "@/lib/env"
 
 type R2Settings = {
   accountId: string
@@ -26,15 +25,14 @@ const CACHE_TTL = 5 * 60 * 1000
 async function loadR2Settings(): Promise<R2Settings> {
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 } })
 
-  const accountId = settings?.r2AccountId || env.R2_ACCOUNT_ID || ""
-  const accessKeyId = settings?.r2AccessKeyId || env.R2_ACCESS_KEY_ID || ""
-  const secretAccessKey = settings?.r2SecretAccessKey || env.R2_SECRET_ACCESS_KEY || ""
-  const bucketName = settings?.r2BucketName || env.R2_BUCKET_NAME || ""
-  const publicBaseUrl = settings?.r2PublicBaseUrl || env.R2_PUBLIC_BASE_URL || ""
-  const region = settings?.r2Region || env.R2_REGION || "auto"
+  const accountId = settings?.r2AccountId ?? ""
+  const accessKeyId = settings?.r2AccessKeyId ?? ""
+  const secretAccessKey = settings?.r2SecretAccessKey ?? ""
+  const bucketName = settings?.r2BucketName ?? ""
+  const publicBaseUrl = settings?.r2PublicBaseUrl ?? ""
+  const region = settings?.r2Region ?? "auto"
   const endpoint =
-    settings?.r2Endpoint ||
-    env.R2_ENDPOINT ||
+    settings?.r2Endpoint ??
     (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "")
 
   return {
@@ -57,7 +55,7 @@ export async function getR2Client() {
   const settings = await loadR2Settings()
 
   if (!settings.accountId || !settings.accessKeyId || !settings.secretAccessKey || !settings.bucketName) {
-    throw new Error("Cloudflare R2 is not configured. Update environment variables or admin settings.")
+    throw new Error("Cloudflare R2 is not configured. Set R2 credentials in Admin → Settings.")
   }
 
   cachedSettings = settings

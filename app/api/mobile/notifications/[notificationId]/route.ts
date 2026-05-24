@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { markNotificationRead } from "@/lib/mobile-notifications"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { logError } from "@/lib/log-error"
 
 const paramsSchema = z.object({
   notificationId: z.string().min(1),
@@ -22,6 +23,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ notif
       return NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/notifications/[notificationId]", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to update notification" },
       { status: 500 },

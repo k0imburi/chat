@@ -6,6 +6,7 @@ import {
   markLikeViewed,
   toggleVideoLike,
 } from "@/lib/mobile-social"
+import { logError } from "@/lib/log-error"
 
 const getSchema = z.object({
   userId: z.string().min(1),
@@ -53,6 +54,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/likes", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to toggle like" },
       { status: 500 },
@@ -70,6 +72,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/likes", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to update like" },
       { status: 500 },

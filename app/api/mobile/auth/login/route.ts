@@ -9,6 +9,7 @@ import {
   verifyMobileUserPassword,
 } from "@/lib/mobile-users"
 import { prisma } from "@/lib/prisma"
+import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   email: z.string().email(),
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/auth/login", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to sign in" },
       { status: 500 },

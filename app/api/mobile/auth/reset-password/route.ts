@@ -6,6 +6,7 @@ import { consumeVerificationCode } from "@/lib/notifications"
 import { findMobileUserByEmail, findMobileUserByPhone } from "@/lib/mobile-users"
 import { prisma } from "@/lib/prisma"
 import { normalizePhoneNumber } from "@/lib/sms"
+import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   identifier: z.string().min(3),
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/auth/reset-password", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to reset password" },
       { status: 500 },

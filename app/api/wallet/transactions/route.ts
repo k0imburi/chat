@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { createWalletTransaction, getWalletTransactions } from "@/lib/mobile-wallet"
+import { logError } from "@/lib/log-error"
 
 const getSchema = z.object({
   userId: z.string().min(1),
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/wallet/transactions", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to save transaction" },
       { status: 500 },

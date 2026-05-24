@@ -4,6 +4,7 @@ import { z } from "zod"
 import { signMobileSessionToken } from "@/lib/mobile-session"
 import { verifyMobileProviderToken } from "@/lib/mobile-provider-auth"
 import { mapMobileLoginProvider, serializeMobileUser, upsertMobileProviderUser } from "@/lib/mobile-users"
+import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   idToken: z.string().min(1),
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/mobile/auth/provider-login", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to sign in with provider" },
       { status: 500 },

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { SwipeDirection } from "@prisma/client"
 import { z } from "zod"
 import { getSwipedUsers, saveSwipe } from "@/lib/mobile-social"
+import { logError } from "@/lib/log-error"
 
 const getSchema = z.object({
   userId: z.string().min(1),
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/swipes", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to save swipe" },
       { status: 500 },

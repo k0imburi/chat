@@ -8,6 +8,7 @@ import {
   getFollowing,
   getSuggestedFollowers,
 } from "@/lib/mobile-social"
+import { logError } from "@/lib/log-error"
 
 const getSchema = z.object({
   action: z.enum(["followers", "following", "suggestions", "status", "counts"]),
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
     }
 
+    logError("/api/follows", error)
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed to update follow status" },
       { status: 500 },

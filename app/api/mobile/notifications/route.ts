@@ -6,6 +6,7 @@ import {
   listUserNotifications,
 } from "@/lib/mobile-notifications"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { logError } from "@/lib/log-error"
 
 const getSchema = z.object({
   page: z.coerce.number().int().positive().optional(),
@@ -70,6 +71,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, data: notification })
   } catch (error) {
     if (error instanceof z.ZodError) {
+      logError("/api/mobile/notifications", error)
       return NextResponse.json(
         { success: false, message: error.issues[0]?.message ?? "Invalid request" },
         { status: 400 },
