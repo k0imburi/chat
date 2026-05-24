@@ -7,6 +7,14 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import mime from "mime-types"
 import { prisma } from "@/lib/prisma"
 
+export type PresignedUpload = {
+  uploadUrl: string   // PUT this URL directly from the mobile client
+  objectKey: string
+  publicUrl: string | null
+  contentType: string
+  expiresIn: number   // seconds
+}
+
 type R2Settings = {
   accountId: string
   accessKeyId: string
@@ -147,4 +155,49 @@ export async function getSignedR2DownloadUrl(objectKey: string, expiresIn = 3600
     }),
     { expiresIn }
   )
+}
+
+/**
+ * Generate a presigned PUT URL so the mobile client can upload a file
+ * directly to R2 — bypassing the server entirely for the binary transfer.
+ *
+ * The client MUST send `Content-Type: {contentType}` when doing the PUT,
+ * because the signature covers that header.
+ *
+ * @param fileName     original file name (used for key generation + MIME lookup)
+ * @param prefix       R2 key prefix, e.g. "uploads/userId/videos"
+ * @param expiresIn    URL validity in seconds (default 15 min)
+ */
+export async function getPresignedUploadUrl(
+  fileName: string,
+  prefix = "uploads",
+  expiresIn = 900,
+): Promise<PresignedUpload> {
+  const { client, settings } = await getR2Client()
+
+  // Always derive content-type from the file extension so the mobile
+  // client doesn't need to figure it out (and can't send octet-stream).
+  const fromExt = mime.lookup(fileName)
+  const contentType =
+    fromExt && fromExt !== "application/octet-stream" ? fromExt : "application/octet-stream"
+
+  const objectKey = generateR2Key(fileName, prefix)
+
+  const uploadUrl = await getSignedUrl(
+    client,
+    new PutObjectCommand({
+      Bucket: settings.bucketName,
+      Key: objectKey,
+      ContentType: contentType,
+    }),
+    { expiresIn },
+  )
+
+  return {
+    uploadUrl,
+    objectKey,
+    publicUrl: getPublicUrl(objectKey, settings.publicBaseUrl),
+    contentType,
+    expiresIn,
+  }
 }
