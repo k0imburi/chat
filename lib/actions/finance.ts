@@ -6,9 +6,11 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { requireSessionUser } from "@/lib/auth"
 import { getWalletAccounts, getWithdrawalsAdmin, getTipRequestsAdmin } from "@/lib/finance-queries"
-import { createWalletTransaction } from "@/lib/mobile-wallet"
+import { createWalletTransaction, serializeWalletTransaction, serializeWithdrawal } from "@/lib/mobile-wallet"
 import { errorResult, getActionFormData, successResult, type ActionResult } from "@/lib/actions/action-result"
 import { createUserNotification } from "@/lib/mobile-notifications"
+import { serializeTipRequest } from "@/lib/mobile-tip-requests"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 const walletQuerySchema = z.object({
   query: z.string().optional(),
@@ -179,6 +181,8 @@ export async function updateWithdrawalStatusAdminAction(withdrawalId: string, ne
     throw new Error("Approved withdrawals can only be marked paid, rejected, or cancelled.")
   }
 
+  let reversalTransactionId: string | null = null
+
   await prisma.$transaction(async (tx) => {
     await tx.withdrawalRequest.update({
       where: { id: withdrawal.id },
@@ -186,7 +190,7 @@ export async function updateWithdrawalStatusAdminAction(withdrawalId: string, ne
     })
 
     if (parsed.status === "rejected" || parsed.status === "cancelled") {
-      const reversalTransactionId = buildAdminTransactionId("WREV", withdrawal.id)
+      reversalTransactionId = buildAdminTransactionId("WREV", withdrawal.id)
       const existingReversal = await tx.walletTransaction.findUnique({
         where: { transactionId: reversalTransactionId },
       })
@@ -212,20 +216,51 @@ export async function updateWithdrawalStatusAdminAction(withdrawalId: string, ne
         })
       }
     }
+  })
 
-    await tx.userNotification.create({
-      data: {
-        userId: withdrawal.userId,
-        title: "Withdrawal update",
-        message: `Your withdrawal request is now ${parsed.status}.`,
-        type: "withdrawal_update",
-        metadata: {
-          withdrawalId: withdrawal.id,
-          amount: Number(withdrawal.amount),
-          status: parsed.status,
-        },
-      },
+  const updatedWithdrawal = await prisma.withdrawalRequest.findUnique({
+    where: { id: withdrawal.id },
+  })
+
+  if (updatedWithdrawal) {
+    emitChatRealtimeToUser(withdrawal.userId, {
+      channel: "wallet",
+      type: "withdrawal_updated",
+      withdrawalId: updatedWithdrawal.id,
+      data: serializeWithdrawal(updatedWithdrawal),
     })
+  }
+
+  if (reversalTransactionId) {
+    const reversal = await prisma.walletTransaction.findUnique({
+      where: { transactionId: reversalTransactionId },
+    })
+
+    if (reversal) {
+      emitChatRealtimeToUser(withdrawal.userId, {
+        channel: "wallet",
+        type: "wallet_transaction_created",
+        data: serializeWalletTransaction(reversal),
+      })
+    }
+  }
+
+  emitChatRealtimeToUser(withdrawal.userId, {
+    channel: "wallet",
+    type: "wallet_refresh",
+    refreshedAt: new Date().toISOString(),
+  })
+
+  await createUserNotification({
+    userId: withdrawal.userId,
+    title: "Withdrawal update",
+    message: `Your withdrawal request is now ${parsed.status}.`,
+    type: "withdrawal_update",
+    metadata: {
+      withdrawalId: withdrawal.id,
+      amount: Number(withdrawal.amount),
+      status: parsed.status,
+    },
   })
 
   revalidatePath("/withdrawals")
@@ -255,25 +290,43 @@ export async function updateTipRequestStatusAdminAction(tipRequestId: string, ne
 
   const status = parsed.status.toUpperCase() as TipRequestStatus
 
-  await prisma.$transaction(async (tx) => {
+  const updatedTipRequest = await prisma.$transaction(async (tx) => {
     await tx.tipRequest.update({
       where: { id: tipRequest.id },
       data: { status },
     })
 
-    await tx.userNotification.create({
-      data: {
-        userId: tipRequest.senderId,
-        title: "Tip request update",
-        message: `${tipRequest.receiver.fullName.split(" ").at(0) || "A user"} tip request is now ${parsed.status}.`,
-        type: "tip_request_update",
-        metadata: {
-          tipRequestId: tipRequest.id,
-          status: parsed.status,
-          amount: Number(tipRequest.amount),
-        },
-      },
+    return tx.tipRequest.findUnique({
+      where: { id: tipRequest.id },
     })
+  })
+
+  if (updatedTipRequest) {
+    const serialized = serializeTipRequest(updatedTipRequest)
+    emitChatRealtimeToUser(tipRequest.senderId, {
+      channel: "tip_requests",
+      type: "tip_request_updated",
+      otherUserId: tipRequest.receiverId,
+      data: serialized,
+    })
+    emitChatRealtimeToUser(tipRequest.receiverId, {
+      channel: "tip_requests",
+      type: "tip_request_updated",
+      otherUserId: tipRequest.senderId,
+      data: serialized,
+    })
+  }
+
+  await createUserNotification({
+    userId: tipRequest.senderId,
+    title: "Tip request update",
+    message: `${tipRequest.receiver.fullName.split(" ").at(0) || "A user"} tip request is now ${parsed.status}.`,
+    type: "tip_request_update",
+    metadata: {
+      tipRequestId: tipRequest.id,
+      status: parsed.status,
+      amount: Number(tipRequest.amount),
+    },
   })
 
   revalidatePath("/tip-requests")

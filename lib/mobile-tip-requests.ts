@@ -1,9 +1,11 @@
 import "server-only"
 
 import { TipRequestStatus } from "@prisma/client"
+import { createUserNotification } from "@/lib/mobile-notifications"
 import { prisma } from "@/lib/prisma"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
-function serializeTipRequest(request: {
+export function serializeTipRequest(request: {
   id: string
   senderId: string
   receiverId: string
@@ -59,21 +61,33 @@ export async function sendTipRequest(input: {
     select: { fullName: true },
   })
 
-  await prisma.userNotification.create({
-    data: {
-      userId: input.receiverId,
-      senderId: input.senderId,
-      title: "Tip request",
-      message: `${sender?.fullName?.split(" ").at(0) || "Someone"} requested a tip`,
-      type: "tip_request",
-      metadata: {
-        tipRequestId: request.id,
-        amount: input.amount,
-      },
+  await createUserNotification({
+    userId: input.receiverId,
+    senderId: input.senderId,
+    title: "Tip request",
+    message: `${sender?.fullName?.split(" ").at(0) || "Someone"} requested a tip`,
+    type: "tip_request",
+    metadata: {
+      tipRequestId: request.id,
+      amount: input.amount,
     },
   })
 
-  return serializeTipRequest(request)
+  const serialized = serializeTipRequest(request)
+  emitChatRealtimeToUser(input.senderId, {
+    channel: "tip_requests",
+    type: "tip_request_created",
+    otherUserId: input.receiverId,
+    data: serialized,
+  })
+  emitChatRealtimeToUser(input.receiverId, {
+    channel: "tip_requests",
+    type: "tip_request_created",
+    otherUserId: input.senderId,
+    data: serialized,
+  })
+
+  return serialized
 }
 
 export async function getTipRequests(userId: string) {
@@ -102,20 +116,66 @@ export async function markTipAsSent(receiverId: string, tipRequestId: string) {
     },
   })
 
-  return serializeTipRequest(request)
+  const serialized = serializeTipRequest(request)
+  emitChatRealtimeToUser(request.senderId, {
+    channel: "tip_requests",
+    type: "tip_request_updated",
+    otherUserId: request.receiverId,
+    data: serialized,
+  })
+  emitChatRealtimeToUser(request.receiverId, {
+    channel: "tip_requests",
+    type: "tip_request_updated",
+    otherUserId: request.senderId,
+    data: serialized,
+  })
+  return serialized
 }
 
 export async function completePendingTipRequests(userId: string, senderId: string) {
-  const result = await prisma.tipRequest.updateMany({
+  const requests = await prisma.tipRequest.findMany({
     where: {
       receiverId: userId,
       senderId,
       status: TipRequestStatus.PENDING,
     },
+  })
+
+  if (!requests.length) {
+    return { updated: 0 }
+  }
+
+  const ids = requests.map((request) => request.id)
+  const result = await prisma.tipRequest.updateMany({
+    where: {
+      id: { in: ids },
+    },
     data: {
       status: TipRequestStatus.COMPLETED,
     },
   })
+
+  const updatedRequests = await prisma.tipRequest.findMany({
+    where: {
+      id: { in: ids },
+    },
+  })
+
+  for (const request of updatedRequests) {
+    const serialized = serializeTipRequest(request)
+    emitChatRealtimeToUser(request.senderId, {
+      channel: "tip_requests",
+      type: "tip_request_updated",
+      otherUserId: request.receiverId,
+      data: serialized,
+    })
+    emitChatRealtimeToUser(request.receiverId, {
+      channel: "tip_requests",
+      type: "tip_request_updated",
+      otherUserId: request.senderId,
+      data: serialized,
+    })
+  }
 
   return { updated: result.count }
 }

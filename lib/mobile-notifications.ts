@@ -3,6 +3,7 @@ import "server-only"
 import { Prisma, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -69,7 +70,15 @@ export async function createUserNotification(input: {
     },
   })
 
-  return serializeMobileNotification(notification as never)
+  const serialized = serializeMobileNotification(notification as never)
+
+  emitChatRealtimeToUser(input.userId, {
+    channel: "notifications",
+    type: "notification_created",
+    data: serialized,
+  })
+
+  return serialized
 }
 
 export async function listUserNotifications(input: {
@@ -119,9 +128,21 @@ export async function markNotificationRead(userId: string, notificationId: strin
     throw new Error("Notification not found")
   }
 
-  await prisma.userNotification.update({
+  const updated = await prisma.userNotification.update({
     where: { id: notificationId },
     data: { isRead: true },
+    include: {
+      sender: {
+        include: { media: true },
+      },
+    },
+  })
+
+  emitChatRealtimeToUser(userId, {
+    channel: "notifications",
+    type: "notification_updated",
+    notificationId,
+    data: serializeMobileNotification(updated as never),
   })
 
   return { success: true }
@@ -130,6 +151,12 @@ export async function markNotificationRead(userId: string, notificationId: strin
 export async function deleteAllNotifications(userId: string) {
   const result = await prisma.userNotification.deleteMany({
     where: { userId },
+  })
+
+  emitChatRealtimeToUser(userId, {
+    channel: "notifications",
+    type: "notifications_cleared",
+    clearedAt: new Date().toISOString(),
   })
 
   return { success: true, deleted: result.count }
@@ -165,6 +192,15 @@ export async function broadcastCampaignNotifications(input: {
       } as Prisma.InputJsonValue,
     })),
   })
+
+  const refreshedAt = new Date().toISOString()
+  for (const user of users) {
+    emitChatRealtimeToUser(user.id, {
+      channel: "notifications",
+      type: "notifications_refresh",
+      refreshedAt,
+    })
+  }
 
   return { created: created.count }
 }

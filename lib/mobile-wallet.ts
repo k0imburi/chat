@@ -3,6 +3,7 @@ import "server-only"
 import { Prisma } from "@prisma/client"
 import { sendPaymentNotification } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 type CreateWalletTransactionInput = {
   userId: string
@@ -121,7 +122,18 @@ export async function createWalletTransaction(input: CreateWalletTransactionInpu
     },
   })
 
-  return serializeWalletTransaction(transaction)
+  const serialized = serializeWalletTransaction(transaction)
+  emitChatRealtimeToUser(input.userId, {
+    channel: "wallet",
+    type: "wallet_transaction_created",
+    data: serialized,
+  })
+  emitChatRealtimeToUser(input.userId, {
+    channel: "wallet",
+    type: "wallet_refresh",
+    refreshedAt: new Date().toISOString(),
+  })
+  return serialized
 }
 
 export async function getUserWithdrawals(userId: string) {
@@ -145,7 +157,18 @@ export async function createWithdrawalRequest(input: CreateWithdrawalInput) {
     },
   })
 
-  return serializeWithdrawal(withdrawal)
+  const serialized = serializeWithdrawal(withdrawal)
+  emitChatRealtimeToUser(input.userId, {
+    channel: "wallet",
+    type: "withdrawal_created",
+    data: serialized,
+  })
+  emitChatRealtimeToUser(input.userId, {
+    channel: "wallet",
+    type: "wallet_refresh",
+    refreshedAt: new Date().toISOString(),
+  })
+  return serialized
 }
 
 export async function settleSuccessfulStkWalletTopUp(input: {
@@ -215,5 +238,17 @@ export async function settleSuccessfulStkWalletTopUp(input: {
     })
   }
 
-  return { settled: true, transaction: serializeWalletTransaction(transaction) }
+  const serialized = serializeWalletTransaction(transaction)
+  emitChatRealtimeToUser(userId, {
+    channel: "wallet",
+    type: "wallet_transaction_created",
+    data: serialized,
+  })
+  emitChatRealtimeToUser(userId, {
+    channel: "wallet",
+    type: "wallet_refresh",
+    refreshedAt: new Date().toISOString(),
+  })
+
+  return { settled: true, transaction: serialized }
 }

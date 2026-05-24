@@ -90,6 +90,22 @@ function emitToUser(userId, event) {
   void publishToRedis([userId], event);
 }
 
+function sendConnectionReadyEvents(ws, userId) {
+  const serverTime = new Date().toISOString();
+  const channels = ["chat", "notifications", "likes", "matches", "wallet", "tip_requests", "profile"];
+
+  for (const channel of channels) {
+    ws.send(
+      serialize({
+        channel,
+        type: "connection_ready",
+        userId,
+        serverTime,
+      }),
+    );
+  }
+}
+
 globalThis.__chatRealtimeHub = {
   emitToUser,
   emitToUsers(userIds, event) {
@@ -167,14 +183,7 @@ wss.on("connection", (ws, request, session) => {
   ws.userId = session.userId;
   registerSocket(session.userId, ws);
 
-  ws.send(
-    serialize({
-      channel: "chat",
-      type: "connection_ready",
-      userId: session.userId,
-      serverTime: new Date().toISOString(),
-    }),
-  );
+  sendConnectionReadyEvents(ws, session.userId);
 
   ws.on("pong", () => {
     ws.isAlive = true;
@@ -184,14 +193,7 @@ wss.on("connection", (ws, request, session) => {
     try {
       const payload = JSON.parse(raw.toString());
       if (payload?.type === "ping") {
-        ws.send(
-          serialize({
-            channel: "chat",
-            type: "connection_ready",
-            userId: session.userId,
-            serverTime: new Date().toISOString(),
-          }),
-        );
+        sendConnectionReadyEvents(ws, session.userId);
       }
     } catch {
       // Ignore malformed client payloads to keep the realtime channel resilient.

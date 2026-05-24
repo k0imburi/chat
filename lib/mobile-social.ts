@@ -4,6 +4,7 @@ import { Prisma, SwipeDirection, UserRole, UserStatus } from "@prisma/client"
 import { createUserNotification } from "@/lib/mobile-notifications"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
+import { emitChatRealtimeToUser, emitChatRealtimeToUsers } from "@/lib/realtime"
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -67,6 +68,7 @@ export async function toggleVideoLike(input: {
   videoId: string
 }) {
   assertNotSameUser(input.currentUserId, input.ownerId, "like")
+  const refreshedAt = new Date().toISOString()
 
   await Promise.all([
     getMobileUserOrThrow(input.currentUserId),
@@ -198,8 +200,20 @@ export async function toggleVideoLike(input: {
           type: "match",
         }),
       ])
+
+      emitChatRealtimeToUsers([input.currentUserId, input.ownerId], {
+        channel: "matches",
+        type: "matches_refresh",
+        refreshedAt,
+      })
     }
   }
+
+  emitChatRealtimeToUser(input.ownerId, {
+    channel: "likes",
+    type: "likes_refresh",
+    refreshedAt,
+  })
 
   return result
 }
@@ -250,6 +264,12 @@ export async function markLikeViewed(receiverId: string, senderId: string) {
     data: {
       isNew: false,
     },
+  })
+
+  emitChatRealtimeToUser(receiverId, {
+    channel: "likes",
+    type: "likes_refresh",
+    refreshedAt: new Date().toISOString(),
   })
 
   return { success: true }
@@ -312,6 +332,12 @@ export async function markMatchViewed(userId: string, otherUserId: string) {
     data: normalized.currentSide === "A" ? { isNewForA: false } : { isNewForB: false },
   })
 
+  emitChatRealtimeToUser(userId, {
+    channel: "matches",
+    type: "matches_refresh",
+    refreshedAt: new Date().toISOString(),
+  })
+
   return { success: true }
 }
 
@@ -330,6 +356,12 @@ export async function deleteMatch(userId: string, otherUserId: string) {
 
   await prisma.userMatch.delete({
     where: { id: match.id },
+  })
+
+  emitChatRealtimeToUsers([userId, otherUserId], {
+    channel: "matches",
+    type: "matches_refresh",
+    refreshedAt: new Date().toISOString(),
   })
 
   return { success: true }
@@ -438,6 +470,18 @@ export async function blockUser(currentUserId: string, otherUserId: string) {
         userBId: normalized.userBId,
       },
     })
+  })
+
+  const refreshedAt = new Date().toISOString()
+  emitChatRealtimeToUsers([currentUserId, otherUserId], {
+    channel: "likes",
+    type: "likes_refresh",
+    refreshedAt,
+  })
+  emitChatRealtimeToUsers([currentUserId, otherUserId], {
+    channel: "matches",
+    type: "matches_refresh",
+    refreshedAt,
   })
 
   return { success: true }

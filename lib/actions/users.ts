@@ -12,6 +12,8 @@ import { prisma } from "@/lib/prisma"
 import { requireSessionUser } from "@/lib/auth"
 import { deleteFromR2 } from "@/lib/r2"
 import { getUsers } from "@/lib/queries"
+import { findMobileUserById, serializeMobileUser } from "@/lib/mobile-users"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 export async function queryUsersAction(params: {
   query?: string
@@ -29,6 +31,14 @@ export async function setUserVerifiedAction(userId: string, verified: boolean) {
     where: { id: userId },
     data: { verified },
   })
+  const user = await findMobileUserById(userId)
+  if (user) {
+    emitChatRealtimeToUser(userId, {
+      channel: "profile",
+      type: "profile_updated",
+      data: serializeMobileUser(user),
+    })
+  }
 }
 
 export async function updateUserStatusByIdAction(userId: string, status: "ACTIVE" | "BLOCKED") {
@@ -37,6 +47,14 @@ export async function updateUserStatusByIdAction(userId: string, status: "ACTIVE
     where: { id: userId },
     data: { status },
   })
+  const user = await findMobileUserById(userId)
+  if (user) {
+    emitChatRealtimeToUser(userId, {
+      channel: "profile",
+      type: "profile_updated",
+      data: serializeMobileUser(user),
+    })
+  }
   revalidatePath("/dashboard")
 }
 
@@ -79,6 +97,14 @@ export async function updateUserStatusAction(
       where: { id: parsed.userId },
       data: { status: parsed.status },
     })
+    const user = await findMobileUserById(parsed.userId)
+    if (user) {
+      emitChatRealtimeToUser(parsed.userId, {
+        channel: "profile",
+        type: "profile_updated",
+        data: serializeMobileUser(user),
+      })
+    }
 
     revalidatePath("/users")
     revalidatePath(`/users/${parsed.userId}`)
@@ -106,6 +132,14 @@ export async function toggleUserVerificationAction(
       where: { id: parsed.userId },
       data: { verified: parsed.verified },
     })
+    const user = await findMobileUserById(parsed.userId)
+    if (user) {
+      emitChatRealtimeToUser(parsed.userId, {
+        channel: "profile",
+        type: "profile_updated",
+        data: serializeMobileUser(user),
+      })
+    }
 
     revalidatePath("/users")
     revalidatePath(`/users/${parsed.userId}`)

@@ -4,6 +4,7 @@ import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { findMobileUserById, serializeMobileUser, updateMobileUserProfile } from "@/lib/mobile-users"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 const schema = z.object({
   fullName: z.string().min(2).optional(),
@@ -64,10 +65,17 @@ export async function PATCH(request: Request) {
       ...parsed,
       fullName: parsed.fullName ?? parsed.fullname,
     })
+    const serialized = serializeMobileUser(user)
+
+    emitChatRealtimeToUser(session.userId, {
+      channel: "profile",
+      type: "profile_updated",
+      data: serialized,
+    })
 
     return NextResponse.json({
       success: true,
-      user: serializeMobileUser(user),
+      user: serialized,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
