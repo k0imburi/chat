@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3006",
+    "dev": "node server.mjs --dev",
     "build": "next build",
-    "start": "next start --port 3006",
+    "start": "node server.mjs",
     "lint": "eslint . --max-warnings=0",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -53,6 +53,7 @@
     "date-fns": "^4.1.0",
     "embla-carousel-react": "8.6.0",
     "input-otp": "1.4.2",
+    "ioredis": "^5.10.1",
     "jose": "^5.9.6",
     "lucide-react": "^0.511.0",
     "mime-types": "^2.1.35",
@@ -68,6 +69,7 @@
     "sonner": "^2.0.5",
     "tailwind-merge": "^3.3.0",
     "vaul": "^1.1.2",
+    "ws": "^8.21.0",
     "zod": "^3.25.28"
   },
   "devDependencies": {

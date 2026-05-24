@@ -3,6 +3,7 @@ import "server-only"
 import { ChatMessageType, Prisma, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -23,6 +24,21 @@ type ChatParticipantWithThread = Prisma.ChatParticipantGetPayload<{
 
 function parseChatMessageType(type: ChatMessageType) {
   return type.toLowerCase()
+}
+
+function serializeChatSummary(participant: ChatParticipantWithThread, receiver: UserWithMedia) {
+  const lastMessage = participant.thread.messages[0]
+  if (!lastMessage) return null
+
+  return {
+    chatUserId: receiver.id,
+    senderId: lastMessage.senderId,
+    msgType: parseChatMessageType(lastMessage.type),
+    lastMsg: lastMessage.text || "",
+    sentAt: lastMessage.sentAt.toISOString(),
+    unread: participant.unreadCount,
+    receiver: serializeMobileUser(receiver),
+  }
 }
 
 function serializeChatMessage(message: {
@@ -95,6 +111,42 @@ async function getParticipant(userId: string, otherUserId: string) {
       otherUserId,
     },
   })
+}
+
+async function getChatSummaryForUser(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  otherUserId: string,
+) {
+  const [participant, receiver] = await Promise.all([
+    tx.chatParticipant.findFirst({
+      where: {
+        userId,
+        otherUserId,
+      },
+      include: {
+        thread: {
+          include: {
+            messages: {
+              orderBy: { sentAt: "desc" },
+              take: 1,
+            },
+          },
+        },
+      },
+    }),
+    tx.user.findFirst({
+      where: {
+        id: otherUserId,
+        role: UserRole.USER,
+      },
+      include: { media: true },
+    }),
+  ])
+
+  if (!participant || !receiver) return null
+
+  return serializeChatSummary(participant as ChatParticipantWithThread, receiver as UserWithMedia)
 }
 
 async function getOrCreateThread(userId: string, otherUserId: string, tx: Prisma.TransactionClient) {
@@ -175,19 +227,10 @@ export async function getChats(userId: string) {
   return visibleParticipants
     .map((participant) => {
       const receiver = participant.otherUserId ? usersById.get(participant.otherUserId) : undefined
-      const lastMessage = participant.thread.messages[0]
 
-      if (!receiver || !lastMessage) return null
+      if (!receiver) return null
 
-      return {
-        chatUserId: receiver.id,
-        senderId: lastMessage.senderId,
-        msgType: parseChatMessageType(lastMessage.type),
-        lastMsg: lastMessage.text || "",
-        sentAt: lastMessage.sentAt.toISOString(),
-        unread: participant.unreadCount,
-        receiver: serializeMobileUser(receiver),
-      }
+      return serializeChatSummary(participant, receiver)
     })
     .filter(Boolean)
 }
@@ -198,7 +241,7 @@ export async function getMessages(userId: string, otherUserId: string) {
   const participant = await getParticipant(userId, otherUserId)
   if (!participant) return []
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await tx.chatParticipant.update({
       where: { id: participant.id },
       data: {
@@ -225,8 +268,32 @@ export async function getMessages(userId: string, otherUserId: string) {
       orderBy: { sentAt: "desc" },
     })
 
-    return messages.map(serializeChatMessage)
+    const chatSummary = await getChatSummaryForUser(tx, userId, otherUserId)
+
+    return {
+      messages: messages.map(serializeChatMessage),
+      chatSummary,
+      readAt: new Date().toISOString(),
+    }
   })
+
+  if (result.chatSummary) {
+    emitChatRealtimeToUser(userId, {
+      channel: "chat",
+      type: "chat_updated",
+      otherUserId,
+      data: result.chatSummary,
+    })
+  }
+
+  emitChatRealtimeToUser(otherUserId, {
+    channel: "chat",
+    type: "messages_read",
+    otherUserId: userId,
+    readAt: result.readAt,
+  })
+
+  return result.messages
 }
 
 export async function sendMessage(input: {
@@ -244,7 +311,7 @@ export async function sendMessage(input: {
 
   const { me, other } = await ensureUsersCanChat(input.senderId, input.receiverId)
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
     const messageType = imageUrl ? ChatMessageType.IMAGE : ChatMessageType.TEXT
 
@@ -302,11 +369,57 @@ export async function sendMessage(input: {
       },
     })
 
+    const [senderSummary, receiverSummary] = await Promise.all([
+      getChatSummaryForUser(tx, input.senderId, input.receiverId),
+      getChatSummaryForUser(tx, input.receiverId, input.senderId),
+    ])
+
+    const serializedMessage = serializeChatMessage(message)
+
     return {
-      ...serializeChatMessage(message),
-      receiver: serializeMobileUser(other),
+      response: {
+        ...serializedMessage,
+        receiver: serializeMobileUser(other),
+      },
+      serializedMessage,
+      senderSummary,
+      receiverSummary,
     }
   })
+
+  emitChatRealtimeToUser(input.senderId, {
+    channel: "chat",
+    type: "message_created",
+    otherUserId: input.receiverId,
+    data: result.serializedMessage,
+  })
+
+  emitChatRealtimeToUser(input.receiverId, {
+    channel: "chat",
+    type: "message_created",
+    otherUserId: input.senderId,
+    data: result.serializedMessage,
+  })
+
+  if (result.senderSummary) {
+    emitChatRealtimeToUser(input.senderId, {
+      channel: "chat",
+      type: "chat_updated",
+      otherUserId: input.receiverId,
+      data: result.senderSummary,
+    })
+  }
+
+  if (result.receiverSummary) {
+    emitChatRealtimeToUser(input.receiverId, {
+      channel: "chat",
+      type: "chat_updated",
+      otherUserId: input.senderId,
+      data: result.receiverSummary,
+    })
+  }
+
+  return result.response
 }
 
 export async function markChatViewed(userId: string, otherUserId: string) {
@@ -315,7 +428,7 @@ export async function markChatViewed(userId: string, otherUserId: string) {
     return { success: true }
   }
 
-  await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await tx.chatParticipant.update({
       where: { id: participant.id },
       data: {
@@ -334,6 +447,28 @@ export async function markChatViewed(userId: string, otherUserId: string) {
         isRead: true,
       },
     })
+
+    const chatSummary = await getChatSummaryForUser(tx, userId, otherUserId)
+    return {
+      chatSummary,
+      readAt: new Date().toISOString(),
+    }
+  })
+
+  if (result.chatSummary) {
+    emitChatRealtimeToUser(userId, {
+      channel: "chat",
+      type: "chat_updated",
+      otherUserId,
+      data: result.chatSummary,
+    })
+  }
+
+  emitChatRealtimeToUser(otherUserId, {
+    channel: "chat",
+    type: "messages_read",
+    otherUserId: userId,
+    readAt: result.readAt,
   })
 
   return { success: true }
@@ -351,6 +486,13 @@ export async function clearChat(userId: string, otherUserId: string) {
       archived: true,
       unreadCount: 0,
     },
+  })
+
+  emitChatRealtimeToUser(userId, {
+    channel: "chat",
+    type: "chat_cleared",
+    otherUserId,
+    clearedAt: new Date().toISOString(),
   })
 
   return { success: true }
