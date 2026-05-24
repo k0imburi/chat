@@ -5,13 +5,23 @@ import { SESSION_COOKIE } from "@/lib/constants"
 
 const publicRoutes = ["/login", "/api/auth/login", "/api/auth/logout"]
 
+// These path prefixes bypass the admin session check entirely.
+// Mobile API routes authenticate via their own Bearer token; webhooks
+// and app-info are unauthenticated public endpoints.
+const bypassPrefixes = [
+  "/api/mobile/",
+  "/api/app-info",
+  "/api/lnmo/",
+]
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
-    pathname.startsWith("/public")
+    pathname.startsWith("/public") ||
+    bypassPrefixes.some((prefix) => pathname.startsWith(prefix))
   ) {
     return NextResponse.next()
   }
