@@ -93,62 +93,62 @@ enum VerificationPurpose {
 }
 
 model User {
-  id             String        @id @default(cuid())
-  externalId     String?       @unique
-  fullName       String
-  username       String?
-  gender         String
-  birthday       DateTime?
-  email          String?       @unique
-  passwordHash   String?
-  phoneNumber    String?       @unique
-  role           UserRole      @default(USER)
-  avatarUrl      String?
-  isActive       Boolean       @default(true)
-  lastLoginAt    DateTime?
-  bio            String?       @db.Text
-  deviceToken    String?
-  deviceSystem   String?
-  swipeCount     Int           @default(0)
-  verified       Boolean       @default(false)
-  lastSwipeDate  DateTime?
-  status         UserStatus    @default(ACTIVE)
-  loginProvider  LoginProvider @default(EMAIL)
-  country        String?
-  city           String?
-  latitude       Decimal?      @db.Decimal(10, 7)
-  longitude      Decimal?      @db.Decimal(10, 7)
-  interests      Json?
-  links          Json?
-  filter         Json?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  lastActiveAt   DateTime?
-  media          UserMedia[]
-  reportsMade    Report[]      @relation("ReportReporter")
-  reportsAgainst Report[]      @relation("ReportTarget")
+  id                    String                 @id @default(cuid())
+  externalId            String?                @unique
+  fullName              String
+  username              String?
+  gender                String
+  birthday              DateTime?
+  email                 String?                @unique
+  passwordHash          String?
+  phoneNumber           String?                @unique
+  role                  UserRole               @default(USER)
+  avatarUrl             String?
+  isActive              Boolean                @default(true)
+  lastLoginAt           DateTime?
+  bio                   String?                @db.Text
+  deviceToken           String?
+  deviceSystem          String?
+  swipeCount            Int                    @default(0)
+  verified              Boolean                @default(false)
+  lastSwipeDate         DateTime?
+  status                UserStatus             @default(ACTIVE)
+  loginProvider         LoginProvider          @default(EMAIL)
+  country               String?
+  city                  String?
+  latitude              Decimal?               @db.Decimal(10, 7)
+  longitude             Decimal?               @db.Decimal(10, 7)
+  interests             Json?
+  links                 Json?
+  filter                Json?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  lastActiveAt          DateTime?
+  media                 UserMedia[]
+  reportsMade           Report[]               @relation("ReportReporter")
+  reportsAgainst        Report[]               @relation("ReportTarget")
   notificationCampaigns NotificationCampaign[] @relation("NotificationCreatedBy")
-  notifications  UserNotification[] @relation("UserNotificationRecipient")
-  sentNotifications UserNotification[] @relation("UserNotificationSender")
-  walletEntries  WalletTransaction[]
-  withdrawals    WithdrawalRequest[]
-  sentFollows    Follow[]      @relation("FollowSender")
-  receivedFollows Follow[]     @relation("FollowReceiver")
-  sentLikes      VideoLike[]   @relation("LikeSender")
-  receivedLikes  VideoLike[]   @relation("LikeReceiver")
-  sentSwipes     UserSwipe[]   @relation("SwipeSender")
-  receivedSwipes UserSwipe[]   @relation("SwipeReceiver")
-  blockedUsers   UserBlock[]   @relation("BlockSender")
-  blockedByUsers UserBlock[]   @relation("BlockReceiver")
-  sentMatches    UserMatch[]   @relation("MatchSender")
-  receivedMatches UserMatch[]  @relation("MatchReceiver")
-  chatParticipants ChatParticipant[]
-  sentMessages   ChatMessage[] @relation("ChatMessageSender")
-  sentTipRequests TipRequest[] @relation("TipRequestSender")
-  receivedTipRequests TipRequest[] @relation("TipRequestReceiver")
-  mpesaRequests  MpesaPaymentRequest[]
-  verificationCodes VerificationCode[]
-  providerAccounts ProviderAccount[]
+  notifications         UserNotification[]     @relation("UserNotificationRecipient")
+  sentNotifications     UserNotification[]     @relation("UserNotificationSender")
+  walletEntries         WalletTransaction[]
+  withdrawals           WithdrawalRequest[]
+  sentFollows           Follow[]               @relation("FollowSender")
+  receivedFollows       Follow[]               @relation("FollowReceiver")
+  sentLikes             VideoLike[]            @relation("LikeSender")
+  receivedLikes         VideoLike[]            @relation("LikeReceiver")
+  sentSwipes            UserSwipe[]            @relation("SwipeSender")
+  receivedSwipes        UserSwipe[]            @relation("SwipeReceiver")
+  blockedUsers          UserBlock[]            @relation("BlockSender")
+  blockedByUsers        UserBlock[]            @relation("BlockReceiver")
+  sentMatches           UserMatch[]            @relation("MatchSender")
+  receivedMatches       UserMatch[]            @relation("MatchReceiver")
+  chatParticipants      ChatParticipant[]
+  sentMessages          ChatMessage[]          @relation("ChatMessageSender")
+  sentTipRequests       TipRequest[]           @relation("TipRequestSender")
+  receivedTipRequests   TipRequest[]           @relation("TipRequestReceiver")
+  mpesaRequests         MpesaPaymentRequest[]
+  verificationCodes     VerificationCode[]
+  providerAccounts      ProviderAccount[]
 
   @@map("users")
 }
@@ -186,53 +186,53 @@ model VerificationCode {
 }
 
 model UserMedia {
-  id          String     @id @default(cuid())
-  userId      String
-  kind        MediaKind
-  title       String?
-  objectKey   String?
-  url         String
+  id           String      @id @default(cuid())
+  userId       String
+  kind         MediaKind
+  title        String?
+  objectKey    String?
+  url          String
   thumbnailUrl String?
-  mimeType    String?
-  sizeBytes   Int?
-  views       Int        @default(0)
-  likes       Int        @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  likeRecords VideoLike[]
+  mimeType     String?
+  sizeBytes    Int?
+  views        Int         @default(0)
+  likes        Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likeRecords  VideoLike[]
 
   @@index([userId, kind])
 }
 
 model Report {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   reportedUserId String
   reportedById   String?
-  message        String   @db.Text
-  createdAt      DateTime @default(now())
+  message        String    @db.Text
+  createdAt      DateTime  @default(now())
   resolvedAt     DateTime?
-  target         User     @relation("ReportTarget", fields: [reportedUserId], references: [id], onDelete: Cascade)
-  reporter       User?    @relation("ReportReporter", fields: [reportedById], references: [id], onDelete: SetNull)
+  target         User      @relation("ReportTarget", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  reporter       User?     @relation("ReportReporter", fields: [reportedById], references: [id], onDelete: SetNull)
 
   @@index([reportedUserId])
   @@index([reportedById])
 }
 
 model PaymentPlan {
-  id               String       @id @default(cuid())
-  name             String
-  code             String       @unique
-  description      String?      @db.Text
-  amount           Decimal      @db.Decimal(10, 2)
-  currency         String       @default("USD")
-  interval         PlanInterval @default(MONTHLY)
-  intervalCount    Int          @default(1)
-  isActive         Boolean      @default(true)
-  features         Json?
-  sortOrder        Int          @default(0)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id            String       @id @default(cuid())
+  name          String
+  code          String       @unique
+  description   String?      @db.Text
+  amount        Decimal      @db.Decimal(10, 2)
+  currency      String       @default("USD")
+  interval      PlanInterval @default(MONTHLY)
+  intervalCount Int          @default(1)
+  isActive      Boolean      @default(true)
+  features      Json?
+  sortOrder     Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 }
 
 model NotificationCampaign {
@@ -250,18 +250,18 @@ model NotificationCampaign {
 }
 
 model UserNotification {
-  id          String   @id @default(cuid())
-  userId      String
-  senderId    String?
-  title       String?
-  message     String   @db.Text
-  type        String   @default("alert")
-  isRead      Boolean  @default(false)
-  metadata    Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation("UserNotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
-  sender      User?    @relation("UserNotificationSender", fields: [senderId], references: [id], onDelete: SetNull)
+  id        String   @id @default(cuid())
+  userId    String
+  senderId  String?
+  title     String?
+  message   String   @db.Text
+  type      String   @default("alert")
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation("UserNotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  sender    User?    @relation("UserNotificationSender", fields: [senderId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([senderId])
@@ -285,80 +285,80 @@ model WalletTransaction {
 }
 
 model Follow {
-  id          String   @id @default(cuid())
-  followerId  String
-  followedId  String
-  createdAt   DateTime @default(now())
-  follower    User     @relation("FollowSender", fields: [followerId], references: [id], onDelete: Cascade)
-  followed    User     @relation("FollowReceiver", fields: [followedId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  followerId String
+  followedId String
+  createdAt  DateTime @default(now())
+  follower   User     @relation("FollowSender", fields: [followerId], references: [id], onDelete: Cascade)
+  followed   User     @relation("FollowReceiver", fields: [followedId], references: [id], onDelete: Cascade)
 
   @@unique([followerId, followedId])
   @@index([followedId])
 }
 
 model VideoLike {
-  id          String   @id @default(cuid())
-  senderId    String
-  receiverId  String
-  mediaId     String?
-  isNew       Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  sender      User     @relation("LikeSender", fields: [senderId], references: [id], onDelete: Cascade)
-  receiver    User     @relation("LikeReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
-  media       UserMedia? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  id         String     @id @default(cuid())
+  senderId   String
+  receiverId String
+  mediaId    String?
+  isNew      Boolean    @default(true)
+  createdAt  DateTime   @default(now())
+  sender     User       @relation("LikeSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User       @relation("LikeReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  media      UserMedia? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
 
   @@unique([senderId, mediaId])
   @@index([receiverId, createdAt])
 }
 
 model UserSwipe {
-  id          String         @id @default(cuid())
-  senderId    String
-  receiverId  String
-  direction   SwipeDirection @default(RIGHT)
-  createdAt   DateTime       @default(now())
-  sender      User           @relation("SwipeSender", fields: [senderId], references: [id], onDelete: Cascade)
-  receiver    User           @relation("SwipeReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  id         String         @id @default(cuid())
+  senderId   String
+  receiverId String
+  direction  SwipeDirection @default(RIGHT)
+  createdAt  DateTime       @default(now())
+  sender     User           @relation("SwipeSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User           @relation("SwipeReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
   @@unique([senderId, receiverId])
   @@index([receiverId])
 }
 
 model UserBlock {
-  id          String   @id @default(cuid())
-  blockerId   String
-  blockedId   String
-  createdAt   DateTime @default(now())
-  blocker     User     @relation("BlockSender", fields: [blockerId], references: [id], onDelete: Cascade)
-  blocked     User     @relation("BlockReceiver", fields: [blockedId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("BlockSender", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("BlockReceiver", fields: [blockedId], references: [id], onDelete: Cascade)
 
   @@unique([blockerId, blockedId])
   @@index([blockedId])
 }
 
 model UserMatch {
-  id          String   @id @default(cuid())
-  userAId     String
-  userBId     String
-  isNewForA   Boolean  @default(true)
-  isNewForB   Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  userA       User     @relation("MatchSender", fields: [userAId], references: [id], onDelete: Cascade)
-  userB       User     @relation("MatchReceiver", fields: [userBId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  userAId   String
+  userBId   String
+  isNewForA Boolean  @default(true)
+  isNewForB Boolean  @default(true)
+  createdAt DateTime @default(now())
+  userA     User     @relation("MatchSender", fields: [userAId], references: [id], onDelete: Cascade)
+  userB     User     @relation("MatchReceiver", fields: [userBId], references: [id], onDelete: Cascade)
 
   @@unique([userAId, userBId])
   @@index([userBId, createdAt])
 }
 
 model ChatThread {
-  id               String            @id @default(cuid())
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  lastMessageText  String?           @db.Text
-  lastMessageType  ChatMessageType?
-  lastMessageAt    DateTime?
-  participants     ChatParticipant[]
-  messages         ChatMessage[]
+  id              String            @id @default(cuid())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  lastMessageText String?           @db.Text
+  lastMessageType ChatMessageType?
+  lastMessageAt   DateTime?
+  participants    ChatParticipant[]
+  messages        ChatMessage[]
 }
 
 model ChatParticipant {
@@ -377,35 +377,35 @@ model ChatParticipant {
 }
 
 model ChatMessage {
-  id         String          @id @default(cuid())
-  threadId   String
-  senderId   String
-  type       ChatMessageType @default(TEXT)
-  text       String?         @db.Text
-  imageUrl   String?
-  replyToId  String?
-  replyToText String?        @db.Text
-  replyToSenderId String?
+  id                String          @id @default(cuid())
+  threadId          String
+  senderId          String
+  type              ChatMessageType @default(TEXT)
+  text              String?         @db.Text
+  imageUrl          String?
+  replyToId         String?
+  replyToText       String?         @db.Text
+  replyToSenderId   String?
   replyToSenderName String?
-  reactions  Json?
-  isRead     Boolean         @default(false)
-  sentAt     DateTime        @default(now())
-  thread     ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  sender     User            @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  reactions         Json?
+  isRead            Boolean         @default(false)
+  sentAt            DateTime        @default(now())
+  thread            ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender            User            @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([threadId, sentAt])
 }
 
 model TipRequest {
-  id          String           @id @default(cuid())
-  senderId    String
-  receiverId  String
-  amount      Decimal          @db.Decimal(10, 2)
-  status      TipRequestStatus @default(PENDING)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  sender      User             @relation("TipRequestSender", fields: [senderId], references: [id], onDelete: Cascade)
-  receiver    User             @relation("TipRequestReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  id         String           @id @default(cuid())
+  senderId   String
+  receiverId String
+  amount     Decimal          @db.Decimal(10, 2)
+  status     TipRequestStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  sender     User             @relation("TipRequestSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User             @relation("TipRequestReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
   @@index([receiverId, status, createdAt])
   @@index([senderId, status])
@@ -442,72 +442,72 @@ model WithdrawalRequest {
 }
 
 model Asset {
-  id            String   @id @default(cuid())
-  name          String
-  objectKey     String   @unique
-  url           String?
-  contentType   String?
-  sizeBytes     Int?
-  visibility    String   @default("public")
-  bucket        String?
-  metadata      Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  objectKey   String   @unique
+  url         String?
+  contentType String?
+  sizeBytes   Int?
+  visibility  String   @default("public")
+  bucket      String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model AppSettings {
-  id                       Int      @id @default(1)
-  appName                  String   @default("ChatAndTip")
-  maxVideosUpload          Int      @default(10)
-  contactEmail             String?
-  contactPhone             String?
-  address                  String?
-  currency                 String   @default("USD")
-  minimumTip               Decimal  @default(0) @db.Decimal(10, 2)
-  transactionFeePercent    Decimal  @default(0) @db.Decimal(5, 2)
-  usdToKesRate             Decimal  @default(0) @db.Decimal(10, 2)
-  freeMemberSwipeLimit     Int      @default(20)
-  showDiscoverAdAfterSwipes Int     @default(5)
-  allowVideoModeration     Boolean  @default(false)
-  showAds                  Boolean  @default(false)
-  allowFreeAccess          Boolean  @default(false)
-  allowVideoCall           Boolean  @default(true)
-  allowVoiceCall           Boolean  @default(true)
-  allowSendImages          Boolean  @default(true)
-  adminEmail               String?
-  jwtExpiry                String   @default("7d")
-  mpesaConsumerKey         String?
-  mpesaConsumerSecret      String?
-  mpesaPasskey             String?
-  mpesaShortcode           String?
-  mpesaStoreNumber         String?
-  mpesaShortcodeType       String   @default("CustomerPayBillOnline")
-  mpesaEnvironment         String   @default("sandbox")
-  paypalClientId           String?
-  paypalClientSecret       String?
-  r2AccountId              String?
-  r2AccessKeyId            String?
-  r2SecretAccessKey        String?
-  r2BucketName             String?
-  r2PublicBaseUrl          String?
-  r2Region                 String   @default("auto")
-  r2Endpoint               String?
-  emailEnabled             Boolean  @default(false)
-  smtpHost                 String?
-  smtpPort                 Int      @default(587)
-  smtpSecure               Boolean  @default(false)
-  smtpUser                 String?
-  smtpPassword             String?
-  smtpFromAddress          String?
-  smtpFromName             String?
-  smsEnabled               Boolean  @default(false)
-  smsApiUrl                String   @default("https://smsportal.hostpinnacle.co.ke/SMSApi/send")
-  smsUserId                String?
-  smsPassword              String?
-  smsSenderId              String?
-  otpLength                Int      @default(6)
-  otpExpiryMinutes         Int      @default(10)
-  passwordResetExpiryMinutes Int    @default(15)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  id                         Int      @id @default(1)
+  appName                    String   @default("ChatAndTip")
+  maxVideosUpload            Int      @default(10)
+  contactEmail               String?
+  contactPhone               String?
+  address                    String?
+  currency                   String   @default("USD")
+  minimumTip                 Decimal  @default(0) @db.Decimal(10, 2)
+  transactionFeePercent      Decimal  @default(0) @db.Decimal(5, 2)
+  usdToKesRate               Decimal  @default(0) @db.Decimal(10, 2)
+  freeMemberSwipeLimit       Int      @default(20)
+  showDiscoverAdAfterSwipes  Int      @default(5)
+  allowVideoModeration       Boolean  @default(false)
+  showAds                    Boolean  @default(false)
+  allowFreeAccess            Boolean  @default(false)
+  allowVideoCall             Boolean  @default(true)
+  allowVoiceCall             Boolean  @default(true)
+  allowSendImages            Boolean  @default(true)
+  adminEmail                 String?
+  jwtExpiry                  String   @default("7d")
+  mpesaConsumerKey           String?
+  mpesaConsumerSecret        String?
+  mpesaPasskey               String?
+  mpesaShortcode             String?
+  mpesaStoreNumber           String?
+  mpesaShortcodeType         String   @default("CustomerPayBillOnline")
+  mpesaEnvironment           String   @default("sandbox")
+  paypalClientId             String?
+  paypalClientSecret         String?
+  r2AccountId                String?
+  r2AccessKeyId              String?
+  r2SecretAccessKey          String?
+  r2BucketName               String?
+  r2PublicBaseUrl            String?
+  r2Region                   String   @default("auto")
+  r2Endpoint                 String?
+  emailEnabled               Boolean  @default(false)
+  smtpHost                   String?
+  smtpPort                   Int      @default(587)
+  smtpSecure                 Boolean  @default(false)
+  smtpUser                   String?
+  smtpPassword               String?
+  smtpFromAddress            String?
+  smtpFromName               String?
+  smsEnabled                 Boolean  @default(false)
+  smsApiUrl                  String   @default("https://smsportal.hostpinnacle.co.ke/SMSApi/send")
+  smsUserId                  String?
+  smsPassword                String?
+  smsSenderId                String?
+  otpLength                  Int      @default(6)
+  otpExpiryMinutes           Int      @default(10)
+  passwordResetExpiryMinutes Int      @default(15)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
 }
