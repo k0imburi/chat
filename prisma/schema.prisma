@@ -149,6 +149,8 @@ model User {
   mpesaRequests         MpesaPaymentRequest[]
   verificationCodes     VerificationCode[]
   providerAccounts      ProviderAccount[]
+  videoComments         VideoComment[]         @relation("CommentAuthor")
+  commentLikes          CommentLike[]          @relation("CommentLikeUser")
 
   @@map("users")
 }
@@ -186,21 +188,25 @@ model VerificationCode {
 }
 
 model UserMedia {
-  id           String      @id @default(cuid())
+  id           String         @id @default(cuid())
   userId       String
   kind         MediaKind
   title        String?
+  caption      String?        @db.Text
+  description  String?        @db.Text
   objectKey    String?
   url          String
   thumbnailUrl String?
   mimeType     String?
   sizeBytes    Int?
-  views        Int         @default(0)
-  likes        Int         @default(0)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  views        Int            @default(0)
+  likes        Int            @default(0)
+  commentCount Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   likeRecords  VideoLike[]
+  comments     VideoComment[]
 
   @@index([userId, kind])
 }
@@ -309,6 +315,38 @@ model VideoLike {
 
   @@unique([senderId, mediaId])
   @@index([receiverId, createdAt])
+}
+
+model VideoComment {
+  id        String        @id @default(cuid())
+  mediaId   String
+  authorId  String
+  text      String        @db.Text
+  parentId  String?
+  likes     Int           @default(0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  media     UserMedia     @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  author    User          @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent    VideoComment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   VideoComment[] @relation("CommentReplies")
+  likedBy   CommentLike[]
+
+  @@index([mediaId, createdAt])
+  @@index([parentId])
+  @@index([authorId])
+}
+
+model CommentLike {
+  id        String       @id @default(cuid())
+  commentId String
+  userId    String
+  createdAt DateTime     @default(now())
+  comment   VideoComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User         @relation("CommentLikeUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@index([userId])
 }
 
 model UserSwipe {

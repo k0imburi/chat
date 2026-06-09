@@ -76,8 +76,11 @@ function serializeVideo(media?: UserMedia | null) {
       id: "",
       videoUrl: "",
       thumbnailUrl: "",
+      caption: "",
+      description: "",
       views: 0,
       likes: 0,
+      commentCount: 0,
       createdAt: null,
       isLiked: false,
     }
@@ -87,8 +90,11 @@ function serializeVideo(media?: UserMedia | null) {
     id: media.id,
     videoUrl: media.url,
     thumbnailUrl: media.thumbnailUrl || media.url,
+    caption: media.caption || "",
+    description: media.description || "",
     views: media.views,
     likes: media.likes,
+    commentCount: media.commentCount,
     createdAt: media.createdAt.toISOString(),
     isLiked: false,
   }
