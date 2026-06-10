@@ -148,6 +148,13 @@ export async function markNotificationRead(userId: string, notificationId: strin
   return { success: true }
 }
 
+export async function deleteSingleNotification(userId: string, notificationId: string) {
+  const result = await prisma.userNotification.deleteMany({
+    where: { id: notificationId, userId },
+  })
+  return { success: true, deleted: result.count }
+}
+
 export async function deleteAllNotifications(userId: string) {
   const result = await prisma.userNotification.deleteMany({
     where: { userId },
