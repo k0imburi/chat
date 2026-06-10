@@ -1,15 +1,33 @@
 import "server-only"
 
-import { UserRole } from "@prisma/client"
+import { MediaKind, UserRole } from "@prisma/client"
 import { createUserNotification } from "@/lib/mobile-notifications"
 import { prisma } from "@/lib/prisma"
 
 const COMMENTS_PAGE_SIZE = 20
 
+const authorSelect = {
+  id: true,
+  fullName: true,
+  avatarUrl: true,
+  media: { where: { kind: MediaKind.PROFILE_VIDEO }, select: { thumbnailUrl: true, url: true }, take: 1 },
+} as const
+
 type CommentAuthor = {
   id: string
   fullName: string
   avatarUrl: string | null
+  media: { thumbnailUrl: string | null; url: string }[]
+}
+
+function resolveAvatarUrl(author: CommentAuthor): string {
+  // Mirror serializeMobileUser: avatarUrl → thumbnailUrl → url (video URL as last resort)
+  return (
+    author.avatarUrl ||
+    author.media[0]?.thumbnailUrl ||
+    author.media[0]?.url ||
+    ""
+  )
 }
 
 function serializeComment(
@@ -36,7 +54,7 @@ function serializeComment(
     author: {
       id: comment.author.id,
       name: comment.author.fullName,
-      avatarUrl: comment.author.avatarUrl || "",
+      avatarUrl: resolveAvatarUrl(comment.author),
       isByCurrentUser: comment.author.id === currentUserId,
     },
   }
@@ -53,7 +71,7 @@ export async function getComments(
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     orderBy: { createdAt: "desc" },
     include: {
-      author: { select: { id: true, fullName: true, avatarUrl: true } },
+      author: { select: authorSelect },
       _count: { select: { replies: true } },
     },
   })
@@ -82,7 +100,7 @@ export async function getReplies(
     where: { parentId },
     orderBy: { createdAt: "asc" },
     include: {
-      author: { select: { id: true, fullName: true, avatarUrl: true } },
+      author: { select: authorSelect },
       _count: { select: { replies: true } },
     },
   })
@@ -112,7 +130,7 @@ export async function createComment(
   const comment = await prisma.videoComment.create({
     data: { mediaId, authorId, text, parentId: parentId ?? null },
     include: {
-      author: { select: { id: true, fullName: true, avatarUrl: true } },
+      author: { select: authorSelect },
       _count: { select: { replies: true } },
     },
   })
@@ -130,7 +148,7 @@ export async function createComment(
       type: "comment",
       title: `${comment.author.fullName} commented on your video`,
       message: text,
-      metadata: { mediaId, commentId: comment.id },
+      metadata: { videoId: mediaId, commentId: comment.id },
     })
   }
 

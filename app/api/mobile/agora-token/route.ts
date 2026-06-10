@@ -24,11 +24,17 @@ export async function GET(request: Request) {
     const appId = process.env.AGORA_APP_ID
     const appCertificate = process.env.AGORA_APP_CERTIFICATE
 
-    if (!appId || !appCertificate) {
+    if (!appId) {
       return NextResponse.json(
-        { success: false, message: "Agora credentials not configured" },
+        { success: false, message: "AGORA_APP_ID is not configured" },
         { status: 500 },
       )
+    }
+
+    // If no certificate is set (e.g. Agora project in test mode), return an
+    // empty token — Agora accepts this when certificate auth is disabled.
+    if (!appCertificate) {
+      return NextResponse.json({ success: true, data: { token: "" } })
     }
 
     const expiresAt = Math.floor(Date.now() / 1000) + 3600 // 1 hour

@@ -147,6 +147,16 @@ export type ChatRealtimeEvent =
       type: "profile_updated"
       data: Record<string, unknown>
     }
+  | {
+      channel: "call"
+      type: "call_ring"
+      call: Record<string, unknown>
+    }
+  | {
+      channel: "call"
+      type: "call_ended"
+      channelId: string
+    }
 
 export type ChatRealtimeHub = {
   emitToUser: (userId: string, event: ChatRealtimeEvent) => void

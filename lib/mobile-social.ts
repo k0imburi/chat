@@ -175,6 +175,7 @@ export async function toggleVideoLike(input: {
       title: sender?.fullName?.split(" ").at(0) || "Someone",
       message: "liked your video",
       type: "like",
+      metadata: { videoId: input.videoId },
     })
 
     if (result.isMatch) {

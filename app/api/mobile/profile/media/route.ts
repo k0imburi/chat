@@ -88,11 +88,18 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const parsed = viewsSchema.parse(await request.json())
+    const body = await request.json()
+    const parsed = viewsSchema.parse(body)
+    const viewOnly = body.viewOnly === true
+
     await prisma.userMedia.update({
       where: { id: parsed.mediaId },
       data: { views: { increment: 1 } },
     })
+
+    if (viewOnly) {
+      return NextResponse.json({ success: true })
+    }
 
     const user = await findMobileUserById(session.userId)
     return NextResponse.json({ success: true, user: user ? serializeMobileUser(user) : null })
