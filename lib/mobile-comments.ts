@@ -143,7 +143,7 @@ export async function createComment(
   // Notify the video owner (skip self-comments and guard against duplicate delivery)
   if (media.userId !== authorId) {
     const alreadyNotified = await prisma.userNotification.findFirst({
-      where: { userId: media.userId, type: "comment", metadata: { path: ["commentId"], equals: comment.id } },
+      where: { userId: media.userId, type: "comment", metadata: { path: "$.commentId", equals: comment.id } },
       select: { id: true },
     })
     if (!alreadyNotified) {
