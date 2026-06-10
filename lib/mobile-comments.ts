@@ -140,16 +140,22 @@ export async function createComment(
     data: { commentCount: { increment: 1 } },
   })
 
-  // Notify the video owner (skip if commenting on own video)
+  // Notify the video owner (skip self-comments and guard against duplicate delivery)
   if (media.userId !== authorId) {
-    await createUserNotification({
-      userId: media.userId,
-      senderId: authorId,
-      type: "comment",
-      title: `${comment.author.fullName} commented on your video`,
-      message: text,
-      metadata: { videoId: mediaId, commentId: comment.id },
+    const alreadyNotified = await prisma.userNotification.findFirst({
+      where: { userId: media.userId, type: "comment", metadata: { path: ["commentId"], equals: comment.id } },
+      select: { id: true },
     })
+    if (!alreadyNotified) {
+      await createUserNotification({
+        userId: media.userId,
+        senderId: authorId,
+        type: "comment",
+        title: `${comment.author.fullName} commented on your video`,
+        message: text,
+        metadata: { videoId: mediaId, commentId: comment.id },
+      })
+    }
   }
 
   return serializeComment(comment, authorId, new Set())

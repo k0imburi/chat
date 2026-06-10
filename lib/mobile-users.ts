@@ -90,6 +90,7 @@ function serializeVideo(media?: UserMedia | null) {
     id: media.id,
     videoUrl: media.url,
     thumbnailUrl: media.thumbnailUrl || media.url,
+    title: media.title || "",
     caption: media.caption || "",
     description: media.description || "",
     views: media.views,
