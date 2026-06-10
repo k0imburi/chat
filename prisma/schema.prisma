@@ -191,10 +191,12 @@ model UserMedia {
   id           String         @id @default(cuid())
   userId       String
   kind         MediaKind
-  title        String?
-  caption      String?        @db.Text
-  description  String?        @db.Text
-  objectKey    String?
+  title          String?
+  titlePositionX Float?         @default(0.5)
+  titlePositionY Float?         @default(0.5)
+  caption        String?        @db.Text
+  description    String?        @db.Text
+  objectKey      String?
   url          String
   thumbnailUrl String?
   mimeType     String?

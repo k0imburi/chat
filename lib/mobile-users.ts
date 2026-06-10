@@ -91,6 +91,8 @@ function serializeVideo(media?: UserMedia | null) {
     videoUrl: media.url,
     thumbnailUrl: media.thumbnailUrl || media.url,
     title: media.title || "",
+    titlePositionX: media.titlePositionX ?? 0.5,
+    titlePositionY: media.titlePositionY ?? 0.5,
     caption: media.caption || "",
     description: media.description || "",
     views: media.views,
