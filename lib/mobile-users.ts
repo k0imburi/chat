@@ -75,7 +75,11 @@ function serializeVideo(media?: UserMedia | null) {
     return {
       id: "",
       videoUrl: "",
+      imageUrl: "",
       thumbnailUrl: "",
+      title: "",
+      titlePositionX: 0.5,
+      titlePositionY: 0.5,
       caption: "",
       description: "",
       views: 0,
@@ -86,9 +90,12 @@ function serializeVideo(media?: UserMedia | null) {
     }
   }
 
+  const isImage = media.kind === MediaKind.IMAGE
+
   return {
     id: media.id,
-    videoUrl: media.url,
+    videoUrl: isImage ? "" : media.url,
+    imageUrl: isImage ? media.url : "",
     thumbnailUrl: media.thumbnailUrl || media.url,
     title: media.title || "",
     titlePositionX: media.titlePositionX ?? 0.5,
@@ -105,7 +112,9 @@ function serializeVideo(media?: UserMedia | null) {
 
 export function serializeMobileUser(user: UserWithMedia) {
   const profileVideo = user.media.find((item) => item.kind === MediaKind.PROFILE_VIDEO)
-  const gallery = user.media.filter((item) => item.kind === MediaKind.GALLERY_VIDEO).map(serializeVideo)
+  const gallery = user.media
+    .filter((item) => item.kind === MediaKind.GALLERY_VIDEO || item.kind === MediaKind.IMAGE)
+    .map(serializeVideo)
 
   return {
     userId: user.id,
