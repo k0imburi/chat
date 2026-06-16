@@ -37,7 +37,7 @@ async function loadR2Settings(): Promise<R2Settings> {
   const accessKeyId = settings?.r2AccessKeyId ?? ""
   const secretAccessKey = settings?.r2SecretAccessKey ?? ""
   const bucketName = settings?.r2BucketName ?? ""
-  const publicBaseUrl = settings?.r2PublicBaseUrl ?? ""
+  const publicBaseUrl = settings?.r2PublicBaseUrl ?? process.env.R2_PUBLIC_BASE_URL ?? ""
   const region = settings?.r2Region ?? "auto"
   const endpoint =
     settings?.r2Endpoint ??
