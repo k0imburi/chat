@@ -198,6 +198,7 @@ model UserMedia {
   description    String?        @db.Text
   objectKey      String?
   url          String
+  images       Json?
   thumbnailUrl String?
   mimeType     String?
   sizeBytes    Int?

@@ -76,6 +76,7 @@ function serializeVideo(media?: UserMedia | null) {
       id: "",
       videoUrl: "",
       imageUrl: "",
+      images: [],
       thumbnailUrl: "",
       title: "",
       titlePositionX: 0.5,
@@ -91,11 +92,13 @@ function serializeVideo(media?: UserMedia | null) {
   }
 
   const isImage = media.kind === MediaKind.IMAGE
+  const images = Array.isArray(media.images) ? (media.images as string[]) : []
 
   return {
     id: media.id,
     videoUrl: isImage ? "" : media.url,
     imageUrl: isImage ? media.url : "",
+    images,
     thumbnailUrl: media.thumbnailUrl || media.url,
     title: media.title || "",
     titlePositionX: media.titlePositionX ?? 0.5,

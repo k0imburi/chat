@@ -11,6 +11,7 @@ const createSchema = z.object({
   videoUrl: z.string().url().optional(),
   thumbnailUrl: z.string().url().optional(),
   url: z.string().url().optional(),
+  images: z.array(z.string().url()).optional(),
   title: z.string().optional(),
   titlePositionX: z.coerce.number().min(0).max(1).optional(),
   titlePositionY: z.coerce.number().min(0).max(1).optional(),
@@ -32,10 +33,12 @@ export async function POST(request: Request) {
 
   try {
     const parsed = createSchema.parse(await request.json())
-    const url = parsed.videoUrl || parsed.url
+    const url = parsed.videoUrl || parsed.url || parsed.images?.[0]
     if (!url) {
       return NextResponse.json({ success: false, message: "A media URL is required" }, { status: 400 })
     }
+    // Only persist images when there is more than one (a true carousel post).
+    const images = parsed.images && parsed.images.length > 1 ? parsed.images : undefined
 
     const existingProfile = parsed.kind === MediaKind.PROFILE_VIDEO
       ? await prisma.userMedia.findFirst({
@@ -64,6 +67,7 @@ export async function POST(request: Request) {
           userId: session.userId,
           kind: parsed.kind,
           url,
+          images,
           thumbnailUrl: parsed.thumbnailUrl || url,
           title: parsed.title,
           titlePositionX: parsed.titlePositionX,
