@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node --env-file=.env server.mjs --dev",
-    "build": "prisma generate && prisma db push && next build",
+    "build": "prisma generate && next build",
     "start": "node server.mjs",
     "lint": "eslint . --max-warnings=0",
     "db:generate": "prisma generate",
