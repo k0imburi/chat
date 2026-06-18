@@ -114,6 +114,7 @@ export function serializeMobileUser(user: UserWithMedia) {
   const profileVideo = user.media.find((item) => item.kind === MediaKind.PROFILE_VIDEO)
   const gallery = user.media
     .filter((item) => item.kind === MediaKind.GALLERY_VIDEO || item.kind === MediaKind.IMAGE)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     .map(serializeVideo)
 
   return {
