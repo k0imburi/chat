@@ -151,7 +151,7 @@ export async function createComment(
         userId: media.userId,
         senderId: authorId,
         type: "comment",
-        title: `${comment.author.fullName} commented on your video`,
+        title: `${comment.author.fullName} commented on your post`,
         message: text,
         metadata: { videoId: mediaId, commentId: comment.id },
       })

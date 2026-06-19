@@ -365,6 +365,16 @@ model UserSwipe {
   @@index([receiverId])
 }
 
+model DiscoverSeen {
+  id        String   @id @default(cuid())
+  userId    String
+  mediaId   String
+  seenAt    DateTime @default(now())
+
+  @@unique([userId, mediaId])
+  @@index([userId])
+}
+
 model UserBlock {
   id        String   @id @default(cuid())
   blockerId String

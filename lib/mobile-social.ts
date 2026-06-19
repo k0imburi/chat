@@ -173,7 +173,7 @@ export async function toggleVideoLike(input: {
       userId: input.ownerId,
       senderId: input.currentUserId,
       title: sender?.fullName?.split(" ").at(0) || "Someone",
-      message: "liked your video",
+      message: "liked your post",
       type: "like",
       metadata: { videoId: input.videoId },
     })

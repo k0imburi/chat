@@ -29,6 +29,33 @@ function kmDistance(aLat: number, aLng: number, bLat: number, bLng: number) {
   return 2 * earthRadiusKm * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
 
+// Maximum posts returned in a single feed response.
+const FEED_LIMIT = 150
+
+// Engagement weights for the "hot" score.
+const W_LIKE = 3
+const W_COMMENT = 5
+const W_VIEW = 0.1
+const GRAVITY = 1.5
+
+/**
+ * Hot score: blends engagement with recency so fresh AND popular posts rank
+ * highest. Brand-new posts still surface via the low age term.
+ *   engagement = likes*3 + comments*5 + views*0.1
+ *   score      = (engagement + 1) / (ageHours + 2)^1.5
+ */
+function hotScore(
+  likes: number,
+  comments: number,
+  views: number,
+  createdAt: Date,
+  now: number,
+) {
+  const engagement = likes * W_LIKE + comments * W_COMMENT + views * W_VIEW
+  const ageHours = Math.max(0, (now - createdAt.getTime()) / 3_600_000)
+  return (engagement + 1) / Math.pow(ageHours + 2, GRAVITY)
+}
+
 export async function getDiscoverFeed(currentUserId: string) {
   const currentUser = await prisma.user.findUnique({
     where: { id: currentUserId },
@@ -43,6 +70,13 @@ export async function getDiscoverFeed(currentUserId: string) {
   if (!currentUser) {
     throw new Error("Current user not found")
   }
+
+  // Posts this user has already seen — used to push fresh content first.
+  const seenRows = await prisma.discoverSeen.findMany({
+    where: { userId: currentUserId },
+    select: { mediaId: true },
+  })
+  const seenMediaIds = new Set(seenRows.map((row) => row.mediaId))
 
   const userFilter = ((currentUser.filter as Prisma.JsonObject | null) ?? {}) as Record<string, unknown>
   const minAge = Number(userFilter.minAge ?? 18)
@@ -94,24 +128,50 @@ export async function getDiscoverFeed(currentUserId: string) {
       if (distance > maxDistance) return false
     }
 
-    return candidate.media.some((item) => item.kind === "GALLERY_VIDEO")
+    // Keep anyone with at least one gallery post (video OR image).
+    return candidate.media.some(
+      (item) => item.kind === "GALLERY_VIDEO" || item.kind === "IMAGE",
+    )
   })
 
-  const feed = filteredUsers
+  const now = Date.now()
+
+  // Build one feed entry per gallery post, scored by the hot algorithm.
+  const entries = filteredUsers
     .map((user) => {
       const serialized = serializeMobileUserWithLikes(user, likedMediaIds)
-      const videos = Array.isArray(serialized.gallery) ? (serialized.gallery as Array<Record<string, unknown>>) : []
-      return videos.map((video) => ({
-        user: serialized,
-        video,
-      }))
+      const videos = Array.isArray(serialized.gallery)
+        ? (serialized.gallery as Array<Record<string, unknown>>)
+        : []
+      return videos.map((video) => {
+        const id = String(video.id || "")
+        const createdAt = new Date(String(video.createdAt || now))
+        const score = hotScore(
+          Number(video.likes ?? 0),
+          Number(video.commentCount ?? 0),
+          Number(video.views ?? 0),
+          createdAt,
+          now,
+        )
+        return {
+          user: serialized,
+          video,
+          _seen: id ? seenMediaIds.has(id) : false,
+          _score: score,
+        }
+      })
     })
     .flat()
-    .sort((a, b) => {
-      const dateA = Date.parse(String((a.video as Record<string, unknown>).createdAt || 0))
-      const dateB = Date.parse(String((b.video as Record<string, unknown>).createdAt || 0))
-      return dateB - dateA
-    })
 
-  return feed
+  // Unseen posts first (each group ranked by hot score), then seen posts as
+  // a fallback so the feed never runs empty for active users.
+  entries.sort((a, b) => {
+    if (a._seen !== b._seen) return a._seen ? 1 : -1
+    return b._score - a._score
+  })
+
+  // Strip internal scoring fields before returning.
+  return entries
+    .slice(0, FEED_LIMIT)
+    .map(({ user, video }) => ({ user, video }))
 }

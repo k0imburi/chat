@@ -107,6 +107,20 @@ export async function PATCH(request: Request) {
       data: { views: { increment: 1 } },
     })
 
+    // Record that this user has seen the post so the discover feed can
+    // prioritise fresh content. Best-effort — never block the view count.
+    try {
+      await prisma.discoverSeen.upsert({
+        where: {
+          userId_mediaId: { userId: session.userId, mediaId: parsed.mediaId },
+        },
+        create: { userId: session.userId, mediaId: parsed.mediaId },
+        update: { seenAt: new Date() },
+      })
+    } catch {
+      // ignore — seen tracking is non-critical
+    }
+
     if (viewOnly) {
       return NextResponse.json({ success: true })
     }
