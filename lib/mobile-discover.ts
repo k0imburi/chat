@@ -3,6 +3,7 @@ import "server-only"
 import { Prisma, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUserWithLikes } from "@/lib/mobile-users"
+import { FEED_LIMIT, hotScore } from "@/lib/discover-score"
 
 function toAge(birthday: Date | null) {
   if (!birthday) return null
@@ -27,33 +28,6 @@ function kmDistance(aLat: number, aLng: number, bLat: number, bLng: number) {
     Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2)
 
   return 2 * earthRadiusKm * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
-}
-
-// Maximum posts returned in a single feed response.
-const FEED_LIMIT = 150
-
-// Engagement weights for the "hot" score.
-const W_LIKE = 3
-const W_COMMENT = 5
-const W_VIEW = 0.1
-const GRAVITY = 1.5
-
-/**
- * Hot score: blends engagement with recency so fresh AND popular posts rank
- * highest. Brand-new posts still surface via the low age term.
- *   engagement = likes*3 + comments*5 + views*0.1
- *   score      = (engagement + 1) / (ageHours + 2)^1.5
- */
-function hotScore(
-  likes: number,
-  comments: number,
-  views: number,
-  createdAt: Date,
-  now: number,
-) {
-  const engagement = likes * W_LIKE + comments * W_COMMENT + views * W_VIEW
-  const ageHours = Math.max(0, (now - createdAt.getTime()) / 3_600_000)
-  return (engagement + 1) / Math.pow(ageHours + 2, GRAVITY)
 }
 
 export async function getDiscoverFeed(currentUserId: string) {
