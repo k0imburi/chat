@@ -1,6 +1,6 @@
 import "server-only"
 
-import { Prisma, UserRole } from "@prisma/client"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUserWithLikes } from "@/lib/mobile-users"
 import { FEED_LIMIT, hotScore } from "@/lib/discover-score"
@@ -70,7 +70,6 @@ export async function getDiscoverFeed(currentUserId: string) {
 
   const candidates = await prisma.user.findMany({
     where: {
-      role: UserRole.USER,
       id: { not: currentUserId },
       status: { notIn: ["BLOCKED", "HIDDEN"] },
     },
@@ -153,7 +152,6 @@ export async function getDiscoverFeed(currentUserId: string) {
 export async function getTrendingFeed() {
   const users = await prisma.user.findMany({
     where: {
-      role: UserRole.USER,
       status: { notIn: ["BLOCKED", "HIDDEN"] },
     },
     include: { media: true },
