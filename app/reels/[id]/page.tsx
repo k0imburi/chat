@@ -27,7 +27,7 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
   const commentItems = media.comments.map((c) => ({
     id: c.id,
     text: c.text,
-    createdAt: typeof c.createdAt === "string" ? c.createdAt : c.createdAt.toISOString(),
+    createdAt: c.createdAt,
     author: { name: c.author.name, avatarUrl: c.author.avatarUrl ?? null },
   }))
 
