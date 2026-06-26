@@ -57,7 +57,7 @@ export async function replaceAvailability(userId: string, input: Array<{
       maxSessionsDay: Math.max(1, Math.min(20, r.maxSessionsDay ?? 1)),
     })) })
     return tx.creatorAvailability.findMany({ where: { userId }, orderBy: [{ weekday: "asc" }, { startMinute: "asc" }] })
-  })
+  }, { timeout: 20000, maxWait: 10000 })
 }
 
 export async function availableSlots(creatorId: string, type: BookingType, days = 14) {
@@ -121,7 +121,7 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
       await tx.creditAccount.update({ where: { userId: customerId }, data: { [reserved]: { decrement: 1 } } })
       throw error
     }
-  })
+  }, { timeout: 20000, maxWait: 10000 })
   await notifyBooking(booking.creatorId, booking.customerId, "New call proposal", `A ${input.type.toLowerCase()} call has been proposed.`, booking.id, booking.creator.email)
   return booking
 }
@@ -166,7 +166,7 @@ export async function bookingAction(userId: string, bookingId: string, action: s
   }
   if (action === "decline") {
     if (!isCreator || booking.status !== "PROPOSED") throw new Error("This proposal cannot be declined")
-    return prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, booking); return tx.callBooking.update({ where: { id: booking.id }, data: { status: "DECLINED", declinedAt: new Date() } }) })
+    return prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, booking); return tx.callBooking.update({ where: { id: booking.id }, data: { status: "DECLINED", declinedAt: new Date() } }) }, { timeout: 20000, maxWait: 10000 })
   }
   if (action === "cancel") {
     if (!["PROPOSED", "APPROVED"].includes(booking.status)) throw new Error("This booking cannot be cancelled")
@@ -174,7 +174,7 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       if (isCreator || booking.scheduledStart.getTime() - Date.now() >= 12 * 3600_000) await releaseBookingReservation(tx, booking)
       else await settleBookedSession(tx, booking)
       return tx.callBooking.update({ where: { id: booking.id }, data: { status: "CANCELLED", cancelledAt: new Date(), endReason: reason } })
-    })
+    }, { timeout: 20000, maxWait: 10000 })
   }
   if (action === "end") {
     if (!["APPROVED", "LIVE"].includes(booking.status)) throw new Error("This call cannot be ended")
@@ -182,7 +182,7 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       if (isCreator && new Date() < booking.scheduledEnd) return tx.callBooking.update({ where: { id: booking.id }, data: { status: "UNDER_REVIEW", completedAt: new Date(), endReason: reason || "Creator ended early" } })
       await settleBookedSession(tx, booking)
       return tx.callBooking.update({ where: { id: booking.id }, data: { status: "COMPLETED", completedAt: new Date(), endReason: reason } })
-    })
+    }, { timeout: 20000, maxWait: 10000 })
   }
   throw new Error("Unknown booking action")
 }
@@ -200,7 +200,7 @@ export async function joinBooking(userId: string, bookingId: string) {
 export async function reconcileBookings() {
   const now = new Date()
   const expired = await prisma.callBooking.findMany({ where: { status: "PROPOSED", proposalExpiresAt: { lte: now } } })
-  for (const b of expired) await prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, b); await tx.callBooking.update({ where: { id: b.id }, data: { status: "EXPIRED" } }) })
+  for (const b of expired) await prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, b); await tx.callBooking.update({ where: { id: b.id }, data: { status: "EXPIRED" } }) }, { timeout: 20000, maxWait: 10000 })
   const reminders = await prisma.callBooking.findMany({ where: { status: "APPROVED", reminderSentAt: null, scheduledStart: { gt: now, lte: addMinutes(now, 10) } }, include: { customer: true, creator: true } })
   for (const b of reminders) {
     await Promise.all([
@@ -221,7 +221,7 @@ export async function reconcileBookings() {
       heldReason: "25% creator lateness fine", availableAt: now,
     } })
     await tx.callBooking.update({ where: { id: b.id }, data: { creatorFineAppliedAt: now } })
-  })
+  }, { timeout: 20000, maxWait: 10000 })
   const creatorNoShows = await prisma.callBooking.findMany({ where: {
     status: { in: ["APPROVED", "LIVE"] }, creatorJoinedAt: null,
     scheduledStart: { lte: addMinutes(now, -3) }, scheduledEnd: { gt: now },
@@ -232,12 +232,18 @@ export async function reconcileBookings() {
     const count = await tx.creatorStrike.count({ where: { creatorId: b.creatorId, expiresAt: { gt: now } } })
     await tx.creatorStrike.create({ data: { creatorId: b.creatorId, bookingId: b.id, reason: "Creator did not join within three minutes", expiresAt: addDays(now, 3) } })
     if (count + 1 >= 3) await tx.user.update({ where: { id: b.creatorId }, data: { activeStrikeCount: count + 1, earningSuspendedUntil: addDays(now, 3) } })
-  })
+  }, { timeout: 20000, maxWait: 10000 })
   const due = await prisma.callBooking.findMany({ where: { status: { in: ["APPROVED", "LIVE"] }, scheduledEnd: { lte: now } } })
   for (const b of due) await prisma.$transaction(async (tx) => {
-    await settleBookedSession(tx, b)
-    await tx.callBooking.update({ where: { id: b.id }, data: { status: b.customerJoinedAt ? "COMPLETED" : "USER_NO_SHOW", completedAt: now } })
-  })
+    if (!b.creatorJoinedAt) {
+      // Creator never joined — refund reservation, no creator payment
+      await releaseBookingReservation(tx, b)
+      await tx.callBooking.update({ where: { id: b.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
+    } else {
+      await settleBookedSession(tx, b)
+      await tx.callBooking.update({ where: { id: b.id }, data: { status: b.customerJoinedAt ? "COMPLETED" : "USER_NO_SHOW", completedAt: now } })
+    }
+  }, { timeout: 20000, maxWait: 10000 })
   const suspended = await prisma.user.findMany({ where: { earningSuspendedUntil: { lte: now } }, select: { id: true } })
   for (const user of suspended) {
     const active = await prisma.creatorStrike.count({ where: { creatorId: user.id, expiresAt: { gt: now } } })
