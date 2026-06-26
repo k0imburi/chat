@@ -132,6 +132,11 @@ model User {
   sentNotifications     UserNotification[]     @relation("UserNotificationSender")
   walletEntries         WalletTransaction[]
   withdrawals           WithdrawalRequest[]
+  creditAccount         CreditAccount?
+  creditEntries         CreditLedger[]         @relation("CreditLedgerUser")
+  creditPurchases       CreditPurchase[]
+  sentTips              Tip[]                  @relation("TipSender")
+  receivedTips          Tip[]                  @relation("TipReceiver")
   sentFollows           Follow[]               @relation("FollowSender")
   receivedFollows       Follow[]               @relation("FollowReceiver")
   sentLikes             VideoLike[]            @relation("LikeSender")
@@ -293,6 +298,102 @@ model WalletTransaction {
   @@index([userId, date])
 }
 
+// ── Credits economy ───────────────────────────────────────────────
+// CreditKind: the four spendable balances a user holds.
+enum CreditKind {
+  KEY
+  CHAT_CREDIT
+  VOICE_SESSION
+  VIDEO_SESSION
+}
+
+// CreditEntryType: why a ledger row exists.
+enum CreditEntryType {
+  PURCHASE // user bought credits — allocates on-account value
+  CONSUME // user spent a credit (unlock reply / session)
+  CREATOR_EARN // creator received the transferred value
+  REFUND // value returned to a user
+  ADJUSTMENT // manual admin correction
+}
+
+// Tip tiers (USD), sent directly to creators — never converted to credits.
+enum TipTier {
+  PEBBLE // $1
+  GEM // $5
+  DIAMOND // $10
+}
+
+// Per-user balance counters. Source of truth for "how many do I have now".
+model CreditAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  keys          Int      @default(0)
+  chatCredits   Int      @default(0)
+  voiceSessions Int      @default(0)
+  videoSessions Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Immutable audit trail of every credit movement. `idempotencyKey` prevents
+// double-processing (e.g. a payment callback fired twice). `value` is the
+// on-account value moved (KES for credits); used by payouts (Phase 3).
+model CreditLedger {
+  id             String          @id @default(cuid())
+  userId         String
+  kind           CreditKind?
+  entryType      CreditEntryType
+  quantity       Int             @default(0)
+  value          Decimal         @default(0) @db.Decimal(12, 2)
+  currency       String          @default("KES")
+  counterpartyId String?
+  idempotencyKey String?         @unique
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  user           User            @relation("CreditLedgerUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([entryType, createdAt])
+}
+
+// A credit-purchase cart linked to an MPESA STK request. On callback success
+// the cart's quantities are allocated via allocateCredits (idempotent on id).
+model CreditPurchase {
+  id                String   @id @default(cuid())
+  userId            String
+  checkoutRequestId String?  @unique
+  phone             String
+  items             Json
+  totalKes          Decimal  @db.Decimal(12, 2)
+  status            String   @default("PENDING") // PENDING | SUCCESS | FAILED
+  allocated         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// Tips go straight to the creator at 50% of the sent value. Capped at 5 per
+// user before `flaggedForReview` triggers manual verification.
+model Tip {
+  id               String   @id @default(cuid())
+  senderId         String
+  receiverId       String
+  tier             TipTier
+  amountUsd        Decimal  @db.Decimal(10, 2)
+  creatorAmountUsd Decimal  @db.Decimal(10, 2)
+  flaggedForReview Boolean  @default(false)
+  transactionId    String?  @unique
+  createdAt        DateTime @default(now())
+  sender           User     @relation("TipSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver         User     @relation("TipReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([receiverId, createdAt])
+  @@index([senderId, createdAt])
+}
+
 model Follow {
   id         String   @id @default(cuid())
   followerId String
@@ -408,6 +509,12 @@ model ChatThread {
   lastMessageText String?           @db.Text
   lastMessageType ChatMessageType?
   lastMessageAt   DateTime?
+  // Credits gating: the participant who sent the first message (the paying
+  // "user"); the other party's replies are charged to them. Once the first
+  // reply is unlocked with a Key, `icebreakerUnlocked` flips and subsequent
+  // replies consume ChatCredits.
+  initiatorId        String?
+  icebreakerUnlocked Boolean        @default(false)
   participants    ChatParticipant[]
   messages        ChatMessage[]
 }
@@ -440,6 +547,9 @@ model ChatMessage {
   replyToSenderName String?
   reactions         Json?
   isRead            Boolean         @default(false)
+  // Credits gating: a reply from the non-initiator is locked until the
+  // thread initiator spends a Key (first) or ChatCredit (subsequent) to unlock.
+  locked            Boolean         @default(false)
   sentAt            DateTime        @default(now())
   thread            ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
   sender            User            @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
