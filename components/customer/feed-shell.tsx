@@ -35,14 +35,16 @@ export function FeedShell({
       {/* Transparent header — floats over the video */}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex h-14 items-center justify-between px-4">
         <Link href="/" className="pointer-events-auto flex items-center gap-2 font-extrabold drop-shadow-lg">
-          <Image
-            src="/chatandtip-logo.png"
-            alt=""
-            width={40}
-            height={25}
-            className="h-8 w-10 object-contain"
-            priority
-          />
+          <div className="overflow-hidden rounded-xl bg-white/90 px-1 py-0.5">
+            <Image
+              src="/chatandtip-logo.jpg"
+              alt=""
+              width={40}
+              height={25}
+              className="h-8 w-10 object-contain"
+              priority
+            />
+          </div>
           <span className="text-white">ChatAndTip</span>
         </Link>
         <Link
@@ -53,12 +55,12 @@ export function FeedShell({
         </Link>
       </header>
 
-      {/* Full-screen snap-scroll area */}
-      <div className="h-full">{children}</div>
+      {/* Full-screen snap-scroll area — phone-like centered column on wide screens */}
+      <div className="relative mx-auto h-full w-full max-w-[430px]">{children}</div>
 
       {/* Bottom nav — floats over the video */}
       <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-40 border-t border-white/10 bg-black/70 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur-md">
-        <div className="pointer-events-auto mx-auto flex max-w-lg justify-around px-2">
+        <div className="pointer-events-auto mx-auto flex max-w-[430px] justify-around px-2">
           {nav.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}

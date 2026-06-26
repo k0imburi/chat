@@ -2,15 +2,20 @@
 
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { Heart, MessageCircle, Share2, Volume2, VolumeX } from "lucide-react"
+import { ChevronLeft, ChevronRight, Heart, Share2, Volume2, VolumeX } from "lucide-react"
 import type { CustomerFeedEntry } from "@/lib/customer-web"
+import { CommentSheet } from "@/components/customer/comment-sheet"
 
 export function FullScreenFeed({
   entries,
   viewerId,
+  viewerName,
+  viewerAvatarUrl,
 }: {
   entries: CustomerFeedEntry[]
   viewerId?: string
+  viewerName?: string | null
+  viewerAvatarUrl?: string | null
 }) {
   if (!entries.length) {
     return (
@@ -26,7 +31,13 @@ export function FullScreenFeed({
       style={{ scrollbarWidth: "none" }}
     >
       {entries.map((entry) => (
-        <FullScreenPost key={entry.video.id} entry={entry} viewerId={viewerId} />
+        <FullScreenPost
+          key={entry.video.id}
+          entry={entry}
+          viewerId={viewerId}
+          viewerName={viewerName}
+          viewerAvatarUrl={viewerAvatarUrl}
+        />
       ))}
     </div>
   )
@@ -35,9 +46,13 @@ export function FullScreenFeed({
 function FullScreenPost({
   entry,
   viewerId,
+  viewerName,
+  viewerAvatarUrl,
 }: {
   entry: CustomerFeedEntry
   viewerId?: string
+  viewerName?: string | null
+  viewerAvatarUrl?: string | null
 }) {
   const { video, user } = entry
   const containerRef = useRef<HTMLDivElement>(null)
@@ -45,6 +60,7 @@ function FullScreenPost({
   const [liked, setLiked] = useState(video.isLiked ?? false)
   const [likeCount, setLikeCount] = useState(video.likes)
   const [muted, setMuted] = useState(true)
+  const [imgIndex, setImgIndex] = useState(0)
 
   const images = video.images?.length ? video.images : video.imageUrl ? [video.imageUrl] : []
   const isVideo = Boolean(video.videoUrl)
@@ -54,20 +70,15 @@ function FullScreenPost({
     ? `@${user.username}`
     : `@${(user.fullname ?? "creator").replace(/\s+/g, "").toLowerCase()}`
 
-  // Autoplay/pause as the post enters/leaves the viewport
+  // Autoplay / pause via IntersectionObserver
   useEffect(() => {
     const container = containerRef.current
     const vid = videoRef.current
     if (!container || !vid) return
-
     const observer = new IntersectionObserver(
       ([{ isIntersecting }]) => {
-        if (isIntersecting) {
-          vid.play().catch(() => {})
-        } else {
-          vid.pause()
-          vid.currentTime = 0
-        }
+        if (isIntersecting) { vid.play().catch(() => {}) }
+        else { vid.pause(); vid.currentTime = 0 }
       },
       { threshold: 0.65 },
     )
@@ -75,11 +86,20 @@ function FullScreenPost({
     return () => observer.disconnect()
   }, [])
 
+  // Reset image index when this post leaves view
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || isVideo) return
+    const observer = new IntersectionObserver(
+      ([{ isIntersecting }]) => { if (!isIntersecting) setImgIndex(0) },
+      { threshold: 0.1 },
+    )
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [isVideo])
+
   async function handleLike() {
-    if (!viewerId) {
-      window.location.href = "/login"
-      return
-    }
+    if (!viewerId) { window.location.href = "/login"; return }
     const wasLiked = liked
     setLiked(!wasLiked)
     setLikeCount((c) => (wasLiked ? c - 1 : c + 1))
@@ -87,11 +107,7 @@ function FullScreenPost({
       await fetch("/api/likes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentUserId: viewerId,
-          ownerId: user.userId,
-          videoId: video.id,
-        }),
+        body: JSON.stringify({ currentUserId: viewerId, ownerId: user.userId, videoId: video.id }),
       })
     } catch {
       setLiked(wasLiked)
@@ -110,7 +126,7 @@ function FullScreenPost({
 
   return (
     <div ref={containerRef} className="relative h-dvh snap-start overflow-hidden bg-black">
-      {/* Media — fills the entire screen */}
+      {/* ── Media ── */}
       {isVideo ? (
         <video
           ref={videoRef}
@@ -122,26 +138,59 @@ function FullScreenPost({
           className="absolute inset-0 h-full w-full object-cover"
         />
       ) : images.length ? (
-        <img
-          src={images[0]}
-          alt={video.title || "post"}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <>
+          <img
+            src={images[imgIndex]}
+            alt={video.title || "post"}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          {/* Swipe arrows for multi-image */}
+          {images.length > 1 && (
+            <>
+              <button
+                onClick={() => setImgIndex((i) => Math.max(0, i - 1))}
+                disabled={imgIndex === 0}
+                className="absolute left-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white disabled:opacity-20"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => setImgIndex((i) => Math.min(images.length - 1, i + 1))}
+                disabled={imgIndex === images.length - 1}
+                className="absolute right-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white disabled:opacity-20"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+              {/* Dot indicators */}
+              <div className="absolute top-20 left-1/2 z-20 flex -translate-x-1/2 gap-1.5">
+                {images.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setImgIndex(i)}
+                    className={`h-1.5 rounded-full transition-all ${
+                      i === imgIndex ? "w-4 bg-white" : "w-1.5 bg-white/50"
+                    }`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
       ) : (
         <div className="absolute inset-0 bg-neutral-900" />
       )}
 
-      {/* Gradient — heavier at bottom to make text readable */}
+      {/* Gradient overlay */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.06) 70%, transparent 100%)",
+            "linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.04) 70%, transparent 100%)",
         }}
       />
 
       {/* ── Right action bar ── */}
-      <div className="absolute bottom-28 right-3 flex flex-col items-center gap-5">
+      <div className="absolute bottom-28 right-3 z-10 flex flex-col items-center gap-5">
         {/* Creator avatar */}
         <Link href={`/profiles/${user.userId}`} className="relative mb-1 block">
           <div className="h-11 w-11 overflow-hidden rounded-full border-2 border-white bg-neutral-700">
@@ -166,20 +215,36 @@ function FullScreenPost({
           }
         />
 
-        {/* Comment — links to post detail */}
-        <Link href={`/reels/${video.id}#comments`} className="flex flex-col items-center gap-1">
-          <div className="flex h-12 w-12 items-center justify-center">
-            <MessageCircle className="h-[26px] w-[26px] text-white" />
-          </div>
-          <span className="text-xs font-bold text-white drop-shadow-sm">
-            {video.commentCount.toLocaleString()}
-          </span>
-        </Link>
+        {/* Comments — bottom sheet */}
+        <CommentSheet
+          mediaId={video.id}
+          commentCount={video.commentCount}
+          comments={[]}
+          viewerAvatarUrl={viewerAvatarUrl}
+          viewerName={viewerName}
+          signedIn={Boolean(viewerId)}
+          trigger={(openSheet) => (
+            <ActionButton
+              onClick={openSheet}
+              count={video.commentCount}
+              label="Comments"
+              icon={
+                <svg viewBox="0 0 24 24" className="h-[26px] w-[26px] fill-none stroke-white stroke-2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              }
+            />
+          )}
+        />
 
         {/* Share */}
-        <ActionButton onClick={handleShare} label="Share" icon={<Share2 className="h-6 w-6 text-white" />} />
+        <ActionButton
+          onClick={handleShare}
+          label="Share"
+          icon={<Share2 className="h-6 w-6 text-white" />}
+        />
 
-        {/* Mute toggle (videos only) */}
+        {/* Mute (video only) */}
         {isVideo && (
           <button
             onClick={() => setMuted((m) => !m)}
@@ -195,7 +260,7 @@ function FullScreenPost({
       </div>
 
       {/* ── Bottom info ── */}
-      <div className="absolute bottom-20 left-4 right-20 space-y-1.5">
+      <div className="absolute bottom-20 left-4 right-20 z-10 space-y-1.5">
         <Link href={`/profiles/${user.userId}`}>
           <p className="text-[15px] font-black text-white drop-shadow-md">{handle}</p>
         </Link>
