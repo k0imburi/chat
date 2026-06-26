@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
-import { getDiscoverFeed } from "@/lib/mobile-discover"
+import { getDiscoverFeed, getTrendingFeed } from "@/lib/mobile-discover"
 import { logError } from "@/lib/log-error"
 
 export async function GET(request: Request) {
@@ -10,7 +10,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const feed = await getDiscoverFeed(session.userId)
+    const url = new URL(request.url)
+    const mode = url.searchParams.get("mode") ?? "discover"
+    const feed = mode === "trending"
+      ? await getTrendingFeed()
+      : await getDiscoverFeed(session.userId)
     return NextResponse.json({ success: true, data: feed })
   } catch (error) {
     logError("/api/mobile/discover", error)

@@ -145,72 +145,115 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
         </div>
 
         {/* Comments section — scrolls below the full-screen post */}
-        <div id="comments" className="min-h-screen bg-white px-5 py-6 text-neutral-950">
-          <h2 className="font-black text-neutral-950">
-            Comments{post.commentCount > 0 ? ` (${post.commentCount})` : ""}
-          </h2>
+        <div id="comments" className="min-h-screen bg-neutral-50 text-neutral-950">
+          {/* Section header */}
+          <div className="sticky top-0 z-10 border-b border-neutral-200 bg-white/90 px-5 py-4 backdrop-blur-md">
+            <h2 className="flex items-center gap-2 text-[15px] font-black text-neutral-950">
+              Comments
+              {post.commentCount > 0 && (
+                <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-bold text-neutral-500">
+                  {post.commentCount.toLocaleString()}
+                </span>
+              )}
+            </h2>
+          </div>
 
-          {viewer ? (
-            <form action={addComment} className="mt-4 flex gap-3">
-              <input type="hidden" name="mediaId" value={post.id} />
-              <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-neutral-100">
-                {viewer.profileAvatarUrl ? (
-                  <Image src={viewer.profileAvatarUrl} alt="" fill sizes="36px" className="object-cover" />
-                ) : null}
+          <div className="px-4 py-4">
+            {/* Comment compose form */}
+            {viewer ? (
+              <form action={addComment} className="mb-5 flex items-start gap-3">
+                <input type="hidden" name="mediaId" value={post.id} />
+                <div className="relative mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-full bg-neutral-200">
+                  {viewer.profileAvatarUrl ? (
+                    <Image src={viewer.profileAvatarUrl} alt="" fill sizes="36px" className="object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs font-bold text-neutral-500">
+                      {(viewer.fullname || "?")[0].toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <Textarea
+                    name="text"
+                    placeholder="Write a comment…"
+                    rows={2}
+                    className="min-h-[44px] w-full resize-none rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-950 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none"
+                    required
+                  />
+                  <div className="flex justify-end">
+                    <Button type="submit" size="sm" className="h-8 rounded-full px-5 text-xs font-bold">
+                      Post
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            ) : (
+              <div className="mb-5 flex items-center gap-3 rounded-2xl border border-dashed border-neutral-300 bg-white p-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-400">
+                  <MessageCircle className="h-4 w-4" />
+                </div>
+                <p className="text-sm text-neutral-500">
+                  <Link href="/login" className="font-bold text-neutral-950 hover:underline">
+                    Sign in
+                  </Link>{" "}
+                  to join the conversation
+                </p>
               </div>
-              <div className="flex flex-1 gap-2">
-                <Textarea
-                  name="text"
-                  placeholder="Add a comment…"
-                  className="min-h-10 flex-1 resize-none rounded-2xl bg-neutral-50 text-sm text-neutral-950"
-                  required
-                />
-                <Button type="submit" size="sm" className="self-end rounded-full">
-                  Post
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <p className="mt-3 rounded-2xl bg-neutral-50 p-4 text-sm text-neutral-500">
-              <Link href="/login" className="font-bold hover:underline">
-                Sign in
-              </Link>{" "}
-              to join the conversation.
-            </p>
-          )}
+            )}
 
-          <div className="mt-5 space-y-4">
-            {media.comments.map((comment) => (
-              <article key={comment.id} className="flex gap-3">
-                <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-neutral-100">
-                  {comment.author.avatarUrl ? (
-                    <Image
-                      src={comment.author.avatarUrl}
-                      alt=""
-                      fill
-                      sizes="36px"
-                      className="object-cover"
-                    />
-                  ) : null}
+            {/* Comment list */}
+            {media.comments.length > 0 ? (
+              <div className="space-y-1">
+                {media.comments.map((comment, i) => (
+                  <article key={comment.id} className={`flex gap-3 ${i > 0 ? "pt-3" : ""}`}>
+                    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-neutral-200">
+                      {comment.author.avatarUrl ? (
+                        <Image
+                          src={comment.author.avatarUrl}
+                          alt=""
+                          fill
+                          sizes="36px"
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs font-bold text-neutral-500">
+                          {(comment.author.name || "?")[0].toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.04]">
+                        <div className="mb-1 flex items-baseline gap-2">
+                          <span className="text-[13px] font-bold text-neutral-950">
+                            {comment.author.name}
+                          </span>
+                          <span className="text-[11px] text-neutral-400">
+                            {new Date(comment.createdAt).toLocaleString("en-KE", {
+                              timeZone: "Africa/Nairobi",
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-700">
+                          {comment.text}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3 py-12 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100">
+                  <MessageCircle className="h-6 w-6 text-neutral-400" />
                 </div>
-                <div className="min-w-0 flex-1 rounded-2xl bg-neutral-50 p-3">
-                  <p className="text-sm font-black text-neutral-950">{comment.author.name}</p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-neutral-700">
-                    {comment.text}
-                  </p>
-                  <p className="mt-2 text-xs text-neutral-400">
-                    {new Date(comment.createdAt).toLocaleString("en-KE", {
-                      timeZone: "Africa/Nairobi",
-                    })}
-                  </p>
-                </div>
-              </article>
-            ))}
-            {!media.comments.length ? (
-              <p className="py-8 text-center text-sm text-neutral-500">
-                No comments yet. Be the first!
-              </p>
-            ) : null}
+                <p className="text-sm font-medium text-neutral-400">No comments yet</p>
+                <p className="text-xs text-neutral-300">Be the first to share your thoughts</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -149,3 +149,40 @@ export async function getDiscoverFeed(currentUserId: string) {
     .slice(0, FEED_LIMIT)
     .map(({ user, video }) => ({ user, video }))
 }
+
+export async function getTrendingFeed() {
+  const users = await prisma.user.findMany({
+    where: {
+      role: UserRole.USER,
+      isActive: true,
+      status: { notIn: ["BLOCKED", "HIDDEN"] },
+    },
+    include: { media: true },
+  })
+
+  const now = Date.now()
+
+  const entries = users
+    .flatMap((user) => {
+      const serialized = serializeMobileUserWithLikes(user, new Set())
+      const videos = Array.isArray(serialized.gallery)
+        ? (serialized.gallery as Array<Record<string, unknown>>)
+        : []
+      return videos.map((video) => {
+        const createdAt = new Date(String(video.createdAt || now))
+        const score = hotScore(
+          Number(video.likes ?? 0),
+          Number(video.commentCount ?? 0),
+          Number(video.views ?? 0),
+          createdAt,
+          now,
+        )
+        return { user: serialized, video, _score: score }
+      })
+    })
+    .sort((a, b) => b._score - a._score)
+    .slice(0, FEED_LIMIT)
+    .map(({ user, video }) => ({ user, video }))
+
+  return entries
+}

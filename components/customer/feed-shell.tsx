@@ -36,7 +36,7 @@ export function FeedShell({
       <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex h-14 items-center justify-between px-4">
         <Link href="/" className="pointer-events-auto flex items-center gap-2 font-extrabold drop-shadow-lg">
           <Image
-            src="/chatandtip-logo.jpg"
+            src="/chatandtip-logo.png"
             alt=""
             width={40}
             height={25}
