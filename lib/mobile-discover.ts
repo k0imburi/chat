@@ -116,6 +116,9 @@ export async function getDiscoverFeed(currentUserId: string) {
       const videos = Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []
+      // Strip gallery from the user profile — the app only needs avatar/name,
+      // not the full post list. Keeps the response payload small.
+      const { gallery: _g, ...userProfile } = serialized
       return videos.map((video) => {
         const id = String(video.id || "")
         const createdAt = new Date(String(video.createdAt || now))
@@ -127,7 +130,7 @@ export async function getDiscoverFeed(currentUserId: string) {
           now,
         )
         return {
-          user: serialized,
+          user: userProfile,
           video,
           _seen: id ? seenMediaIds.has(id) : false,
           _score: score,
@@ -165,6 +168,9 @@ export async function getTrendingFeed() {
       const videos = Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []
+      // Strip gallery from the user profile — the app only needs avatar/name,
+      // not the full post list. Keeps the response payload small.
+      const { gallery: _g, ...userProfile } = serialized
       return videos.map((video) => {
         const createdAt = new Date(String(video.createdAt || now))
         const score = hotScore(
@@ -174,7 +180,7 @@ export async function getTrendingFeed() {
           createdAt,
           now,
         )
-        return { user: serialized, video, _score: score }
+        return { user: userProfile, video, _score: score }
       })
     })
     .sort((a, b) => b._score - a._score)
