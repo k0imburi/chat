@@ -108,8 +108,11 @@ export function FeedShell({
           </div>
         </aside>
 
-        {/* Feed column — centered within the remaining space */}
-        <div className="flex flex-1 justify-center">
+        {/* Feed column — centered within the remaining space.
+            h-full must be explicit so the child's h-full resolves correctly
+            (a stretched flex item without an explicit height creates an
+            indeterminate % baseline, collapsing the snap-scroll feed to 0). */}
+        <div className="flex h-full flex-1 justify-center">
           <div className="relative h-full w-full max-w-[430px]">{children}</div>
         </div>
 

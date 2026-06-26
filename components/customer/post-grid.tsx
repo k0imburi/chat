@@ -1,4 +1,7 @@
+"use client"
+
 import Link from "next/link"
+import { useState } from "react"
 import { Copy, Heart, MessageCircle, Play } from "lucide-react"
 import type { CustomerFeedEntry } from "@/lib/customer-web"
 
@@ -34,6 +37,7 @@ export function PostGrid({
 }
 
 function PostGridItem({ entry }: { entry: CustomerFeedEntry }) {
+  const [imgFailed, setImgFailed] = useState(false)
   const { video } = entry
   const thumb = video.imageUrl || video.thumbnailUrl || video.images?.[0] || ""
   const isVideo = Boolean(video.videoUrl)
@@ -44,11 +48,12 @@ function PostGridItem({ entry }: { entry: CustomerFeedEntry }) {
       href={`/reels/${video.id}`}
       className="group relative block aspect-square overflow-hidden bg-neutral-900"
     >
-      {thumb ? (
+      {thumb && !imgFailed ? (
         <img
           src={thumb}
           alt={video.title || "post"}
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          onError={() => setImgFailed(true)}
         />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-xs text-neutral-600">
