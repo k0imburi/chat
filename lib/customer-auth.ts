@@ -9,8 +9,12 @@ export const CUSTOMER_SESSION_COOKIE = process.env.NODE_ENV === "production"
   : "chatandtip_customer_session"
 
 function customerSecret() {
-  if (!env.CUSTOMER_JWT_SECRET) throw new Error("CUSTOMER_JWT_SECRET is required for customer web sessions")
-  return new TextEncoder().encode(env.CUSTOMER_JWT_SECRET)
+  // Prefer a dedicated customer secret for isolation, but fall back to the
+  // shared JWT_SECRET so customer web login works without extra config. The
+  // "chatandtip-customer" audience still distinguishes these cookies.
+  const secret = env.CUSTOMER_JWT_SECRET || env.JWT_SECRET
+  if (!secret) throw new Error("CUSTOMER_JWT_SECRET or JWT_SECRET is required for customer web sessions")
+  return new TextEncoder().encode(secret)
 }
 
 export async function signCustomerSession(userId: string) {
