@@ -154,7 +154,6 @@ export async function getTrendingFeed() {
   const users = await prisma.user.findMany({
     where: {
       role: UserRole.USER,
-      isActive: true,
       status: { notIn: ["BLOCKED", "HIDDEN"] },
     },
     include: { media: true },
