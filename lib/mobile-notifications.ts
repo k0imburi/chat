@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
 import { env } from "@/lib/env"
+import { sendFcmPush } from "@/lib/fcm"
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -209,7 +210,7 @@ export async function broadcastCampaignNotifications(input: {
       id: { not: systemUser.id },
       ...(input.afterUserId ? { id: { gt: input.afterUserId, not: systemUser.id } } : {}),
     },
-    select: { id: true },
+    select: { id: true, deviceToken: true },
     orderBy: { id: "asc" },
     take: Math.min(500, Math.max(1, input.batchSize || 200)),
   })
@@ -279,6 +280,15 @@ export async function broadcastCampaignNotifications(input: {
       type: "broadcast",
       metadata: { campaignId: input.campaignId, threadId: delivery.message.threadId, targetType: "broadcast", channel: input.channel || "IN_APP" },
     })
+
+    // FCM push for offline users — fire-and-forget, doesn't block the loop
+    if (user.deviceToken) {
+      sendFcmPush(user.deviceToken, {
+        title: input.title || "ChatAndTip",
+        body: input.message,
+        data: { type: "broadcast", campaignId: input.campaignId },
+      }).catch(() => {})
+    }
 
     emitChatRealtimeToUser(user.id, {
       channel: "chat",

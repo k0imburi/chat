@@ -1,0 +1,39 @@
+name: Cron Jobs
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # bookings reconcile — every 5 minutes
+    - cron: "0 * * * *"     # broadcasts deliver — every hour
+    - cron: "0 2 * * *"     # payouts daily      — 02:00 UTC daily
+  workflow_dispatch:         # allow manual trigger from GitHub Actions UI
+
+jobs:
+  reconcile-bookings:
+    if: github.event.schedule == '*/5 * * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconcile bookings
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/jobs/bookings/reconcile" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --max-time 30
+
+  deliver-broadcasts:
+    if: github.event.schedule == '0 * * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deliver broadcast campaigns
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/jobs/broadcasts/deliver" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --max-time 60
+
+  daily-payouts:
+    if: github.event.schedule == '0 2 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Process daily payouts
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/jobs/payouts/daily" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --max-time 60

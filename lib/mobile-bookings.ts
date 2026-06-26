@@ -244,10 +244,20 @@ export async function reconcileBookings() {
       await tx.callBooking.update({ where: { id: b.id }, data: { status: b.customerJoinedAt ? "COMPLETED" : "USER_NO_SHOW", completedAt: now } })
     }
   }, { timeout: 20000, maxWait: 10000 })
+  // Auto-resolve UNDER_REVIEW bookings after 24 h. Creator ended early so
+  // the customer gets a full refund — no manual admin review happened.
+  const staleReview = await prisma.callBooking.findMany({
+    where: { status: "UNDER_REVIEW", completedAt: { lte: addDays(now, -1) } },
+  })
+  for (const b of staleReview) await prisma.$transaction(async (tx) => {
+    await releaseBookingReservation(tx, b)
+    await tx.callBooking.update({ where: { id: b.id }, data: { status: "REFUNDED", endReason: (b.endReason ? b.endReason + " — auto-refunded after 24 h" : "Auto-refunded after 24 h review window") } })
+  }, { timeout: 20000, maxWait: 10000 })
+
   const suspended = await prisma.user.findMany({ where: { earningSuspendedUntil: { lte: now } }, select: { id: true } })
   for (const user of suspended) {
     const active = await prisma.creatorStrike.count({ where: { creatorId: user.id, expiresAt: { gt: now } } })
     await prisma.user.update({ where: { id: user.id }, data: { activeStrikeCount: active, earningSuspendedUntil: active >= 3 ? addDays(now, 3) : null } })
   }
-  return { expired: expired.length, reminded: reminders.length, fines: late.length, creatorNoShows: creatorNoShows.length, settled: due.length }
+  return { expired: expired.length, reminded: reminders.length, fines: late.length, creatorNoShows: creatorNoShows.length, settled: due.length, autoRefunded: staleReview.length }
 }
