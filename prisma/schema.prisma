@@ -349,6 +349,7 @@ model NotificationCampaign {
   message     String              @db.Text
   channel     NotificationChannel @default(IN_APP)
   status      NotificationStatus  @default(DRAFT)
+  scheduledAt DateTime?
   sentAt      DateTime?
   metadata    Json?
   createdAt   DateTime            @default(now())

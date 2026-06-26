@@ -17,6 +17,7 @@ const schema = z.object({
   title: z.string().optional(),
   message: z.string().min(3),
   channel: z.nativeEnum(NotificationChannel),
+  scheduledAt: z.string().optional(), // ISO datetime string from the form
 })
 
 async function _runDelivery(campaignId: string) {
@@ -68,7 +69,11 @@ export async function createNotificationCampaignAction(
       title: formData.get("title") || undefined,
       message: formData.get("message"),
       channel: formData.get("channel"),
+      scheduledAt: formData.get("scheduledAt") || undefined,
     })
+
+    const scheduledAt = parsed.scheduledAt ? new Date(parsed.scheduledAt) : null
+    const isScheduled = scheduledAt && scheduledAt > new Date()
 
     const campaign = await prisma.notificationCampaign.create({
       data: {
@@ -76,16 +81,23 @@ export async function createNotificationCampaignAction(
         message: parsed.message,
         channel: parsed.channel,
         status: NotificationStatus.DRAFT,
-        metadata: { deliveryState: "DELIVERING" },
+        scheduledAt,
+        metadata: { deliveryState: isScheduled ? "SCHEDULED" : "DELIVERING" },
         createdById: session.id,
       },
     })
 
-    await _runDelivery(campaign.id)
+    if (!isScheduled) {
+      await _runDelivery(campaign.id)
+    }
 
     revalidatePath("/notifications")
     revalidatePath("/dashboard")
-    return successResult("Campaign delivered successfully.")
+    return successResult(
+      isScheduled
+        ? `Campaign scheduled for ${scheduledAt!.toLocaleString()}.`
+        : "Campaign delivered successfully.",
+    )
   } catch (error) {
     return errorResult(error, "Unable to send notification campaign.")
   }

@@ -41,16 +41,30 @@ const columns: DataTableColumn<Campaign>[] = [
   {
     key: "status",
     header: "Status",
-    render: (c) => (
-      <div className="flex items-center gap-2">
-        <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[c.status] ?? STATUS_STYLES.DRAFT}`}>
-          {c.status.replace(/_/g, " ").toLowerCase()}
-        </span>
-        {c.status === "DRAFT" || c.status === "FAILED" ? (
-          <DeliverNowButton campaignId={c.id} />
-        ) : null}
-      </div>
-    ),
+    render: (c) => {
+      const isScheduled = c.status === "DRAFT" && c.scheduledAt && new Date(c.scheduledAt) > new Date()
+      return (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            {isScheduled ? (
+              <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400">
+                scheduled
+              </span>
+            ) : (
+              <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[c.status] ?? STATUS_STYLES.DRAFT}`}>
+                {c.status.replace(/_/g, " ").toLowerCase()}
+              </span>
+            )}
+            {(c.status === "DRAFT" || c.status === "FAILED") && (
+              <DeliverNowButton campaignId={c.id} />
+            )}
+          </div>
+          {isScheduled && c.scheduledAt && (
+            <p className="text-xs text-muted-foreground">{formatDateTime(c.scheduledAt)}</p>
+          )}
+        </div>
+      )
+    },
   },
   {
     key: "sent-by",
@@ -108,6 +122,16 @@ export default async function NotificationsPage() {
                   className="min-h-32 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   placeholder="Write the campaign message to be delivered..."
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scheduledAt">Schedule for (optional)</Label>
+                <Input
+                  id="scheduledAt"
+                  name="scheduledAt"
+                  type="datetime-local"
+                  className="w-full"
+                />
+                <p className="text-xs text-muted-foreground">Leave blank to send immediately.</p>
               </div>
             </ActionForm>
           </AppModal>

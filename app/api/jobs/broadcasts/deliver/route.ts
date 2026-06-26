@@ -6,7 +6,14 @@ import { broadcastCampaignNotifications } from "@/lib/mobile-notifications"
 export async function POST(request: Request) {
   const secret = process.env.CRON_SECRET
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ success: false }, { status: 401 })
-  const campaign = await prisma.notificationCampaign.findFirst({ where: { status: "DRAFT" }, orderBy: { createdAt: "asc" } })
+  const now = new Date()
+  const campaign = await prisma.notificationCampaign.findFirst({
+    where: {
+      status: "DRAFT",
+      OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }],
+    },
+    orderBy: { createdAt: "asc" },
+  })
   if (!campaign) return NextResponse.json({ success: true, data: { idle: true } })
   const metadata = campaign.metadata && typeof campaign.metadata === "object" && !Array.isArray(campaign.metadata) ? campaign.metadata as Record<string, unknown> : {}
   try {
