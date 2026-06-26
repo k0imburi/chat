@@ -47,9 +47,7 @@ export default async function WalletDetailPage({ params }: { params: Promise<{ i
   const { id } = await params
   const detail = await getWalletDetail(id)
 
-  if (!detail) {
-    notFound()
-  }
+  if (!detail) return notFound()
 
   const columns: DataTableColumn<(typeof detail.ledger)[number]>[] = [
     {

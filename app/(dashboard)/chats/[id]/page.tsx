@@ -37,7 +37,7 @@ export default async function ChatThreadDetailPage({ params }: { params: Promise
   const { id } = await params
   const detail = await getChatThreadDetail(id)
 
-  if (!detail) notFound()
+  if (!detail) return notFound()
 
   return (
     <div className="space-y-6">

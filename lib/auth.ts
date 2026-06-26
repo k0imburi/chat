@@ -62,7 +62,7 @@ export async function getSessionUser() {
 export async function requireSessionUser() {
   const session = await getSessionUser()
   if (!session) redirect("/login")
-  return session
+  return session!
 }
 
 export async function authenticateAdmin(email: string, password: string) {

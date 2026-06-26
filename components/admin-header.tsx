@@ -39,7 +39,7 @@ export function AdminHeader({ session }: { session: SessionUser }) {
     setPageTitle(document.title.split(" | ")[0].trim())
   }, [pathname])
 
-  const segments = pathname.split("/").filter(Boolean)
+  const segments: string[] = pathname?.split("/").filter(Boolean) ?? []
   const initials = getInitials(session.name)
 
   return (

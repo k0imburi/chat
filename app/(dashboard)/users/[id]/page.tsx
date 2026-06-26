@@ -24,7 +24,7 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
     include: { media: { orderBy: { createdAt: "desc" } }, reportsAgainst: true, reportsMade: true },
   })
 
-  if (!user) notFound()
+  if (!user) return notFound()
 
   const profileVideo = user.media.find((m) => m.kind === "PROFILE_VIDEO")
   const gallery = user.media.filter((m) => m.kind !== "PROFILE_VIDEO")
