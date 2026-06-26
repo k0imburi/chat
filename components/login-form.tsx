@@ -40,7 +40,7 @@ export function LoginForm() {
       <CardHeader className="space-y-3 pb-0 text-center">
         <div className="flex justify-center">
           <Image
-            src="/chatandtip-logo-v2.png"
+            src="/chatandtip-logo.jpg"
             alt="ChatAndTip"
             width={220}
             height={64}

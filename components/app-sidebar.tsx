@@ -30,7 +30,7 @@ export function AppSidebar({
   const teams = [
     {
       name: "ChatAndTip",
-      logo: "/chatandtip-logo-v2.png",
+      logo: "/chatandtip-logo.jpg",
       plan: session.role.replace(/_/g, " "),
     },
   ]

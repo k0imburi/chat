@@ -137,7 +137,7 @@ function CheckoutInner() {
     <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col items-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 justify-center mb-6">
-          <Image src="/chatandtip-logo-v2.png" alt="ChatAndTip" width={32} height={32} />
+          <Image src="/chatandtip-logo.jpg" alt="ChatAndTip" width={54} height={34} className="h-9 w-14 object-contain" />
           <span className="text-lg font-bold">ChatAndTip</span>
         </div>
 

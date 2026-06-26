@@ -29,7 +29,7 @@ export function CustomerShell({
       <header className="sticky top-0 z-30 border-b border-black/5 bg-white/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5 font-extrabold">
-            <Image src="/chatandtip-logo-v2.png" alt="" width={34} height={34} className="rounded-full" priority />
+            <Image src="/chatandtip-logo.jpg" alt="" width={54} height={34} className="h-9 w-14 object-contain" priority />
             <span>ChatAndTip</span>
           </Link>
           <div className="flex items-center gap-2">

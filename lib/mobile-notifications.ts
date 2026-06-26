@@ -196,7 +196,7 @@ export async function broadcastCampaignNotifications(input: {
       email: "broadcast@chatandtip.system",
       role: UserRole.USER,
       verified: true,
-      avatarUrl: `${(env.APP_URL || "https://chatandtip.com").replace(/\/$/, "")}/chatandtip-logo-v2.png`,
+      avatarUrl: `${(env.APP_URL || "https://chatandtip.com").replace(/\/$/, "")}/chatandtip-logo.jpg`,
     },
     update: { fullName: "ChatAndTip", verified: true },
     include: { media: true },

@@ -15,7 +15,7 @@ export function CustomerLoginForm() {
     window.location.assign("/")
   }
   return <div className="w-full rounded-3xl border border-black/5 bg-white p-6 shadow-xl sm:p-8">
-    <Image src="/chatandtip-logo-v2.png" alt="ChatAndTip" width={58} height={58} className="mx-auto rounded-full" priority />
+    <Image src="/chatandtip-logo.jpg" alt="ChatAndTip" width={82} height={52} className="mx-auto h-14 w-24 object-contain" priority />
     <h1 className="mt-4 text-center text-2xl font-black">Welcome to ChatAndTip</h1>
     <p className="mt-2 text-center text-sm text-neutral-500">Sign in to discover creators and continue your conversations.</p>
     <form onSubmit={submit} className="mt-7 space-y-4">

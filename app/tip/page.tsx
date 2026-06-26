@@ -36,7 +36,7 @@ function TipInner() {
     setMessage("Payment was not confirmed. If you paid, it will update shortly."); setPaying(false)
   }
   return <main className="min-h-screen bg-neutral-50 px-4 py-10"><section className="mx-auto max-w-md rounded-3xl border bg-white p-6 shadow-sm">
-    <div className="mb-6 flex items-center justify-center gap-2"><Image src="/chatandtip-logo-v2.png" alt="ChatAndTip" width={32} height={32}/><b>ChatAndTip</b></div>
+    <div className="mb-6 flex items-center justify-center gap-2"><Image src="/chatandtip-logo.jpg" alt="ChatAndTip" width={54} height={34} className="h-9 w-14 object-contain"/><b>ChatAndTip</b></div>
     {info && <><div className="text-center"><Image src={`/icons/economy/${tier === "PEBBLE" ? "pebble" : tier === "GEM" ? "gem" : "diamond"}.svg`} alt="" width={60} height={60} className="mx-auto"/><h1 className="mt-3 text-2xl font-extrabold">Send {tier.toLowerCase()}</h1><p className="mt-1 text-neutral-500">to {info.creator.fullName}</p></div>
     <div className="mt-6 rounded-2xl bg-neutral-50 p-4"><div className="flex justify-between"><span>Tip</span><b>USD {info.usd}</b></div><div className="mt-2 flex justify-between"><span>M-PESA estimate</span><b>KES {info.totalKes}</b></div><p className="mt-3 text-xs text-neutral-500">The creator receives 50% after the 30-day maturity period.</p></div>
     <label className="mt-5 block text-xs font-semibold">M-PESA phone</label><input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-3"/>
