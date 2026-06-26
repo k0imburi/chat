@@ -219,6 +219,8 @@ export async function handleStkCallback(body: unknown) {
   return {
     ResultCode: 0,
     ResultDesc: updatedRecord.count > 0 ? "Success" : "Accepted",
+    checkoutRequestId: stkCallback.CheckoutRequestID,
+    success: stkCallback.ResultCode === 0,
   }
 }
 
