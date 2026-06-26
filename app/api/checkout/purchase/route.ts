@@ -25,9 +25,6 @@ export async function POST(request: Request) {
     if (body.provider === "STRIPE" && env.STRIPE_ENABLED !== "true") {
       return NextResponse.json({ success: false, message: "Card payments are not available" }, { status: 404 })
     }
-    if (body.provider === "MPESA" && env.MPESA_ENABLED !== "true") {
-      return NextResponse.json({ success: false, message: "M-PESA payments are not available" }, { status: 503 })
-    }
     if (body.provider === "MPESA" && body.phone.length < 6) {
       return NextResponse.json({ success: false, message: "Enter a valid M-PESA phone number" }, { status: 400 })
     }

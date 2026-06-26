@@ -35,7 +35,7 @@ export async function GET(request: Request) {
           minPurchase: MIN_PURCHASE,
         },
         providers: {
-          mpesa: env.MPESA_ENABLED === "true" && isMpesaConfigComplete(mpesaConfig),
+          mpesa: isMpesaConfigComplete(mpesaConfig),
           stripe: env.STRIPE_ENABLED === "true",
         },
       },

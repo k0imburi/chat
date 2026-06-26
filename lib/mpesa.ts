@@ -131,7 +131,6 @@ export async function fetchMpesaAccessToken(config: MpesaConfig) {
 }
 
 export async function initiateStkPush(input: StkRequestInput) {
-  if (env.MPESA_ENABLED !== "true") throw new Error("M-PESA payments are disabled")
   const config = await resolveMpesaConfig()
   if (!isMpesaConfigComplete(config)) {
     throw new Error("M-PESA settings are incomplete")
