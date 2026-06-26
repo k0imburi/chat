@@ -145,7 +145,7 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
         </div>
 
         {/* Comments section — scrolls below the full-screen post */}
-        <div id="comments" className="min-h-screen bg-white px-5 py-6">
+        <div id="comments" className="min-h-screen bg-white px-5 py-6 text-neutral-950">
           <h2 className="font-black text-neutral-950">
             Comments{post.commentCount > 0 ? ` (${post.commentCount})` : ""}
           </h2>
