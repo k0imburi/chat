@@ -1,4 +1,4 @@
-import { Flame, ImageIcon, Video, Eye } from "lucide-react"
+import { Flame, ImageIcon, Video, Eye, Smartphone } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import { ExploreInsightsTable } from "@/components/explore-insights-table"
 import { getExploreInsights } from "@/lib/explore-insights"
@@ -57,7 +57,7 @@ export default async function ExploreInsightsPage() {
       </div>
 
       {/* Summary */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard
           title="Total posts"
           value={summary.totalPosts.toLocaleString()}
@@ -66,11 +66,18 @@ export default async function ExploreInsightsPage() {
           gradient="from-rose-600 to-orange-600"
         />
         <SummaryCard
+          title="Mobile feed posts"
+          value={summary.mobileFeedPosts.toLocaleString()}
+          hint={summary.mobileFeedPosts === 0 ? "No user posts yet — admin posts are excluded from app trending/explore" : `${summary.totalPosts - summary.mobileFeedPosts} admin post${summary.totalPosts - summary.mobileFeedPosts === 1 ? "" : "s"} excluded`}
+          icon={Smartphone}
+          gradient="from-violet-600 to-indigo-600"
+        />
+        <SummaryCard
           title="Images"
           value={summary.images.toLocaleString()}
-          hint="Now included in the feed (were excluded before)"
+          hint="Included in the feed alongside videos"
           icon={ImageIcon}
-          gradient="from-violet-600 to-indigo-600"
+          gradient="from-fuchsia-600 to-pink-600"
         />
         <SummaryCard
           title="Total views"

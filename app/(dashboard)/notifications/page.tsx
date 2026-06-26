@@ -5,12 +5,19 @@ import { Label } from "@/components/ui/label"
 import { PageHeader } from "@/components/page-header"
 import { AppModal } from "@/components/app-modal"
 import { DataTable, type DataTableColumn } from "@/components/data-table"
+import { DeliverNowButton } from "@/components/deliver-now-button"
 import { createNotificationCampaignAction } from "@/lib/actions/notifications"
 import { NOTIFICATION_CHANNEL_OPTIONS } from "@/lib/constants"
 import { formatDateTime } from "@/lib/format"
 import { getNotificationCampaigns } from "@/lib/queries"
 
 type Campaign = Awaited<ReturnType<typeof getNotificationCampaigns>>[number]
+
+const STATUS_STYLES: Record<string, string> = {
+  SENT: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400",
+  DRAFT: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400",
+  FAILED: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400",
+}
 
 const columns: DataTableColumn<Campaign>[] = [
   {
@@ -35,9 +42,14 @@ const columns: DataTableColumn<Campaign>[] = [
     key: "status",
     header: "Status",
     render: (c) => (
-      <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium capitalize text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">
-        {c.status.replace(/_/g, " ").toLowerCase()}
-      </span>
+      <div className="flex items-center gap-2">
+        <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[c.status] ?? STATUS_STYLES.DRAFT}`}>
+          {c.status.replace(/_/g, " ").toLowerCase()}
+        </span>
+        {c.status === "DRAFT" || c.status === "FAILED" ? (
+          <DeliverNowButton campaignId={c.id} />
+        ) : null}
+      </div>
     ),
   },
   {

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { MediaKind } from "@prisma/client"
+import { MediaKind, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { hotScore, W_LIKE, W_COMMENT, W_VIEW, GRAVITY, FEED_LIMIT } from "@/lib/discover-score"
 
@@ -8,6 +8,8 @@ export type RankedPost = {
   id: string
   owner: string
   ownerId: string
+  /** True when the owner has role=USER — these posts appear in the mobile trending/explore feed */
+  inMobileFeed: boolean
   thumbnailUrl: string
   kind: "image" | "video"
   ageHours: number
@@ -24,6 +26,7 @@ export type ExploreInsights = {
   weights: { like: number; comment: number; view: number; gravity: number; limit: number }
   summary: {
     totalPosts: number
+    mobileFeedPosts: number
     images: number
     videos: number
     totalLikes: number
@@ -38,11 +41,13 @@ export type ExploreInsights = {
 /**
  * Platform-wide view of the explore/discover ranking, as a fresh viewer would
  * see it (seen-tracking is per-user, so this shows the pure hot-score order).
+ * `inMobileFeed` marks posts whose owner has role=USER — only those appear in
+ * the mobile trending/explore feed.
  */
 export async function getExploreInsights(limit = 2000): Promise<ExploreInsights> {
   const media = await prisma.userMedia.findMany({
     where: { kind: { in: [MediaKind.GALLERY_VIDEO, MediaKind.IMAGE] } },
-    include: { user: { select: { fullName: true } } },
+    include: { user: { select: { fullName: true, role: true } } },
   })
 
   const seenAgg = await prisma.discoverSeen.groupBy({
@@ -61,6 +66,7 @@ export async function getExploreInsights(limit = 2000): Promise<ExploreInsights>
         id: m.id,
         owner: m.user.fullName,
         ownerId: m.userId,
+        inMobileFeed: m.user.role === UserRole.USER,
         thumbnailUrl: m.thumbnailUrl || m.url || "",
         kind: m.kind === MediaKind.IMAGE ? ("image" as const) : ("video" as const),
         ageHours,
@@ -76,6 +82,7 @@ export async function getExploreInsights(limit = 2000): Promise<ExploreInsights>
 
   const summary = {
     totalPosts: posts.length,
+    mobileFeedPosts: posts.filter((p) => p.inMobileFeed).length,
     images: posts.filter((p) => p.kind === "image").length,
     videos: posts.filter((p) => p.kind === "video").length,
     totalLikes: posts.reduce((s, p) => s + p.likes, 0),

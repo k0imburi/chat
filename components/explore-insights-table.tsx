@@ -17,6 +17,7 @@ import { Toggle } from "@/components/ui/toggle"
 import type { RankedPost } from "@/lib/explore-insights"
 
 type TypeFilter = "all" | "video" | "image"
+type FeedFilter = "all" | "feed" | "admin"
 type SortKey = "score" | "views" | "likes" | "comments" | "age"
 
 const PAGE_SIZE = 25
@@ -29,6 +30,7 @@ function formatAge(hours: number) {
 
 export function ExploreInsightsTable({ posts }: { posts: RankedPost[] }) {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>("all")
   const [hideZero, setHideZero] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>("score")
   const [page, setPage] = useState(0)
@@ -36,6 +38,8 @@ export function ExploreInsightsTable({ posts }: { posts: RankedPost[] }) {
   const filtered = useMemo(() => {
     let rows = posts
     if (typeFilter !== "all") rows = rows.filter((p) => p.kind === typeFilter)
+    if (feedFilter === "feed") rows = rows.filter((p) => p.inMobileFeed)
+    if (feedFilter === "admin") rows = rows.filter((p) => !p.inMobileFeed)
     if (hideZero) rows = rows.filter((p) => p.engagement > 0)
     const sorted = [...rows].sort((a, b) => {
       switch (sortKey) {
@@ -101,6 +105,20 @@ export function ExploreInsightsTable({ posts }: { posts: RankedPost[] }) {
       render: (p) => (
         <Badge variant={p.kind === "image" ? "secondary" : "outline"}>{p.kind}</Badge>
       ),
+    },
+    {
+      key: "feed",
+      header: "Mobile feed",
+      render: (p) =>
+        p.inMobileFeed ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">
+            ✓ visible
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+            admin only
+          </span>
+        ),
     },
     {
       key: "age",
@@ -169,6 +187,23 @@ export function ExploreInsightsTable({ posts }: { posts: RankedPost[] }) {
           <SelectItem value="all">All types</SelectItem>
           <SelectItem value="video">Videos</SelectItem>
           <SelectItem value="image">Images</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={feedFilter}
+        onValueChange={(v) => {
+          setFeedFilter(v as FeedFilter)
+          resetPage()
+        }}
+      >
+        <SelectTrigger className="h-9 w-[160px]">
+          <SelectValue placeholder="Visibility" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All posts</SelectItem>
+          <SelectItem value="feed">Mobile feed only</SelectItem>
+          <SelectItem value="admin">Admin posts only</SelectItem>
         </SelectContent>
       </Select>
 
