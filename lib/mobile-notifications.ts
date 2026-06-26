@@ -4,6 +4,7 @@ import { Prisma, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
+import { env } from "@/lib/env"
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -138,6 +139,14 @@ export async function markNotificationRead(userId: string, notificationId: strin
     },
   })
 
+  const metadata = normalizeMetadata(notification.metadata)
+  if (notification.type === "broadcast" && typeof metadata.threadId === "string") {
+    await prisma.chatParticipant.updateMany({
+      where: { threadId: metadata.threadId, userId },
+      data: { unreadCount: 0 },
+    })
+  }
+
   emitChatRealtimeToUser(userId, {
     channel: "notifications",
     type: "notification_updated",
@@ -174,40 +183,119 @@ export async function broadcastCampaignNotifications(input: {
   message: string
   campaignId: string
   channel?: string
+  afterUserId?: string
+  batchSize?: number
 }) {
+  const systemUser = await prisma.user.upsert({
+    where: { externalId: "system:chatandtip" },
+    create: {
+      externalId: "system:chatandtip",
+      fullName: "ChatAndTip",
+      username: "chatandtip",
+      gender: "SYSTEM",
+      email: "broadcast@chatandtip.system",
+      role: UserRole.USER,
+      verified: true,
+      avatarUrl: `${(env.APP_URL || "https://chatandtip.com").replace(/\/$/, "")}/chatandtip-logo-v2.png`,
+    },
+    update: { fullName: "ChatAndTip", verified: true },
+    include: { media: true },
+  })
+
   const users = await prisma.user.findMany({
     where: {
       role: UserRole.USER,
       isActive: true,
+      id: { not: systemUser.id },
+      ...(input.afterUserId ? { id: { gt: input.afterUserId, not: systemUser.id } } : {}),
     },
     select: { id: true },
+    orderBy: { id: "asc" },
+    take: Math.min(500, Math.max(1, input.batchSize || 200)),
   })
 
   if (!users.length) {
     return { created: 0 }
   }
 
-  const created = await prisma.userNotification.createMany({
-    data: users.map((user) => ({
-      userId: user.id,
-      title: input.title || null,
-      message: input.message,
-      type: "alert",
-      metadata: {
-        campaignId: input.campaignId,
-        channel: input.channel || "IN_APP",
-      } as Prisma.InputJsonValue,
-    })),
-  })
-
-  const refreshedAt = new Date().toISOString()
+  const sentAt = new Date()
   for (const user of users) {
+    const delivery = await prisma.$transaction(async (tx) => {
+      let participant = await tx.chatParticipant.findFirst({
+        where: {
+          userId: user.id,
+          otherUserId: systemUser.id,
+          thread: { kind: "BROADCAST" },
+        },
+        include: { thread: true },
+      })
+      if (!participant) {
+        const thread = await tx.chatThread.create({
+          data: {
+            kind: "BROADCAST",
+            broadcastOnly: true,
+            initiatorId: systemUser.id,
+            participants: {
+              create: [
+                { userId: systemUser.id, otherUserId: user.id },
+                { userId: user.id, otherUserId: systemUser.id },
+              ],
+            },
+          },
+        })
+        participant = await tx.chatParticipant.findFirstOrThrow({
+          where: { threadId: thread.id, userId: user.id },
+          include: { thread: true },
+        })
+      }
+
+      const message = await tx.chatMessage.create({
+        data: {
+          threadId: participant.threadId,
+          senderId: systemUser.id,
+          type: "SYSTEM",
+          text: input.message,
+          reactions: {},
+          broadcastCampaignId: input.campaignId,
+          sentAt,
+        },
+      })
+      await tx.chatThread.update({
+        where: { id: participant.threadId },
+        data: { lastMessageText: input.message, lastMessageType: "SYSTEM", lastMessageAt: sentAt },
+      })
+      const recipient = await tx.chatParticipant.update({
+        where: { id: participant.id },
+        data: { unreadCount: { increment: 1 }, archived: false },
+      })
+      return { message, unread: recipient.unreadCount }
+    })
+
+    await createUserNotification({
+      userId: user.id,
+      senderId: systemUser.id,
+      title: input.title || "ChatAndTip",
+      message: input.message,
+      type: "broadcast",
+      metadata: { campaignId: input.campaignId, threadId: delivery.message.threadId, targetType: "broadcast", channel: input.channel || "IN_APP" },
+    })
+
     emitChatRealtimeToUser(user.id, {
-      channel: "notifications",
-      type: "notifications_refresh",
-      refreshedAt,
+      channel: "chat",
+      type: "chat_updated",
+      otherUserId: systemUser.id,
+      data: {
+        chatUserId: systemUser.id,
+        senderId: systemUser.id,
+        msgType: "system",
+        lastMsg: input.message,
+        sentAt: delivery.message.sentAt.toISOString(),
+        unread: delivery.unread,
+        receiver: serializeMobileUser(systemUser),
+        broadcastOnly: true,
+      },
     })
   }
 
-  return { created: created.count }
+  return { created: users.length, lastUserId: users.at(-1)?.id || null }
 }

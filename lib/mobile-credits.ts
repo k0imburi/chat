@@ -87,39 +87,38 @@ export async function allocateCredits(params: {
   transactionId: string
 }): Promise<CreditBalances> {
   const { userId, items, transactionId } = params
-  await getOrCreateCreditAccount(userId)
-
   await prisma.$transaction(
-    async (tx) => {
-      for (const [k, qty] of Object.entries(items)) {
-        const kind = k as CreditKind
-        if (!qty || qty <= 0) continue
-        const idempotencyKey = `purchase:${transactionId}:${kind}`
-        const exists = await tx.creditLedger.findUnique({ where: { idempotencyKey } })
-        if (exists) continue
-
-        const field = BALANCE_FIELD[kind]
-        await tx.creditAccount.update({
-          where: { userId },
-          data: { [field]: { increment: qty } },
-        })
-        await tx.creditLedger.create({
-          data: {
-            userId,
-            kind,
-            entryType: "PURCHASE",
-            quantity: qty,
-            value: new Prisma.Decimal(ON_ACCOUNT_VALUE_KES[kind] * qty),
-            idempotencyKey,
-            metadata: { transactionId },
-          },
-        })
-      }
-    },
+    (tx) => allocateCreditsInTransaction(tx, { userId, items, transactionId }),
     { timeout: 20000, maxWait: 10000 },
   )
 
   return getCreditBalances(userId)
+}
+
+export async function allocateCreditsInTransaction(
+  tx: Prisma.TransactionClient,
+  params: {
+    userId: string
+    items: Partial<Record<CreditKind, number>>
+    transactionId: string
+  },
+) {
+  const { userId, items, transactionId } = params
+  await tx.creditAccount.upsert({ where: { userId }, create: { userId }, update: {} })
+  for (const [k, qty] of Object.entries(items)) {
+    const kind = k as CreditKind
+    if (!qty || qty <= 0) continue
+    const idempotencyKey = `purchase:${transactionId}:${kind}`
+    const exists = await tx.creditLedger.findUnique({ where: { idempotencyKey } })
+    if (exists) continue
+    const field = BALANCE_FIELD[kind]
+    await tx.creditAccount.update({ where: { userId }, data: { [field]: { increment: qty } } })
+    await tx.creditLedger.create({ data: {
+      userId, kind, entryType: "PURCHASE", quantity: qty,
+      value: new Prisma.Decimal(ON_ACCOUNT_VALUE_KES[kind] * qty),
+      idempotencyKey, metadata: { transactionId },
+    } })
+  }
 }
 
 /**
@@ -134,55 +133,76 @@ export async function consumeCredit(params: {
   idempotencyKey: string
   metadata?: Prisma.InputJsonValue
 }): Promise<CreditBalances> {
+  await prisma.$transaction(
+    (tx) => consumeCreditInTransaction(tx, params),
+    { timeout: 20000, maxWait: 10000 },
+  )
+
+  return getCreditBalances(params.userId)
+}
+
+/** Same transfer as consumeCredit, but joins an existing transaction. */
+export async function consumeCreditInTransaction(
+  tx: Prisma.TransactionClient,
+  params: {
+    userId: string
+    creatorId: string
+    kind: CreditKind
+    idempotencyKey: string
+    metadata?: Prisma.InputJsonValue
+  },
+) {
   const { userId, creatorId, kind, idempotencyKey, metadata } = params
   const field = BALANCE_FIELD[kind]
   const value = new Prisma.Decimal(ON_ACCOUNT_VALUE_KES[kind])
 
-  await prisma.$transaction(
-    async (tx) => {
-      // Already charged for this action? No-op.
-      const already = await tx.creditLedger.findUnique({
-        where: { idempotencyKey: `consume:${idempotencyKey}` },
-      })
-      if (already) return
+  const already = await tx.creditLedger.findUnique({
+    where: { idempotencyKey: `consume:${idempotencyKey}` },
+  })
+  if (already) return
 
-      const acct = await tx.creditAccount.findUnique({ where: { userId } })
-      if (!acct || acct[field] <= 0) throw new InsufficientCreditsError(kind)
+  const acct = await tx.creditAccount.findUnique({ where: { userId } })
+  if (!acct || acct[field] <= 0) throw new InsufficientCreditsError(kind)
 
-      await tx.creditAccount.update({
-        where: { userId },
-        data: { [field]: { decrement: 1 } },
-      })
-      await tx.creditLedger.create({
-        data: {
-          userId,
-          kind,
-          entryType: "CONSUME",
-          quantity: -1,
-          value,
-          counterpartyId: creatorId,
-          idempotencyKey: `consume:${idempotencyKey}`,
-          metadata,
-        },
-      })
-      // Creator earns the value (not a spendable unit).
-      await tx.creditLedger.create({
-        data: {
-          userId: creatorId,
-          kind,
-          entryType: "CREATOR_EARN",
-          quantity: 0,
-          value,
-          counterpartyId: userId,
-          idempotencyKey: `earn:${idempotencyKey}`,
-          metadata,
-        },
-      })
+  await tx.creditAccount.update({
+    where: { userId },
+    data: { [field]: { decrement: 1 } },
+  })
+  await tx.creditLedger.create({
+    data: {
+      userId,
+      kind,
+      entryType: "CONSUME",
+      quantity: -1,
+      value,
+      counterpartyId: creatorId,
+      idempotencyKey: `consume:${idempotencyKey}`,
+      metadata,
     },
-    { timeout: 20000, maxWait: 10000 },
-  )
-
-  return getCreditBalances(userId)
+  })
+  await tx.earningLot.upsert({
+    where: { source_sourceId_userId: { source: kind, sourceId: idempotencyKey, userId: creatorId } },
+    create: {
+      userId: creatorId,
+      source: kind,
+      sourceId: idempotencyKey,
+      amount: value,
+      availableAt: new Date(Date.now() + 30 * 86_400_000),
+    },
+    update: {},
+  })
+  await tx.creditLedger.create({
+    data: {
+      userId: creatorId,
+      kind,
+      entryType: "CREATOR_EARN",
+      quantity: 0,
+      value,
+      counterpartyId: userId,
+      idempotencyKey: `earn:${idempotencyKey}`,
+      metadata,
+    },
+  })
 }
 
 /**
@@ -194,40 +214,52 @@ export async function recordTip(params: {
   receiverId: string
   tier: TipTier
   transactionId: string
+  exchangeRate?: number
 }) {
-  const { senderId, receiverId, tier, transactionId } = params
+  return prisma.$transaction((tx) => recordTipInTransaction(tx, params))
+}
+
+export async function recordTipInTransaction(
+  tx: Prisma.TransactionClient,
+  params: {
+    senderId: string
+    receiverId: string
+    tier: TipTier
+    transactionId: string
+    exchangeRate?: number
+  },
+) {
+  const { senderId, receiverId, tier, transactionId, exchangeRate } = params
+  const existing = await tx.tip.findUnique({ where: { transactionId } })
+  if (existing) return existing
   const amountUsd = TIP_USD[tier]
   const creatorAmountUsd = amountUsd * TIP_CREATOR_SHARE
 
-  const priorTips = await prisma.tip.count({ where: { senderId } })
+  const priorTips = await tx.tip.count({ where: {
+    senderId,
+    receiverId,
+    createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+  } })
   const flaggedForReview = priorTips >= TIP_REVIEW_THRESHOLD
 
-  const tip = await prisma.tip.create({
-    data: {
-      senderId,
-      receiverId,
-      tier,
-      amountUsd: new Prisma.Decimal(amountUsd),
-      creatorAmountUsd: new Prisma.Decimal(creatorAmountUsd),
-      flaggedForReview,
-      transactionId,
-    },
-  })
-
-  // Creator earns the USD value (tracked in USD, separate from KES credits).
-  await prisma.creditLedger.create({
-    data: {
-      userId: receiverId,
-      entryType: "CREATOR_EARN",
-      quantity: 0,
-      value: new Prisma.Decimal(creatorAmountUsd),
-      currency: "USD",
-      counterpartyId: senderId,
-      idempotencyKey: `tip:${transactionId}`,
-      metadata: { tier, tipId: tip.id },
-    },
-  })
-
+  const tip = await tx.tip.create({ data: {
+      senderId, receiverId, tier,
+      amountUsd: new Prisma.Decimal(amountUsd), creatorAmountUsd: new Prisma.Decimal(creatorAmountUsd),
+      flaggedForReview, reviewStatus: flaggedForReview ? "HELD" : "CLEAR", transactionId,
+      exchangeRate: exchangeRate ? new Prisma.Decimal(exchangeRate) : null,
+    } })
+    await tx.creditLedger.create({ data: {
+      userId: receiverId, entryType: "CREATOR_EARN", quantity: 0,
+      value: new Prisma.Decimal(creatorAmountUsd), currency: "USD", counterpartyId: senderId,
+      idempotencyKey: `tip:${transactionId}`, metadata: { tier, tipId: tip.id },
+    } })
+    await tx.earningLot.create({ data: {
+      userId: receiverId, source: "TIP", sourceId: tip.id,
+      amount: new Prisma.Decimal(creatorAmountUsd), currency: "USD",
+      status: flaggedForReview ? "HELD" : "PENDING",
+      heldReason: flaggedForReview ? "Sixth or later tip from this sender in 24 hours" : null,
+      availableAt: new Date(Date.now() + 30 * 86_400_000),
+    } })
   return tip
 }
 
@@ -259,43 +291,6 @@ export function priceCart(items: CartItems): { totalKes: number; normalized: Car
 
   if (total <= 0) throw new Error("Cart is empty")
   return { totalKes: total, normalized }
-}
-
-/**
- * Called after an MPESA STK callback. If the matching CreditPurchase succeeded
- * and isn't yet allocated, allocate the credits (idempotent on the purchase
- * id). No-ops for non-credit MPESA callbacks.
- */
-export async function finalizeCreditPurchaseByCheckoutId(
-  checkoutRequestId: string,
-  success: boolean,
-) {
-  if (!checkoutRequestId) return
-  const purchase = await prisma.creditPurchase.findUnique({
-    where: { checkoutRequestId },
-  })
-  if (!purchase) return
-
-  if (!success) {
-    await prisma.creditPurchase.update({
-      where: { id: purchase.id },
-      data: { status: "FAILED" },
-    })
-    return
-  }
-
-  if (purchase.allocated) return
-
-  await allocateCredits({
-    userId: purchase.userId,
-    items: purchase.items as CartItems,
-    transactionId: purchase.id,
-  })
-
-  await prisma.creditPurchase.update({
-    where: { id: purchase.id },
-    data: { status: "SUCCESS", allocated: true },
-  })
 }
 
 /** Sum a creator's earned value (for verification + Phase 3 payouts). */

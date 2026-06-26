@@ -3,6 +3,8 @@ import {
   BellRing,
   CircleDollarSign,
   CreditCard,
+  FileCheck2,
+  ListChecks,
   Flame,
   LayoutDashboard,
   Landmark,
@@ -11,12 +13,16 @@ import {
   ReceiptText,
   Settings,
   ShieldCheck,
+  ShieldQuestion,
   TriangleAlert,
   Users,
+  WalletCards,
 } from "lucide-react"
 
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "ChatAndTip Admin"
-export const SESSION_COOKIE = "chatandtip_admin_session"
+export const SESSION_COOKIE = process.env.NODE_ENV === "production"
+  ? "__Host-chatandtip_admin_session"
+  : "chatandtip_admin_session"
 
 export const NAV_ITEMS = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -30,6 +36,11 @@ export const NAV_ITEMS = [
   { title: "Explore Insights", url: "/explore-insights", icon: Flame },
   { title: "Verification Logs", url: "/verification-logs", icon: ShieldEllipsis },
   { title: "Payment Plans", url: "/payment-plans", icon: CreditCard },
+  { title: "Payment Reconciliation", url: "/payment-reconciliation", icon: ListChecks },
+  { title: "Creator Verifications", url: "/creator-verifications", icon: FileCheck2 },
+  { title: "Held Tips", url: "/held-tips", icon: ShieldQuestion },
+  { title: "Booking Reviews", url: "/booking-reviews", icon: ShieldCheck },
+  { title: "Creator Payouts", url: "/creator-payouts", icon: WalletCards },
   { title: "Notifications", url: "/notifications", icon: BellRing },
   { title: "Settings", url: "/settings", icon: Settings },
 ]
@@ -59,6 +70,11 @@ export const NAV_GROUPS = [
       { title: "Withdrawals", url: "/withdrawals", icon: Landmark },
       { title: "Tip Requests", url: "/tip-requests", icon: ReceiptText },
       { title: "Payment Plans", url: "/payment-plans", icon: CreditCard },
+      { title: "Payment Reconciliation", url: "/payment-reconciliation", icon: ListChecks },
+      { title: "Creator Verifications", url: "/creator-verifications", icon: FileCheck2 },
+      { title: "Held Tips", url: "/held-tips", icon: ShieldQuestion },
+      { title: "Booking Reviews", url: "/booking-reviews", icon: ShieldCheck },
+      { title: "Creator Payouts", url: "/creator-payouts", icon: WalletCards },
     ],
   },
   {

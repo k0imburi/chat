@@ -8,7 +8,11 @@ const prisma = new PrismaClient()
 const secret = new TextEncoder().encode(process.env.JWT_SECRET)
 
 let pass = 0, fail = 0
-const ok = (l, c, extra = "") => { c ? pass++ : fail++; console.log(`  ${c ? "✓" : "✗"} ${l}${extra ? ` — ${extra}` : ""}`) }
+const ok = (l, c, extra = "") => {
+  if (c) pass++
+  else fail++
+  console.log(`  ${c ? "✓" : "✗"} ${l}${extra ? ` — ${extra}` : ""}`)
+}
 
 const mint = (userId) =>
   new SignJWT({ userId, loginProvider: "EMAIL" })

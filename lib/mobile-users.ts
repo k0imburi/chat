@@ -167,6 +167,14 @@ export function serializeMobileUser(user: UserWithMedia) {
   }
 }
 
+export async function serializeMobileUserWithCounts(user: UserWithMedia) {
+  const [followersCount, followingCount] = await Promise.all([
+    prisma.follow.count({ where: { followedId: user.id } }),
+    prisma.follow.count({ where: { followerId: user.id } }),
+  ])
+  return { ...serializeMobileUser(user), followersCount, followingCount }
+}
+
 export function serializeMobileUserWithLikes(user: UserWithMedia, likedMediaIds: Set<string>) {
   const serialized = serializeMobileUser(user) as Record<string, unknown>
   const profileVideo = serialized.profileVideo as Record<string, unknown>

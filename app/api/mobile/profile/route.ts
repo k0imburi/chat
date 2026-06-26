@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
-import { findMobileUserById, serializeMobileUser, updateMobileUserProfile } from "@/lib/mobile-users"
+import { findMobileUserById, serializeMobileUserWithCounts, updateMobileUserProfile } from "@/lib/mobile-users"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     success: true,
-    user: serializeMobileUser(user),
+    user: await serializeMobileUserWithCounts(user),
   })
 }
 
@@ -65,7 +65,7 @@ export async function PATCH(request: Request) {
       ...parsed,
       fullName: parsed.fullName ?? parsed.fullname,
     })
-    const serialized = serializeMobileUser(user)
+    const serialized = await serializeMobileUserWithCounts(user)
 
     emitChatRealtimeToUser(session.userId, {
       channel: "profile",

@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
 import { createUserNotification } from "@/lib/mobile-notifications"
-import { consumeCredit, getCreditBalances } from "@/lib/mobile-credits"
+import { consumeCreditInTransaction, getCreditBalances } from "@/lib/mobile-credits"
+import { getSignedPrivateR2DownloadUrl } from "@/lib/r2"
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -44,14 +45,17 @@ function normalizeReactions(value: unknown) {
 function serializeChatSummary(participant: ChatParticipantWithThread, receiver: UserWithMedia) {
   const lastMessage = participant.thread.messages[0]
   if (!lastMessage) return null
+  const contentIsLocked = Boolean(lastMessage.locked && lastMessage.senderId !== participant.userId)
 
   return {
     chatUserId: receiver.id,
     senderId: lastMessage.senderId,
     msgType: parseChatMessageType(lastMessage.type),
-    lastMsg: lastMessage.text || "",
+    lastMsg: contentIsLocked ? "Locked reply" : lastMessage.text || "",
     sentAt: lastMessage.sentAt.toISOString(),
     unread: participant.unreadCount,
+    broadcastOnly: participant.thread.broadcastOnly,
+    threadKind: participant.thread.kind.toLowerCase(),
     receiver: serializeMobileUser(receiver),
   }
 }
@@ -63,6 +67,7 @@ function serializeChatMessage(message: {
   type: ChatMessageType
   text: string | null
   imageUrl: string | null
+  imageObjectKey?: string | null
   replyToId: string | null
   replyToText: string | null
   replyToSenderId: string | null
@@ -71,23 +76,47 @@ function serializeChatMessage(message: {
   isRead: boolean
   locked?: boolean
   sentAt: Date
-}) {
+}, options?: { viewerId?: string; unlockKind?: "KEY" | "CHAT_CREDIT" }) {
+  const hideContent = Boolean(
+    message.locked && options?.viewerId && message.senderId !== options.viewerId,
+  )
+  const rawText = message.text || ""
+  const lockedContentType = message.imageUrl || message.imageObjectKey
+    ? "image"
+    : /https?:\/\/\S+/i.test(rawText)
+      ? "link"
+      : "text"
+
   return {
     id: message.id,
     chatId: message.threadId,
     senderId: message.senderId,
     type: parseChatMessageType(message.type),
-    textMsg: message.text || "",
-    imageUrl: message.imageUrl || "",
+    textMsg: hideContent ? "" : rawText,
+    imageUrl: hideContent ? "" : message.imageUrl || "",
     replyToId: message.replyToId || "",
-    replyToText: message.replyToText || "",
+    replyToText: hideContent ? "" : message.replyToText || "",
     replyToSenderId: message.replyToSenderId || "",
     replyToSenderName: message.replyToSenderName || "",
     reactions: normalizeReactions(message.reactions),
     isRead: message.isRead,
-    locked: message.locked ?? false,
+    locked: hideContent,
+    lockedContentType: hideContent ? lockedContentType : "",
+    unlockKind: hideContent ? options?.unlockKind ?? "CHAT_CREDIT" : "",
     sentAt: message.sentAt.toISOString(),
   }
+}
+
+async function serializeChatMessageForViewer(
+  message: Parameters<typeof serializeChatMessage>[0],
+  viewerId: string,
+  unlockKind?: "KEY" | "CHAT_CREDIT",
+) {
+  const serialized = serializeChatMessage(message, { viewerId, unlockKind })
+  if (!serialized.locked && message.imageObjectKey) {
+    serialized.imageUrl = await getSignedPrivateR2DownloadUrl(message.imageObjectKey)
+  }
+  return serialized
 }
 
 async function getChatUserOrThrow(userId: string) {
@@ -290,17 +319,39 @@ export async function getMessages(userId: string, otherUserId: string) {
       },
     })
 
-    const messages = await tx.chatMessage.findMany({
-      where: {
-        threadId: participant.threadId,
-      },
-      orderBy: { sentAt: "desc" },
+    const campaignIds = await tx.chatMessage.findMany({
+      where: { threadId: participant.threadId, broadcastCampaignId: { not: null } },
+      select: { broadcastCampaignId: true },
+      distinct: ["broadcastCampaignId"],
     })
+    for (const campaign of campaignIds) {
+      if (!campaign.broadcastCampaignId) continue
+      await tx.userNotification.updateMany({
+        where: {
+          userId,
+          type: "broadcast",
+          metadata: { path: "$.campaignId", equals: campaign.broadcastCampaignId },
+        },
+        data: { isRead: true },
+      })
+    }
+
+    const [messages, threadState] = await Promise.all([
+      tx.chatMessage.findMany({
+        where: { threadId: participant.threadId },
+        orderBy: { sentAt: "desc" },
+      }),
+      tx.chatThread.findUniqueOrThrow({
+        where: { id: participant.threadId },
+        select: { icebreakerUnlocked: true },
+      }),
+    ])
 
     const chatSummary = await getChatSummaryForUser(tx, userId, otherUserId)
 
     return {
-      messages: messages.map(serializeChatMessage),
+      messages,
+      unlockKind: threadState.icebreakerUnlocked ? "CHAT_CREDIT" as const : "KEY" as const,
       chatSummary,
       readAt: new Date().toISOString(),
     }
@@ -322,7 +373,11 @@ export async function getMessages(userId: string, otherUserId: string) {
     readAt: result.readAt,
   })
 
-  return result.messages
+  return Promise.all(
+    result.messages.map((message) =>
+      serializeChatMessageForViewer(message, userId, result.unlockKind),
+    ),
+  )
 }
 
 export async function sendMessage(input: {
@@ -330,6 +385,7 @@ export async function sendMessage(input: {
   receiverId: string
   textMsg?: string
   imageUrl?: string
+  imageObjectKey?: string
   replyToId?: string
   replyToText?: string
   replyToSenderId?: string
@@ -337,8 +393,9 @@ export async function sendMessage(input: {
 }) {
   const textMsg = input.textMsg?.trim() || ""
   const imageUrl = input.imageUrl?.trim() || ""
+  const imageObjectKey = input.imageObjectKey?.trim() || ""
 
-  if (!textMsg && !imageUrl) {
+  if (!textMsg && !imageUrl && !imageObjectKey) {
     throw new Error("Message content is required")
   }
 
@@ -346,16 +403,21 @@ export async function sendMessage(input: {
 
   const result = await prisma.$transaction(async (tx) => {
     const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
-    const messageType = imageUrl ? ChatMessageType.IMAGE : ChatMessageType.TEXT
+    const messageType = imageUrl || imageObjectKey ? ChatMessageType.IMAGE : ChatMessageType.TEXT
 
     // Credits gating: a reply from the non-initiator starts locked — the
     // thread initiator unlocks it with a Key (first) or ChatCredit (after).
     // The initiator's own messages are always free/unlocked.
     const thread = await tx.chatThread.findUnique({
       where: { id: threadId },
-      select: { initiatorId: true },
+      select: { initiatorId: true, icebreakerUnlocked: true, broadcastOnly: true },
     })
-    const locked = thread?.initiatorId != null && thread.initiatorId !== input.senderId
+    if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
+    const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
+    const locked = !earningSuspended && thread?.initiatorId != null && thread.initiatorId !== input.senderId
+    if (locked && imageUrl && !imageObjectKey) {
+      throw new Error("Paid image replies must use private upload storage")
+    }
 
     const message = await tx.chatMessage.create({
       data: {
@@ -364,6 +426,7 @@ export async function sendMessage(input: {
         type: messageType,
         text: textMsg || null,
         imageUrl: imageUrl || null,
+        imageObjectKey: imageObjectKey || null,
         replyToId: input.replyToId || null,
         replyToText: input.replyToText || null,
         replyToSenderId: input.replyToSenderId || null,
@@ -408,28 +471,29 @@ export async function sendMessage(input: {
       getChatSummaryForUser(tx, input.receiverId, input.senderId),
     ])
 
-    const serializedMessage = serializeChatMessage(message)
-
     return {
-      response: {
-        ...serializedMessage,
-        receiver: serializeMobileUser(other),
-      },
-      serializedMessage,
+      message,
+      unlockKind: thread?.icebreakerUnlocked ? "CHAT_CREDIT" as const : "KEY" as const,
+      locked,
       senderSummary,
       receiverSummary,
     }
   })
 
+  const [senderMessage, receiverMessage] = await Promise.all([
+    serializeChatMessageForViewer(result.message, input.senderId),
+    serializeChatMessageForViewer(result.message, input.receiverId, result.unlockKind),
+  ])
+
   await createUserNotification({
     userId: input.receiverId,
     senderId: input.senderId,
     title: me.fullName,
-    message: textMsg || "Sent you a photo",
+    message: result.locked ? "Sent you a locked reply" : textMsg || "Sent you a photo",
     type: "message",
     metadata: {
       threadUserId: input.senderId,
-      messageId: result.serializedMessage.id,
+      messageId: senderMessage.id,
     },
   })
 
@@ -437,14 +501,14 @@ export async function sendMessage(input: {
     channel: "chat",
     type: "message_created",
     otherUserId: input.receiverId,
-    data: result.serializedMessage,
+    data: senderMessage,
   })
 
   emitChatRealtimeToUser(input.receiverId, {
     channel: "chat",
     type: "message_created",
     otherUserId: input.senderId,
-    data: result.serializedMessage,
+    data: receiverMessage,
   })
 
   if (result.senderSummary) {
@@ -465,7 +529,7 @@ export async function sendMessage(input: {
     })
   }
 
-  return result.response
+  return { ...senderMessage, receiver: serializeMobileUser(other) }
 }
 
 /**
@@ -476,51 +540,57 @@ export async function sendMessage(input: {
  * initiator has no matching credit.
  */
 export async function unlockReply(input: { userId: string; messageId: string }) {
-  const message = await prisma.chatMessage.findUnique({
-    where: { id: input.messageId },
-    include: {
-      thread: { select: { id: true, initiatorId: true, icebreakerUnlocked: true } },
-    },
-  })
-  if (!message) throw new Error("Message not found")
-  if (!message.locked) return serializeChatMessage(message) // already unlocked
+  const result = await prisma.$transaction(async (tx) => {
+    const message = await tx.chatMessage.findUnique({
+      where: { id: input.messageId },
+      include: { thread: { select: { id: true, initiatorId: true } } },
+    })
+    if (!message) throw new Error("Message not found")
+    if (message.thread.initiatorId !== input.userId) {
+      throw new Error("Only the conversation initiator can unlock replies")
+    }
 
-  if (message.thread.initiatorId !== input.userId) {
-    throw new Error("Only the conversation initiator can unlock replies")
-  }
+    // Claim this message before charging. A concurrent retry observes count=0
+    // and returns without spending a second credit.
+    const claimed = await tx.chatMessage.updateMany({
+      where: { id: message.id, locked: true },
+      data: { locked: false },
+    })
+    if (claimed.count === 0) {
+      const current = await tx.chatMessage.findUniqueOrThrow({ where: { id: message.id } })
+      return { message: current, creatorId: message.senderId }
+    }
 
-  // First reply in the thread costs a Key; every reply after costs a ChatCredit.
-  const kind = message.thread.icebreakerUnlocked ? "CHAT_CREDIT" : "KEY"
+    // Exactly one concurrent unlock can transition the thread from its Key
+    // phase; all later replies atomically use ChatCredits.
+    const firstUnlock = await tx.chatThread.updateMany({
+      where: { id: message.thread.id, icebreakerUnlocked: false },
+      data: { icebreakerUnlocked: true },
+    })
+    const kind = firstUnlock.count === 1 ? "KEY" : "CHAT_CREDIT"
 
-  // Charge the initiator and credit the creator (throws if insufficient).
-  await consumeCredit({
-    userId: input.userId,
-    creatorId: message.senderId,
-    kind,
-    idempotencyKey: `unlock:${message.id}`,
-    metadata: { threadId: message.thread.id, messageId: message.id },
-  })
+    await consumeCreditInTransaction(tx, {
+      userId: input.userId,
+      creatorId: message.senderId,
+      kind,
+      idempotencyKey: `unlock:${message.id}`,
+      metadata: { threadId: message.thread.id, messageId: message.id },
+    })
 
-  // Unlock the message and, on the first unlock, flip the thread flag so the
-  // next reply costs a ChatCredit.
-  await prisma.$transaction([
-    prisma.chatMessage.update({ where: { id: message.id }, data: { locked: false } }),
-    ...(kind === "KEY"
-      ? [prisma.chatThread.update({ where: { id: message.thread.id }, data: { icebreakerUnlocked: true } })]
-      : []),
-  ])
+    const updated = await tx.chatMessage.findUniqueOrThrow({ where: { id: message.id } })
+    return { message: updated, creatorId: message.senderId }
+  }, { timeout: 20000, maxWait: 10000 })
 
-  const updated = await prisma.chatMessage.findUnique({ where: { id: message.id } })
-  const serialized = serializeChatMessage(updated!)
+  const serialized = await serializeChatMessageForViewer(result.message, input.userId)
 
   // Push the now-unlocked message to both parties in real time.
   emitChatRealtimeToUser(input.userId, {
     channel: "chat",
     type: "message_updated",
-    otherUserId: message.senderId,
+    otherUserId: result.creatorId,
     data: serialized,
   })
-  emitChatRealtimeToUser(message.senderId, {
+  emitChatRealtimeToUser(result.creatorId, {
     channel: "chat",
     type: "message_updated",
     otherUserId: input.userId,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { findMobileUserById, serializeMobileUser } from "@/lib/mobile-users"
+import { findMobileUserById, serializeMobileUserWithCounts } from "@/lib/mobile-users"
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
@@ -11,6 +11,6 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   return NextResponse.json({
     success: true,
-    user: serializeMobileUser(user),
+    user: await serializeMobileUserWithCounts(user),
   })
 }

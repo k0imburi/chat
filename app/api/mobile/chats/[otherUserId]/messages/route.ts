@@ -11,6 +11,7 @@ const paramsSchema = z.object({
 const bodySchema = z.object({
   textMsg: z.string().optional(),
   imageUrl: z.string().url().optional().or(z.literal("")),
+  imageObjectKey: z.string().max(1024).optional().or(z.literal("")),
   replyToId: z.string().optional(),
   replyToText: z.string().optional(),
   replyToSenderId: z.string().optional(),
@@ -54,6 +55,7 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       receiverId: params.otherUserId,
       textMsg: body.textMsg,
       imageUrl: body.imageUrl,
+      imageObjectKey: body.imageObjectKey,
       replyToId: body.replyToId,
       replyToText: body.replyToText,
       replyToSenderId: body.replyToSenderId,

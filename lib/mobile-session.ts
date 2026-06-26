@@ -51,6 +51,12 @@ export async function readCheckoutToken(token: string): Promise<string | null> {
   }
 }
 
+export async function getCheckoutUserFromRequest(request: Request) {
+  const cookie = request.headers.get("cookie") || ""
+  const token = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("chatandtip_checkout="))?.slice("chatandtip_checkout=".length)
+  return token ? readCheckoutToken(decodeURIComponent(token)) : null
+}
+
 export async function getMobileSessionFromRequest(request: Request) {
   const header = request.headers.get("authorization") || request.headers.get("Authorization")
   if (!header?.startsWith("Bearer ")) return null

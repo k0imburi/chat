@@ -28,6 +28,7 @@ const schema = z.object({
   content_type: z.string().min(1),
   size_bytes:   z.number().int().positive().optional(),
   dir_name:     z.string().default("uploads"),
+  visibility:   z.enum(["public", "private"]).default("public"),
 })
 
 export async function POST(request: Request) {
@@ -42,10 +43,11 @@ export async function POST(request: Request) {
     // ── Verify the object actually exists in R2 ─────────────────────────
     const { client, settings } = await getR2Client()
 
+    const bucket = body.visibility === "private" ? settings.privateBucketName : settings.bucketName
     let sizeBytes = body.size_bytes ?? 0
     try {
       const head = await client.send(
-        new HeadObjectCommand({ Bucket: settings.bucketName, Key: body.object_key }),
+        new HeadObjectCommand({ Bucket: bucket, Key: body.object_key }),
       )
       sizeBytes = head.ContentLength ?? sizeBytes
     } catch {
@@ -56,10 +58,9 @@ export async function POST(request: Request) {
     }
 
     // ── Resolve public URL (client may send null if publicBaseUrl wasn't configured) ──
-    const resolvedPublicUrl =
-      (body.public_url || null) ??
-      getPublicUrl(body.object_key, settings.publicBaseUrl) ??
-      ""
+    const resolvedPublicUrl = body.visibility === "private"
+      ? ""
+      : (body.public_url || null) ?? getPublicUrl(body.object_key, settings.publicBaseUrl) ?? ""
 
     // ── Log asset to DB (upsert in case of retry) ───────────────────────
     const originalName = body.object_key.split("/").pop() ?? body.object_key
@@ -71,10 +72,11 @@ export async function POST(request: Request) {
         url: resolvedPublicUrl || null,
         contentType: body.content_type,
         sizeBytes,
-        bucket: settings.bucketName,
+        bucket,
+        visibility: body.visibility,
         metadata: { userId: session.userId, dirName: body.dir_name, source: "mobile-client-presign" },
       },
-      update: { sizeBytes, contentType: body.content_type },
+      update: { sizeBytes, contentType: body.content_type, visibility: body.visibility, bucket },
     })
 
     // ── Async MP4 faststart repair (fire-and-forget) ────────────────────
@@ -92,6 +94,7 @@ export async function POST(request: Request) {
       asset_id:   asset.id,
       public_url: resolvedPublicUrl,
       object_key: body.object_key,
+      visibility: body.visibility,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {

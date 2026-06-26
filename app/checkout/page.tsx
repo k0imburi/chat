@@ -13,13 +13,14 @@ type Info = {
     purchaseKes: Record<CreditKind, number>
     minPurchase: Partial<Record<CreditKind, number>>
   }
+  providers: { mpesa: boolean; stripe: boolean }
 }
 
-const ITEMS: { kind: CreditKind; label: string; hint: string }[] = [
-  { kind: "KEY", label: "Keys", hint: "Unlock a creator's first reply" },
-  { kind: "CHAT_CREDIT", label: "ChatCredits", hint: "Each subsequent reply" },
-  { kind: "VOICE_SESSION", label: "Voice Sessions", hint: "15-min voice call" },
-  { kind: "VIDEO_SESSION", label: "Video Sessions", hint: "15-min video call" },
+const ITEMS: { kind: CreditKind; label: string; hint: string; icon: string }[] = [
+  { kind: "KEY", label: "Keys", hint: "Unlock a creator's first reply", icon: "/icons/economy/key.svg" },
+  { kind: "CHAT_CREDIT", label: "ChatCredits", hint: "Each subsequent reply", icon: "/icons/economy/chat_credit.svg" },
+  { kind: "VOICE_SESSION", label: "Voice Sessions", hint: "15-min voice call", icon: "/icons/economy/voice_session.svg" },
+  { kind: "VIDEO_SESSION", label: "Video Sessions", hint: "15-min video call", icon: "/icons/economy/video_session.svg" },
 ]
 
 const BRAND = "#25d366"
@@ -27,6 +28,8 @@ const BRAND = "#25d366"
 function CheckoutInner() {
   const params = useSearchParams()
   const token = params.get("t") || ""
+  const returnedPurchaseId = params.get("purchaseId") || ""
+  const stripeReturn = params.get("stripe") || ""
 
   const [info, setInfo] = useState<Info | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -37,15 +40,28 @@ function CheckoutInner() {
     VIDEO_SESSION: 0,
   })
   const [phone, setPhone] = useState("")
+  const [provider, setProvider] = useState<"MPESA" | "STRIPE">("MPESA")
   const [stage, setStage] = useState<"build" | "paying" | "success" | "failed">("build")
   const [message, setMessage] = useState<string>("")
 
-  useEffect(() => {
-    if (!token) {
-      setLoadError("Missing checkout link. Please reopen from the app.")
-      return
+  const pollPurchase = useCallback(async (purchaseId: string) => {
+    for (let i = 0; i < 20; i++) {
+      const s = await fetch(`/api/checkout/purchase?purchaseId=${purchaseId}`).then((r) => r.json())
+      if (s.success && s.data.status === "SUCCESS") { setStage("success"); setMessage("Payment received — your credits have been added."); return }
+      if (s.success && s.data.status === "FAILED") { setStage("failed"); setMessage("Payment was not completed. Please try again."); return }
+      await new Promise((r) => setTimeout(r, 3000))
     }
-    fetch(`/api/checkout/info?t=${encodeURIComponent(token)}`)
+    setStage("failed"); setMessage("We didn't get confirmation in time. If you paid, your credits will appear shortly.")
+  }, [])
+
+  useEffect(() => {
+    const sessionRequest = token
+      ? fetch("/api/checkout/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }).then((r) => r.json()).then((session) => {
+          if (!session.success) throw new Error(session.message || "Invalid checkout link")
+          window.history.replaceState({}, "", "/checkout")
+        })
+      : Promise.resolve()
+    sessionRequest.then(() => fetch("/api/checkout/info"))
       .then((r) => r.json())
       .then((res) => {
         if (!res.success) {
@@ -53,10 +69,17 @@ function CheckoutInner() {
           return
         }
         setInfo(res.data)
+        if (!res.data.providers?.mpesa && res.data.providers?.stripe) setProvider("STRIPE")
         if (res.data.user?.phoneNumber) setPhone(res.data.user.phoneNumber)
+        if (stripeReturn === "cancelled") setMessage("Card payment was cancelled. You can try again.")
+        if (stripeReturn === "success" && returnedPurchaseId) {
+          setStage("paying")
+          setMessage("Confirming your card payment…")
+          void pollPurchase(returnedPurchaseId)
+        }
       })
       .catch(() => setLoadError("Could not load checkout. Please try again."))
-  }, [token])
+  }, [token, stripeReturn, returnedPurchaseId, pollPurchase])
 
   const prices = info?.pricing.purchaseKes
   const total = useMemo(() => {
@@ -70,8 +93,8 @@ function CheckoutInner() {
     if (total <= 0) return false
     const hasKeyOrChat = qty.KEY > 0 || qty.CHAT_CREDIT > 0
     if (hasKeyOrChat && (qty.KEY < 1 || qty.CHAT_CREDIT < 5)) return false
-    return phone.trim().length >= 9
-  }, [total, qty, phone])
+    return provider === "STRIPE" || phone.trim().length >= 9
+  }, [total, qty, phone, provider])
 
   const minHint =
     (qty.KEY > 0 || qty.CHAT_CREDIT > 0) && (qty.KEY < 1 || qty.CHAT_CREDIT < 5)
@@ -83,12 +106,16 @@ function CheckoutInner() {
 
   const pay = useCallback(async () => {
     setStage("paying")
-    setMessage("Sending an M-PESA prompt to your phone…")
+    setMessage(provider === "MPESA" ? "Sending an M-PESA prompt to your phone…" : "Opening secure card checkout…")
     try {
       const res = await fetch("/api/checkout/purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, phone: phone.trim(), items: qty }),
+        body: JSON.stringify({
+          phone: phone.trim(),
+          provider,
+          items: Object.fromEntries(Object.entries(qty).filter(([, value]) => value > 0)),
+        }),
       }).then((r) => r.json())
 
       if (!res.success) {
@@ -98,30 +125,13 @@ function CheckoutInner() {
       }
 
       const purchaseId = res.data.purchaseId as string
-      // Poll for allocation (the STK callback confirms payment).
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 3000))
-        const s = await fetch(
-          `/api/checkout/purchase?t=${encodeURIComponent(token)}&purchaseId=${purchaseId}`,
-        ).then((r) => r.json())
-        if (s.success && s.data.status === "SUCCESS") {
-          setStage("success")
-          setMessage("Payment received — your credits have been added.")
-          return
-        }
-        if (s.success && s.data.status === "FAILED") {
-          setStage("failed")
-          setMessage("Payment was not completed. Please try again.")
-          return
-        }
-      }
-      setStage("failed")
-      setMessage("We didn't get a confirmation in time. If you paid, your credits will appear shortly.")
+      if (provider === "STRIPE" && res.data.redirectUrl) { window.location.assign(res.data.redirectUrl); return }
+      await pollPurchase(purchaseId)
     } catch {
       setStage("failed")
       setMessage("Something went wrong. Please try again.")
     }
-  }, [token, phone, qty])
+  }, [phone, qty, provider, pollPurchase])
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col items-center px-4 py-10">
@@ -144,17 +154,22 @@ function CheckoutInner() {
             <>
               <h1 className="text-xl font-bold">Recharge</h1>
               <p className="text-sm text-neutral-500 mt-1">
-                {info.user?.fullName ? `For ${info.user.fullName}. ` : ""}Pay securely with M-PESA.
+                {info.user?.fullName ? `For ${info.user.fullName}. ` : ""}Choose M-PESA or card payment.
               </p>
 
               <div className="mt-5 space-y-3">
                 {ITEMS.map((it) => (
                   <div key={it.kind} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 p-3">
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-50">
+                        <Image src={it.icon} alt="" width={22} height={22} aria-hidden />
+                      </span>
+                      <div className="min-w-0">
                       <p className="font-semibold text-sm">{it.label}</p>
                       <p className="text-xs text-neutral-500 truncate">
                         {it.hint} · {prices?.[it.kind]} KES
                       </p>
+                      </div>
                     </div>
                     <Stepper
                       value={qty[it.kind]}
@@ -168,10 +183,14 @@ function CheckoutInner() {
 
               {minHint && <p className="text-xs text-amber-600 mt-3">{minHint}</p>}
 
-              <label className="block text-xs font-medium text-neutral-600 mt-5 mb-1">
-                M-PESA phone number
-              </label>
-              <input
+              {info.providers.mpesa && info.providers.stripe ? <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-neutral-100 p-1">
+                <button type="button" onClick={() => setProvider("MPESA")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${provider === "MPESA" ? "bg-white shadow-sm" : "text-neutral-500"}`}>M-PESA</button>
+                <button type="button" onClick={() => setProvider("STRIPE")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${provider === "STRIPE" ? "bg-white shadow-sm" : "text-neutral-500"}`}>Card</button>
+              </div> : null}
+
+              {!info.providers.mpesa && !info.providers.stripe ? <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Payments are temporarily unavailable.</p> : null}
+
+              {provider === "MPESA" && <><label className="block text-xs font-medium text-neutral-600 mt-5 mb-1">M-PESA phone number</label><input
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="07XX XXX XXX"
@@ -179,7 +198,7 @@ function CheckoutInner() {
                 disabled={stage === "paying"}
                 className="w-full rounded-xl border border-neutral-300 px-3 py-2.5 text-sm outline-none focus:border-[color:var(--brand)]"
                 style={{ ["--brand" as string]: BRAND }}
-              />
+              /></>}
 
               <div className="flex items-center justify-between mt-5">
                 <span className="text-sm text-neutral-500">Total</span>
@@ -188,11 +207,11 @@ function CheckoutInner() {
 
               <button
                 onClick={pay}
-                disabled={!valid || stage === "paying"}
+                disabled={!valid || stage === "paying" || (!info.providers.mpesa && !info.providers.stripe)}
                 className="w-full mt-4 rounded-xl py-3 font-semibold text-white disabled:opacity-50 transition"
                 style={{ backgroundColor: BRAND }}
               >
-                {stage === "paying" ? "Waiting for M-PESA…" : "Pay with M-PESA"}
+                {stage === "paying" ? "Starting payment…" : provider === "MPESA" ? "Pay with M-PESA" : "Pay securely by card"}
               </button>
 
               {stage === "paying" && (
@@ -200,7 +219,7 @@ function CheckoutInner() {
               )}
 
               <p className="text-[11px] text-neutral-400 text-center mt-4">
-                Plus standard M-PESA transaction charges. Credits are added to your account once payment is confirmed.
+                Credits are added only after the selected provider confirms payment through its signed callback.
               </p>
             </>
           )}

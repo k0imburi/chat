@@ -93,9 +93,10 @@ export async function sendOtpNotification(input: OtpInput) {
   const settings = await getNotificationSettings()
   const appName = settings.appName
   const minutes = settings.auth.otpExpiryMinutes
-  const message =
-    input.purpose === VerificationPurpose.PHONE_LOGIN
-      ? `${appName}: Your verification code is ${code}. It expires in ${minutes} minutes.`
+  const message = input.purpose === VerificationPurpose.PHONE_LOGIN
+    ? `${appName}: Your verification code is ${code}. It expires in ${minutes} minutes.`
+    : input.purpose === VerificationPurpose.PAYOUT_PHONE
+      ? `${appName}: Your M-PESA payout verification code is ${code}. It expires in ${minutes} minutes.`
       : `${appName}: Your password reset code is ${code}. It expires in ${minutes} minutes.`
 
   const result =

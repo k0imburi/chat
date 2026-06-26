@@ -68,6 +68,86 @@ enum ChatMessageType {
   SYSTEM
 }
 
+enum ChatThreadKind {
+  DIRECT
+  BROADCAST
+}
+
+enum BookingType {
+  VOICE
+  VIDEO
+}
+
+enum BookingStatus {
+  PROPOSED
+  APPROVED
+  DECLINED
+  EXPIRED
+  CANCELLED
+  LIVE
+  COMPLETED
+  USER_NO_SHOW
+  CREATOR_NO_SHOW
+  UNDER_REVIEW
+  REFUNDED
+}
+
+enum EarningSource {
+  KEY
+  CHAT_CREDIT
+  VOICE_SESSION
+  VIDEO_SESSION
+  TIP
+}
+
+enum EarningLotStatus {
+  PENDING
+  HELD
+  AVAILABLE
+  RESERVED
+  PAID
+  REVERSED
+}
+
+enum KycStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CreatorPayoutStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum PaymentProvider {
+  MPESA
+  STRIPE
+  GOOGLE_PLAY
+  APP_STORE
+}
+
+enum PaymentPurpose {
+  CREDIT_PURCHASE
+  TIP
+  PAYOUT
+}
+
+enum PaymentAttemptStatus {
+  CREATED
+  SUBMITTING
+  PENDING
+  VERIFYING
+  FULFILLING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REQUIRES_REVIEW
+}
+
 enum TipRequestStatus {
   PENDING
   SENT
@@ -90,6 +170,7 @@ enum VerificationChannel {
 enum VerificationPurpose {
   PHONE_LOGIN
   PASSWORD_RESET
+  PAYOUT_PHONE
 }
 
 model User {
@@ -124,6 +205,8 @@ model User {
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   lastActiveAt          DateTime?
+  earningSuspendedUntil DateTime?
+  activeStrikeCount     Int                    @default(0)
   media                 UserMedia[]
   reportsMade           Report[]               @relation("ReportReporter")
   reportsAgainst        Report[]               @relation("ReportTarget")
@@ -135,6 +218,8 @@ model User {
   creditAccount         CreditAccount?
   creditEntries         CreditLedger[]         @relation("CreditLedgerUser")
   creditPurchases       CreditPurchase[]
+  tipPurchases          TipPurchase[]          @relation("TipPurchaseSender")
+  receivedTipPurchases  TipPurchase[]          @relation("TipPurchaseReceiver")
   sentTips              Tip[]                  @relation("TipSender")
   receivedTips          Tip[]                  @relation("TipReceiver")
   sentFollows           Follow[]               @relation("FollowSender")
@@ -156,6 +241,15 @@ model User {
   providerAccounts      ProviderAccount[]
   videoComments         VideoComment[]         @relation("CommentAuthor")
   commentLikes          CommentLike[]          @relation("CommentLikeUser")
+  creatorAvailability   CreatorAvailability[]
+  customerBookings      CallBooking[]          @relation("BookingCustomer")
+  creatorBookings       CallBooking[]          @relation("BookingCreator")
+  creatorStrikes        CreatorStrike[]
+  earningLots           EarningLot[]
+  kycProfile            CreatorKyc?
+  payoutProfile         PayoutProfile?
+  creatorPayouts        CreatorPayout[]
+  paymentAttempts       PaymentAttempt[]
 
   @@map("users")
 }
@@ -193,28 +287,28 @@ model VerificationCode {
 }
 
 model UserMedia {
-  id           String         @id @default(cuid())
-  userId       String
-  kind         MediaKind
+  id             String         @id @default(cuid())
+  userId         String
+  kind           MediaKind
   title          String?
   titlePositionX Float?         @default(0.5)
   titlePositionY Float?         @default(0.5)
   caption        String?        @db.Text
   description    String?        @db.Text
   objectKey      String?
-  url          String
-  images       Json?
-  thumbnailUrl String?
-  mimeType     String?
-  sizeBytes    Int?
-  views        Int            @default(0)
-  likes        Int            @default(0)
-  commentCount Int            @default(0)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  likeRecords  VideoLike[]
-  comments     VideoComment[]
+  url            String
+  images         Json?
+  thumbnailUrl   String?
+  mimeType       String?
+  sizeBytes      Int?
+  views          Int            @default(0)
+  likes          Int            @default(0)
+  commentCount   Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likeRecords    VideoLike[]
+  comments       VideoComment[]
 
   @@index([userId, kind])
 }
@@ -325,15 +419,17 @@ enum TipTier {
 
 // Per-user balance counters. Source of truth for "how many do I have now".
 model CreditAccount {
-  id            String   @id @default(cuid())
-  userId        String   @unique
-  keys          Int      @default(0)
-  chatCredits   Int      @default(0)
-  voiceSessions Int      @default(0)
-  videoSessions Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  keys                  Int      @default(0)
+  chatCredits           Int      @default(0)
+  voiceSessions         Int      @default(0)
+  videoSessions         Int      @default(0)
+  reservedVoiceSessions Int      @default(0)
+  reservedVideoSessions Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Immutable audit trail of every credit movement. `idempotencyKey` prevents
@@ -360,17 +456,23 @@ model CreditLedger {
 // A credit-purchase cart linked to an MPESA STK request. On callback success
 // the cart's quantities are allocated via allocateCredits (idempotent on id).
 model CreditPurchase {
-  id                String   @id @default(cuid())
+  id                String          @id @default(cuid())
   userId            String
-  checkoutRequestId String?  @unique
+  checkoutRequestId String?         @unique
+  stripeSessionId   String?         @unique
   phone             String
   items             Json
-  totalKes          Decimal  @db.Decimal(12, 2)
-  status            String   @default("PENDING") // PENDING | SUCCESS | FAILED
-  allocated         Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  totalKes          Decimal         @db.Decimal(12, 2)
+  status            String          @default("PENDING") // PENDING | SUCCESS | FAILED
+  allocated         Boolean         @default(false)
+  provider          String          @default("MPESA")
+  paymentAttemptId  String?         @unique
+  pricingSnapshot   Json?
+  exchangeRate      Decimal?        @db.Decimal(12, 4)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentAttempt    PaymentAttempt? @relation(fields: [paymentAttemptId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
 }
@@ -385,6 +487,8 @@ model Tip {
   amountUsd        Decimal  @db.Decimal(10, 2)
   creatorAmountUsd Decimal  @db.Decimal(10, 2)
   flaggedForReview Boolean  @default(false)
+  reviewStatus     String   @default("CLEAR")
+  exchangeRate     Decimal? @db.Decimal(12, 4)
   transactionId    String?  @unique
   createdAt        DateTime @default(now())
   sender           User     @relation("TipSender", fields: [senderId], references: [id], onDelete: Cascade)
@@ -392,6 +496,78 @@ model Tip {
 
   @@index([receiverId, createdAt])
   @@index([senderId, createdAt])
+}
+
+model TipPurchase {
+  id                String          @id @default(cuid())
+  senderId          String
+  receiverId        String
+  tier              TipTier
+  amountUsd         Decimal         @db.Decimal(10, 2)
+  totalKes          Decimal         @db.Decimal(12, 2)
+  exchangeRate      Decimal         @db.Decimal(12, 4)
+  phone             String
+  checkoutRequestId String?         @unique
+  stripeSessionId   String?         @unique
+  provider          String          @default("MPESA")
+  paymentAttemptId  String?         @unique
+  status            String          @default("PENDING")
+  recorded          Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  sender            User            @relation("TipPurchaseSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver          User            @relation("TipPurchaseReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  paymentAttempt    PaymentAttempt? @relation(fields: [paymentAttemptId], references: [id], onDelete: SetNull)
+
+  @@index([senderId, createdAt])
+  @@index([receiverId, createdAt])
+}
+
+model PaymentAttempt {
+  id                 String                @id @default(cuid())
+  userId             String?
+  provider           PaymentProvider
+  purpose            PaymentPurpose
+  status             PaymentAttemptStatus  @default(CREATED)
+  amount             Decimal               @db.Decimal(12, 2)
+  currency           String                @default("KES")
+  expectedPhone      String?
+  idempotencyKey     String                @unique
+  merchantRequestId  String?               @unique
+  checkoutRequestId  String?               @unique
+  providerReceipt    String?               @unique
+  resultCode         Int?
+  callbackReceivedAt DateTime?
+  verifiedAt         DateTime?
+  fulfilledAt        DateTime?
+  failureReason      String?               @db.Text
+  metadata           Json?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  user               User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  creditPurchase     CreditPurchase?
+  tipPurchase        TipPurchase?
+  webhookEvents      PaymentWebhookEvent[]
+
+  @@index([provider, status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model PaymentWebhookEvent {
+  id          String          @id @default(cuid())
+  attemptId   String?
+  provider    PaymentProvider
+  eventKey    String          @unique
+  payloadHash String
+  resultCode  Int?
+  status      String          @default("RECEIVED")
+  metadata    Json?
+  receivedAt  DateTime        @default(now())
+  processedAt DateTime?
+  attempt     PaymentAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+
+  @@index([attemptId, receivedAt])
+  @@index([provider, receivedAt])
 }
 
 model Follow {
@@ -422,17 +598,17 @@ model VideoLike {
 }
 
 model VideoComment {
-  id        String        @id @default(cuid())
+  id        String         @id @default(cuid())
   mediaId   String
   authorId  String
-  text      String        @db.Text
+  text      String         @db.Text
   parentId  String?
-  likes     Int           @default(0)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  media     UserMedia     @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-  author    User          @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  parent    VideoComment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  likes     Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  media     UserMedia      @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  author    User           @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parent    VideoComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   VideoComment[] @relation("CommentReplies")
   likedBy   CommentLike[]
 
@@ -467,10 +643,10 @@ model UserSwipe {
 }
 
 model DiscoverSeen {
-  id        String   @id @default(cuid())
-  userId    String
-  mediaId   String
-  seenAt    DateTime @default(now())
+  id      String   @id @default(cuid())
+  userId  String
+  mediaId String
+  seenAt  DateTime @default(now())
 
   @@unique([userId, mediaId])
   @@index([userId])
@@ -503,20 +679,23 @@ model UserMatch {
 }
 
 model ChatThread {
-  id              String            @id @default(cuid())
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  lastMessageText String?           @db.Text
-  lastMessageType ChatMessageType?
-  lastMessageAt   DateTime?
+  id                 String            @id @default(cuid())
+  kind               ChatThreadKind    @default(DIRECT)
+  broadcastOnly      Boolean           @default(false)
+  campaignId         String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  lastMessageText    String?           @db.Text
+  lastMessageType    ChatMessageType?
+  lastMessageAt      DateTime?
   // Credits gating: the participant who sent the first message (the paying
   // "user"); the other party's replies are charged to them. Once the first
   // reply is unlocked with a Key, `icebreakerUnlocked` flips and subsequent
   // replies consume ChatCredits.
   initiatorId        String?
-  icebreakerUnlocked Boolean        @default(false)
-  participants    ChatParticipant[]
-  messages        ChatMessage[]
+  icebreakerUnlocked Boolean           @default(false)
+  participants       ChatParticipant[]
+  messages           ChatMessage[]
 }
 
 model ChatParticipant {
@@ -535,26 +714,163 @@ model ChatParticipant {
 }
 
 model ChatMessage {
-  id                String          @id @default(cuid())
-  threadId          String
-  senderId          String
-  type              ChatMessageType @default(TEXT)
-  text              String?         @db.Text
-  imageUrl          String?
-  replyToId         String?
-  replyToText       String?         @db.Text
-  replyToSenderId   String?
-  replyToSenderName String?
-  reactions         Json?
-  isRead            Boolean         @default(false)
+  id                  String          @id @default(cuid())
+  threadId            String
+  senderId            String
+  type                ChatMessageType @default(TEXT)
+  text                String?         @db.Text
+  imageUrl            String?
+  imageObjectKey      String?
+  replyToId           String?
+  replyToText         String?         @db.Text
+  replyToSenderId     String?
+  replyToSenderName   String?
+  reactions           Json?
+  isRead              Boolean         @default(false)
   // Credits gating: a reply from the non-initiator is locked until the
   // thread initiator spends a Key (first) or ChatCredit (subsequent) to unlock.
-  locked            Boolean         @default(false)
-  sentAt            DateTime        @default(now())
-  thread            ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  sender            User            @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  locked              Boolean         @default(false)
+  broadcastCampaignId String?
+  sentAt              DateTime        @default(now())
+  thread              ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender              User            @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([threadId, sentAt])
+  @@index([broadcastCampaignId])
+}
+
+model CreatorAvailability {
+  id             String   @id @default(cuid())
+  userId         String
+  weekday        Int
+  startMinute    Int
+  endMinute      Int
+  timezone       String
+  voiceEnabled   Boolean  @default(true)
+  videoEnabled   Boolean  @default(true)
+  maxSessionsDay Int      @default(1)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, weekday, isActive])
+}
+
+model CallBooking {
+  id                   String        @id @default(cuid())
+  customerId           String
+  creatorId            String
+  type                 BookingType
+  status               BookingStatus @default(PROPOSED)
+  timezone             String
+  scheduledStart       DateTime
+  scheduledEnd         DateTime
+  proposalExpiresAt    DateTime
+  channelId            String        @unique
+  customerJoinedAt     DateTime?
+  creatorJoinedAt      DateTime?
+  approvedAt           DateTime?
+  declinedAt           DateTime?
+  cancelledAt          DateTime?
+  completedAt          DateTime?
+  creatorFineAppliedAt DateTime?
+  reminderSentAt       DateTime?
+  endReason            String?       @db.Text
+  reviewDecision       String?
+  reviewedAt           DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  customer             User          @relation("BookingCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  creator              User          @relation("BookingCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([creatorId, scheduledStart])
+  @@index([creatorId, scheduledStart, status])
+  @@index([customerId, scheduledStart, status])
+  @@index([status, proposalExpiresAt])
+}
+
+model CreatorStrike {
+  id        String    @id @default(cuid())
+  creatorId String
+  bookingId String?   @unique
+  reason    String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+  creator   User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, createdAt])
+}
+
+model EarningLot {
+  id          String           @id @default(cuid())
+  userId      String
+  source      EarningSource
+  sourceId    String
+  amount      Decimal          @db.Decimal(12, 2)
+  currency    String           @default("KES")
+  status      EarningLotStatus @default(PENDING)
+  settledAt   DateTime         @default(now())
+  availableAt DateTime
+  heldReason  String?
+  payoutId    String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payout      CreatorPayout?   @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+
+  @@unique([source, sourceId, userId])
+  @@index([userId, status, availableAt])
+}
+
+model CreatorKyc {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  status           KycStatus @default(NOT_SUBMITTED)
+  idFrontObjectKey String?
+  idBackObjectKey  String?
+  selfieObjectKey  String?
+  rejectionReason  String?   @db.Text
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewerId       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PayoutProfile {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  mpesaPhone           String?
+  phoneVerifiedAt      DateTime?
+  destinationChangedAt DateTime?
+  automaticEnabled     Boolean   @default(true)
+  pausedReason         String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreatorPayout {
+  id                String              @id @default(cuid())
+  userId            String
+  amount            Decimal             @db.Decimal(12, 2)
+  currency          String              @default("KES")
+  status            CreatorPayoutStatus @default(PENDING)
+  destination       String
+  provider          String              @default("MPESA_B2C")
+  providerReference String?             @unique
+  attempts          Int                 @default(0)
+  failureReason     String?             @db.Text
+  processedAt       DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  earningLots       EarningLot[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
 }
 
 model TipRequest {
@@ -650,6 +966,7 @@ model AppSettings {
   r2AccessKeyId              String?
   r2SecretAccessKey          String?
   r2BucketName               String?
+  r2PrivateBucketName        String?
   r2PublicBaseUrl            String?
   r2Region                   String   @default("auto")
   r2Endpoint                 String?

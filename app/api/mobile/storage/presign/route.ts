@@ -20,6 +20,7 @@ import { logError } from "@/lib/log-error"
 const schema = z.object({
   filename: z.string().min(1).max(255),
   dir_name: z.string().default("uploads"),
+  visibility: z.enum(["public", "private"]).default("public"),
 })
 
 export async function POST(request: Request) {
@@ -31,8 +32,9 @@ export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json())
 
-    const prefix = `uploads/${session.userId}/${body.dir_name}`
-    const result = await getPresignedUploadUrl(body.filename, prefix)
+    const root = body.visibility === "private" ? "private" : "uploads"
+    const prefix = `${root}/${session.userId}/${body.dir_name}`
+    const result = await getPresignedUploadUrl(body.filename, prefix, 900, body.visibility)
 
     return NextResponse.json({
       success: true,
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
       public_url:   result.publicUrl,
       content_type: result.contentType,
       expires_in:   result.expiresIn,
+      visibility: body.visibility,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {

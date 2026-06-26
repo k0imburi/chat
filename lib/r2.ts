@@ -20,6 +20,7 @@ type R2Settings = {
   accessKeyId: string
   secretAccessKey: string
   bucketName: string
+  privateBucketName: string
   publicBaseUrl: string
   region: string
   endpoint: string
@@ -37,6 +38,7 @@ async function loadR2Settings(): Promise<R2Settings> {
   const accessKeyId = settings?.r2AccessKeyId ?? ""
   const secretAccessKey = settings?.r2SecretAccessKey ?? ""
   const bucketName = settings?.r2BucketName ?? ""
+  const privateBucketName = settings?.r2PrivateBucketName ?? process.env.R2_PRIVATE_BUCKET_NAME ?? bucketName
   const publicBaseUrl = settings?.r2PublicBaseUrl ?? process.env.R2_PUBLIC_BASE_URL ?? ""
   const region = settings?.r2Region ?? "auto"
   const endpoint =
@@ -48,6 +50,7 @@ async function loadR2Settings(): Promise<R2Settings> {
     accessKeyId,
     secretAccessKey,
     bucketName,
+    privateBucketName,
     publicBaseUrl,
     region,
     endpoint,
@@ -157,6 +160,15 @@ export async function getSignedR2DownloadUrl(objectKey: string, expiresIn = 3600
   )
 }
 
+export async function getSignedPrivateR2DownloadUrl(objectKey: string, expiresIn = 300) {
+  const { client, settings } = await getR2Client()
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({ Bucket: settings.privateBucketName, Key: objectKey }),
+    { expiresIn },
+  )
+}
+
 /**
  * Generate a presigned PUT URL so the mobile client can upload a file
  * directly to R2 — bypassing the server entirely for the binary transfer.
@@ -172,6 +184,7 @@ export async function getPresignedUploadUrl(
   fileName: string,
   prefix = "uploads",
   expiresIn = 900,
+  visibility: "public" | "private" = "public",
 ): Promise<PresignedUpload> {
   const { client, settings } = await getR2Client()
 
@@ -182,11 +195,12 @@ export async function getPresignedUploadUrl(
     fromExt && fromExt !== "application/octet-stream" ? fromExt : "application/octet-stream"
 
   const objectKey = generateR2Key(fileName, prefix)
+  const bucket = visibility === "private" ? settings.privateBucketName : settings.bucketName
 
   const uploadUrl = await getSignedUrl(
     client,
     new PutObjectCommand({
-      Bucket: settings.bucketName,
+      Bucket: bucket,
       Key: objectKey,
       ContentType: contentType,
     }),
@@ -196,7 +210,7 @@ export async function getPresignedUploadUrl(
   return {
     uploadUrl,
     objectKey,
-    publicUrl: getPublicUrl(objectKey, settings.publicBaseUrl),
+    publicUrl: visibility === "private" ? null : getPublicUrl(objectKey, settings.publicBaseUrl),
     contentType,
     expiresIn,
   }

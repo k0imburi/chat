@@ -1,37 +1,11 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
-import { initiateStkPush } from "@/lib/mpesa"
-import { logError } from "@/lib/log-error"
 
-const schema = z.object({
-  phone: z.string().min(6),
-  amount: z.coerce.number().positive(),
-  reference: z.string().min(1).optional(),
-  description: z.string().optional(),
-  userId: z.string().optional(),
-})
-
-export async function POST(request: Request) {
-  try {
-    const parsed = schema.parse(await request.json())
-    const result = await initiateStkPush({
-      phone: parsed.phone,
-      amount: parsed.amount,
-      reference: parsed.reference,
-      description: parsed.description,
-      userId: parsed.userId,
-    })
-
-    return NextResponse.json(result)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
-    }
-
-    logError("/api/lnmo/request-stk", error)
-    return NextResponse.json(
-      { success: false, message: error instanceof Error ? error.message : "Failed to queue STK request" },
-      { status: 500 },
-    )
-  }
+// Legacy arbitrary-amount STK initiation is intentionally disabled. Purchases
+// must start through an authenticated, server-priced checkout that creates an
+// immutable PaymentAttempt before contacting Daraja.
+export async function POST() {
+  return NextResponse.json(
+    { success: false, message: "Use the authenticated ChatAndTip checkout" },
+    { status: 410 },
+  )
 }

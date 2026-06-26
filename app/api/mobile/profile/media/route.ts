@@ -46,8 +46,8 @@ export async function POST(request: Request) {
         })
       : null
 
-    if (existingProfile) {
-      await prisma.userMedia.update({
+    const savedMedia = existingProfile
+      ? await prisma.userMedia.update({
         where: { id: existingProfile.id },
         data: {
           url,
@@ -61,8 +61,7 @@ export async function POST(request: Request) {
           sizeBytes: parsed.sizeBytes,
         },
       })
-    } else {
-      await prisma.userMedia.create({
+      : await prisma.userMedia.create({
         data: {
           userId: session.userId,
           kind: parsed.kind,
@@ -78,10 +77,9 @@ export async function POST(request: Request) {
           sizeBytes: parsed.sizeBytes,
         },
       })
-    }
 
     const user = await findMobileUserById(session.userId)
-    return NextResponse.json({ success: true, user: user ? serializeMobileUser(user) : null })
+    return NextResponse.json({ success: true, mediaId: savedMedia.id, user: user ? serializeMobileUser(user) : null })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })

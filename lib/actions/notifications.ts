@@ -11,7 +11,6 @@ import {
 } from "@/lib/actions/action-result"
 import { prisma } from "@/lib/prisma"
 import { requireSessionUser } from "@/lib/auth"
-import { broadcastCampaignNotifications } from "@/lib/mobile-notifications"
 
 const schema = z.object({
   title: z.string().optional(),
@@ -37,22 +36,15 @@ export async function createNotificationCampaignAction(
         title: parsed.title,
         message: parsed.message,
         channel: parsed.channel,
-        status: NotificationStatus.SENT,
-        sentAt: new Date(),
+        status: NotificationStatus.DRAFT,
+        metadata: { deliveryState: "QUEUED" },
         createdById: session.id,
       },
     })
 
-    await broadcastCampaignNotifications({
-      title: parsed.title,
-      message: parsed.message,
-      campaignId: campaign.id,
-      channel: parsed.channel,
-    })
-
     revalidatePath("/notifications")
     revalidatePath("/dashboard")
-    return successResult("Notification campaign sent successfully.")
+    return successResult("Notification campaign queued for delivery.")
   } catch (error) {
     return errorResult(error, "Unable to send notification campaign.")
   }

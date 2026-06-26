@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
-import { findMobileUserById, serializeMobileUser } from "@/lib/mobile-users"
+import { findMobileUserById, serializeMobileUserWithCounts } from "@/lib/mobile-users"
 
 export async function GET(request: Request) {
   const session = await getMobileSessionFromRequest(request)
@@ -15,6 +15,6 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     success: true,
-    user: serializeMobileUser(user),
+    user: await serializeMobileUserWithCounts(user),
   })
 }

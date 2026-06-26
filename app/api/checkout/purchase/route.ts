@@ -1,30 +1,39 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { CreditKind } from "@prisma/client"
-import { readCheckoutToken } from "@/lib/mobile-session"
-import { initiateCreditPurchase } from "@/lib/mobile-credit-purchase"
+import { getCheckoutActorUserId } from "@/lib/checkout-auth"
+import { initiateCreditPurchase, initiateStripeCreditPurchase } from "@/lib/mobile-credit-purchase"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
+import { env } from "@/lib/env"
 
 const bodySchema = z.object({
-  token: z.string().min(1),
-  phone: z.string().min(6),
-  items: z.record(z.nativeEnum(CreditKind), z.number().int().positive()),
+  provider: z.enum(["MPESA", "STRIPE"]).default("MPESA"),
+  phone: z.string().optional().default(""),
+  items: z.record(z.nativeEnum(CreditKind), z.number().int().nonnegative()),
 })
 
-// Start a credit purchase from the website. Authenticated by the checkout token.
+// Start a credit purchase from the website. Authenticated by either the
+// short-lived mobile checkout token cookie or the signed-in customer session.
 export async function POST(request: Request) {
   try {
     const body = bodySchema.parse(await request.json())
-    const userId = await readCheckoutToken(body.token)
+    const userId = await getCheckoutActorUserId(request)
     if (!userId) {
-      return NextResponse.json({ success: false, message: "Invalid or expired link" }, { status: 401 })
+      return NextResponse.json({ success: false, message: "Sign in or open a fresh checkout link" }, { status: 401 })
     }
-    const result = await initiateCreditPurchase({
-      userId,
-      phone: body.phone,
-      items: body.items,
-    })
+    if (body.provider === "STRIPE" && env.STRIPE_ENABLED !== "true") {
+      return NextResponse.json({ success: false, message: "Card payments are not available" }, { status: 404 })
+    }
+    if (body.provider === "MPESA" && env.MPESA_ENABLED !== "true") {
+      return NextResponse.json({ success: false, message: "M-PESA payments are not available" }, { status: 503 })
+    }
+    if (body.provider === "MPESA" && body.phone.length < 6) {
+      return NextResponse.json({ success: false, message: "Enter a valid M-PESA phone number" }, { status: 400 })
+    }
+    const result = body.provider === "STRIPE"
+      ? await initiateStripeCreditPurchase({ userId, items: body.items })
+      : await initiateCreditPurchase({ userId, phone: body.phone, items: body.items })
     return NextResponse.json({ success: result.success, data: result })
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -44,11 +53,10 @@ export async function POST(request: Request) {
 // Poll a purchase's status so the page can confirm allocation after STK.
 export async function GET(request: Request) {
   const url = new URL(request.url)
-  const token = url.searchParams.get("t") || ""
   const purchaseId = url.searchParams.get("purchaseId") || ""
-  const userId = await readCheckoutToken(token)
+  const userId = await getCheckoutActorUserId(request)
   if (!userId) {
-    return NextResponse.json({ success: false, message: "Invalid or expired link" }, { status: 401 })
+    return NextResponse.json({ success: false, message: "Sign in or open a fresh checkout link" }, { status: 401 })
   }
   if (!purchaseId) {
     return NextResponse.json({ success: false, message: "purchaseId is required" }, { status: 400 })
