@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
 import { createUserNotification } from "@/lib/mobile-notifications"
+import { consumeCredit, getCreditBalances } from "@/lib/mobile-credits"
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -68,6 +69,7 @@ function serializeChatMessage(message: {
   replyToSenderName: string | null
   reactions: unknown
   isRead: boolean
+  locked?: boolean
   sentAt: Date
 }) {
   return {
@@ -83,6 +85,7 @@ function serializeChatMessage(message: {
     replyToSenderName: message.replyToSenderName || "",
     reactions: normalizeReactions(message.reactions),
     isRead: message.isRead,
+    locked: message.locked ?? false,
     sentAt: message.sentAt.toISOString(),
   }
 }
@@ -190,6 +193,8 @@ async function getOrCreateThread(userId: string, otherUserId: string, tx: Prisma
 
   const created = await tx.chatThread.create({
     data: {
+      // First sender is the initiator (the paying "user").
+      initiatorId: userId,
       participants: {
         create: [
           { userId, otherUserId },
@@ -343,6 +348,15 @@ export async function sendMessage(input: {
     const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
     const messageType = imageUrl ? ChatMessageType.IMAGE : ChatMessageType.TEXT
 
+    // Credits gating: a reply from the non-initiator starts locked — the
+    // thread initiator unlocks it with a Key (first) or ChatCredit (after).
+    // The initiator's own messages are always free/unlocked.
+    const thread = await tx.chatThread.findUnique({
+      where: { id: threadId },
+      select: { initiatorId: true },
+    })
+    const locked = thread?.initiatorId != null && thread.initiatorId !== input.senderId
+
     const message = await tx.chatMessage.create({
       data: {
         threadId,
@@ -355,6 +369,7 @@ export async function sendMessage(input: {
         replyToSenderId: input.replyToSenderId || null,
         replyToSenderName: input.replyToSenderName || null,
         reactions: {},
+        locked,
       },
     })
 
@@ -451,6 +466,68 @@ export async function sendMessage(input: {
   }
 
   return result.response
+}
+
+/**
+ * Unlock a locked reply. Only the thread initiator (the paying user) may
+ * unlock: the first unlock in a thread spends a Key, subsequent ones spend a
+ * ChatCredit, and the value is credited to the reply's sender (the creator).
+ * Throws InsufficientCreditsError ("You have insufficient Balance") when the
+ * initiator has no matching credit.
+ */
+export async function unlockReply(input: { userId: string; messageId: string }) {
+  const message = await prisma.chatMessage.findUnique({
+    where: { id: input.messageId },
+    include: {
+      thread: { select: { id: true, initiatorId: true, icebreakerUnlocked: true } },
+    },
+  })
+  if (!message) throw new Error("Message not found")
+  if (!message.locked) return serializeChatMessage(message) // already unlocked
+
+  if (message.thread.initiatorId !== input.userId) {
+    throw new Error("Only the conversation initiator can unlock replies")
+  }
+
+  // First reply in the thread costs a Key; every reply after costs a ChatCredit.
+  const kind = message.thread.icebreakerUnlocked ? "CHAT_CREDIT" : "KEY"
+
+  // Charge the initiator and credit the creator (throws if insufficient).
+  await consumeCredit({
+    userId: input.userId,
+    creatorId: message.senderId,
+    kind,
+    idempotencyKey: `unlock:${message.id}`,
+    metadata: { threadId: message.thread.id, messageId: message.id },
+  })
+
+  // Unlock the message and, on the first unlock, flip the thread flag so the
+  // next reply costs a ChatCredit.
+  await prisma.$transaction([
+    prisma.chatMessage.update({ where: { id: message.id }, data: { locked: false } }),
+    ...(kind === "KEY"
+      ? [prisma.chatThread.update({ where: { id: message.thread.id }, data: { icebreakerUnlocked: true } })]
+      : []),
+  ])
+
+  const updated = await prisma.chatMessage.findUnique({ where: { id: message.id } })
+  const serialized = serializeChatMessage(updated!)
+
+  // Push the now-unlocked message to both parties in real time.
+  emitChatRealtimeToUser(input.userId, {
+    channel: "chat",
+    type: "message_updated",
+    otherUserId: message.senderId,
+    data: serialized,
+  })
+  emitChatRealtimeToUser(message.senderId, {
+    channel: "chat",
+    type: "message_updated",
+    otherUserId: input.userId,
+    data: serialized,
+  })
+
+  return { message: serialized, balances: await getCreditBalances(input.userId) }
 }
 
 export async function reactToMessage(input: {
