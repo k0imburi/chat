@@ -56,6 +56,11 @@ const envSchema = z.object({
   FIREBASE_SERVICE_ACCOUNT: z.string().optional(), // JSON string of Firebase service account key
   CRON_SECRET: z.string().optional(),
   NEXT_PUBLIC_APP_NAME: z.string().default("ChatAndTip Admin"),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  AWS_REGION: z.string().default("us-east-1"),
+  LIVENESS_AUTO_APPROVE_SIMILARITY: z.coerce.number().default(95),
+  LIVENESS_MISMATCH_SIMILARITY: z.coerce.number().default(40),
 })
 
 const parsed = envSchema.safeParse(process.env)

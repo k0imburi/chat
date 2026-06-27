@@ -30,6 +30,20 @@ export async function reviewHeldTipAction(input: { tipId: string; decision: "REL
   })
 }
 
+export async function reviewLivenessVerificationAction(input: { userId: string; approved: boolean; reason?: string }) {
+  const reviewer = await requireFinanceAdmin()
+  return prisma.$transaction(async (tx) => {
+    await tx.livenessVerification.update({ where: { userId: input.userId }, data: {
+      status: input.approved ? "APPROVED" : "REJECTED",
+      rejectionReason: input.approved ? null : input.reason || "Verification was not approved",
+      reviewedAt: new Date(),
+      reviewerId: reviewer.id,
+    } })
+    if (input.approved) await tx.user.update({ where: { id: input.userId }, data: { verified: true } })
+    return { success: true }
+  })
+}
+
 export async function reviewEarlyEndedBookingAction(input: { bookingId: string; releaseToCreator: boolean; decision: string }) {
   await requireFinanceAdmin()
   const booking = await prisma.callBooking.findUnique({ where: { id: input.bookingId } })

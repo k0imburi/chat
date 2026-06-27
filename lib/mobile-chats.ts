@@ -60,6 +60,12 @@ function serializeChatSummary(participant: ChatParticipantWithThread, receiver: 
   }
 }
 
+function buildLockedPreview(text: string, contentType: string): string {
+  if (contentType === "image") return ""
+  const preview = text.slice(0, 40)
+  return preview.length < text.length ? `${preview}…` : preview
+}
+
 function serializeChatMessage(message: {
   id: string
   threadId: string
@@ -92,7 +98,7 @@ function serializeChatMessage(message: {
     chatId: message.threadId,
     senderId: message.senderId,
     type: parseChatMessageType(message.type),
-    textMsg: hideContent ? "" : rawText,
+    textMsg: hideContent ? buildLockedPreview(rawText, lockedContentType) : rawText,
     imageUrl: hideContent ? "" : message.imageUrl || "",
     replyToId: message.replyToId || "",
     replyToText: hideContent ? "" : message.replyToText || "",
@@ -431,11 +437,26 @@ export async function sendMessage(input: {
     // The initiator's own messages are always free/unlocked.
     const thread = await tx.chatThread.findUnique({
       where: { id: threadId },
-      select: { initiatorId: true, icebreakerUnlocked: true, broadcastOnly: true },
+      select: { initiatorId: true, icebreakerUnlocked: true, broadcastOnly: true, lastMessageAt: true },
     })
     if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
     const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
-    const locked = !earningSuspended && thread?.initiatorId != null && thread.initiatorId !== input.senderId
+    const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
+    let locked = false
+    if (!earningSuspended && isNonInitiator) {
+      // Ice breaker: count prior messages from this sender in this thread
+      const priorCount = await tx.chatMessage.count({ where: { threadId, senderId: input.senderId } })
+      if (priorCount === 0) {
+        // First-ever message from non-initiator is free
+        locked = false
+      } else if (thread.icebreakerUnlocked) {
+        // Check 24h re-lock: if no message in last 24h, lock again
+        const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
+        locked = !thread.lastMessageAt || thread.lastMessageAt < recentCutoff
+      } else {
+        locked = true
+      }
+    }
     if (locked && imageUrl && !imageObjectKey) {
       throw new Error("Paid image replies must use private upload storage")
     }
@@ -781,4 +802,25 @@ export async function clearChat(userId: string, otherUserId: string) {
   })
 
   return { success: true }
+}
+
+export async function deleteMessage(userId: string, otherUserId: string, messageId: string) {
+  const message = await prisma.chatMessage.findUnique({
+    where: { id: messageId },
+    include: { thread: { select: { id: true } } },
+  })
+  if (!message) throw new Error("Message not found")
+  if (message.senderId !== userId) throw new Error("You can only delete your own messages")
+
+  await prisma.chatMessage.delete({ where: { id: messageId } })
+
+  const event = {
+    channel: "chat" as const,
+    type: "message_deleted" as const,
+    otherUserId,
+    messageId,
+    chatId: message.threadId,
+  }
+  emitChatRealtimeToUser(userId, event)
+  emitChatRealtimeToUser(otherUserId, event)
 }

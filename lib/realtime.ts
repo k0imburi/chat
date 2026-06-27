@@ -44,6 +44,13 @@ export type ChatRealtimeEvent =
       clearedAt: string
     }
   | {
+      channel: "chat"
+      type: "message_deleted"
+      otherUserId: string
+      messageId: string
+      chatId: string
+    }
+  | {
       channel: "notifications"
       type: "connection_ready"
       userId: string

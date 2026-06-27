@@ -85,6 +85,7 @@ enum BookingStatus {
   DECLINED
   EXPIRED
   CANCELLED
+  COUNTER_PROPOSED
   LIVE
   COMPLETED
   USER_NO_SHOW
@@ -251,6 +252,7 @@ model User {
   payoutProfile         PayoutProfile?
   creatorPayouts        CreatorPayout[]
   paymentAttempts       PaymentAttempt[]
+  livenessVerification  LivenessVerification?
 
   @@map("users")
 }
@@ -789,12 +791,15 @@ model CallBooking {
   endReason            String?       @db.Text
   reviewDecision       String?
   reviewedAt           DateTime?
+  proposedStart        DateTime?
+  proposedEnd          DateTime?
+  counterProposedAt    DateTime?
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
   customer             User          @relation("BookingCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   creator              User          @relation("BookingCreator", fields: [creatorId], references: [id], onDelete: Cascade)
 
-  @@unique([creatorId, scheduledStart])
+  @@index([creatorId, scheduledStart])
   @@index([creatorId, scheduledStart, status])
   @@index([customerId, scheduledStart, status])
   @@index([status, proposalExpiresAt])
@@ -847,6 +852,34 @@ model CreatorKyc {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum LivenessStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model LivenessVerification {
+  id                   String         @id @default(cuid())
+  userId               String         @unique
+  status               LivenessStatus @default(NOT_SUBMITTED)
+  liveSelfieObjectKey  String?
+  similarity           Decimal?       @db.Decimal(5, 2)
+  clientLivenessPassed Boolean        @default(false)
+  challengesPassed     Json?
+  autoDecision         String?
+  reviewNote           String?        @db.Text
+  rejectionReason      String?        @db.Text
+  attemptCount         Int            @default(0)
+  attemptWindowStart   DateTime?
+  submittedAt          DateTime?
+  reviewedAt           DateTime?
+  reviewerId           String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model PayoutProfile {
@@ -996,6 +1029,9 @@ model AppSettings {
   otpLength                  Int      @default(6)
   otpExpiryMinutes           Int      @default(10)
   passwordResetExpiryMinutes Int      @default(15)
+  awsAccessKeyId             String?
+  awsSecretAccessKey         String?
+  awsRegion                  String   @default("us-east-1")
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 }
