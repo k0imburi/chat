@@ -36,11 +36,22 @@ export async function fulfillVerifiedCreditAttempt(attemptId: string) {
       data: { status: "FULFILLING" },
     })
     if (!claimed.count) return { fulfilled: false, purchaseId: purchase.id }
-    await allocateCreditsInTransaction(tx, {
-      userId: purchase.userId,
-      items: purchase.items as CartItems,
-      transactionId: purchase.id,
-    })
+    if (Object.values((purchase.items as CartItems) ?? {}).some((v) => (v ?? 0) > 0)) {
+      await allocateCreditsInTransaction(tx, {
+        userId: purchase.userId,
+        items: purchase.items as CartItems,
+        transactionId: purchase.id,
+      })
+    }
+    const snapshot = purchase.pricingSnapshot as Record<string, unknown> | null
+    const tipItems = snapshot?.tipItems as Partial<Record<string, number>> | undefined
+    if (tipItems) {
+      for (const [tier, qty] of Object.entries(tipItems)) {
+        const n = Number(qty)
+        if (!n || n <= 0) continue
+        await creditTipTokensInTransaction(tx, purchase.userId, tier as import("@prisma/client").TipTier, n)
+      }
+    }
     await tx.creditPurchase.update({
       where: { id: purchase.id },
       data: { status: "SUCCESS", allocated: true },

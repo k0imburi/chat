@@ -6,10 +6,14 @@ import {
   PURCHASE_PRICE_KES,
   ON_ACCOUNT_VALUE_KES,
   MIN_PURCHASE,
+  TIP_USD,
 } from "@/lib/mobile-credits"
+import { getTipWallet } from "@/lib/mobile-tip-wallet"
 import { logError } from "@/lib/log-error"
 import { env } from "@/lib/env"
 import { isMpesaConfigComplete, resolveMpesaConfig } from "@/lib/mpesa"
+import { prisma } from "@/lib/prisma"
+import { TipTier } from "@prisma/client"
 
 // Context for the web checkout page: who the token belongs to, their current
 // balances, and the pricing tables. Authenticated by the checkout token.
@@ -19,20 +23,30 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, message: "Sign in or open a fresh checkout link" }, { status: 401 })
   }
   try {
-    const [user, balances, mpesaConfig] = await Promise.all([
+    const [user, balances, tipWallet, mpesaConfig, settings] = await Promise.all([
       findMobileUserById(userId),
       getCreditBalances(userId),
+      getTipWallet(userId),
       resolveMpesaConfig(),
+      prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } }),
     ])
+    const rate = Number(settings?.usdToKesRate ?? 130)
+    const tipPurchaseKes = Object.fromEntries(
+      Object.values(TipTier).map((tier) => [tier, Math.round(TIP_USD[tier] * rate)])
+    ) as Record<TipTier, number>
+
     return NextResponse.json({
       success: true,
       data: {
         user: user ? { fullName: user.fullName, phoneNumber: user.phoneNumber } : null,
         balances,
+        tipBalances: { pebbles: tipWallet.pebbles, gems: tipWallet.gems, diamonds: tipWallet.diamonds },
         pricing: {
           purchaseKes: PURCHASE_PRICE_KES,
           onAccountKes: ON_ACCOUNT_VALUE_KES,
           minPurchase: MIN_PURCHASE,
+          tipPurchaseKes,
+          usdToKesRate: rate,
         },
         providers: {
           mpesa: isMpesaConfigComplete(mpesaConfig),

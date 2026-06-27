@@ -5,25 +5,42 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 
 type CreditKind = "KEY" | "CHAT_CREDIT" | "VOICE_SESSION" | "VIDEO_SESSION"
+type TipTier = "PEBBLE" | "GEM" | "DIAMOND"
 
 type Info = {
   user: { fullName: string; phoneNumber: string | null } | null
   balances: { keys: number; chatCredits: number; voiceSessions: number; videoSessions: number }
+  tipBalances: { pebbles: number; gems: number; diamonds: number }
   pricing: {
     purchaseKes: Record<CreditKind, number>
     minPurchase: Partial<Record<CreditKind, number>>
+    tipPurchaseKes: Record<TipTier, number>
+    usdToKesRate: number
   }
   providers: { mpesa: boolean; stripe: boolean }
 }
 
-const ITEMS: { kind: CreditKind; label: string; hint: string; icon: string }[] = [
+const CREDIT_ITEMS: { kind: CreditKind; label: string; hint: string; icon: string }[] = [
   { kind: "KEY", label: "Keys", hint: "Unlock a creator's first reply", icon: "/icons/economy/key.svg" },
   { kind: "CHAT_CREDIT", label: "ChatCredits", hint: "Each subsequent reply", icon: "/icons/economy/chat_credit.svg" },
   { kind: "VOICE_SESSION", label: "Voice Sessions", hint: "15-min voice call", icon: "/icons/economy/voice_session.svg" },
   { kind: "VIDEO_SESSION", label: "Video Sessions", hint: "15-min video call", icon: "/icons/economy/video_session.svg" },
 ]
 
+const TIP_ITEMS: { tier: TipTier; label: string; usd: number; icon: string; color: string }[] = [
+  { tier: "PEBBLE", label: "Pebble", usd: 1, icon: "/icons/economy/pebble.svg", color: "#6C757D" },
+  { tier: "GEM", label: "Gem", usd: 5, icon: "/icons/economy/gem.svg", color: "#0D6EFD" },
+  { tier: "DIAMOND", label: "Diamond", usd: 10, icon: "/icons/economy/diamond.svg", color: "#7B2D8B" },
+]
+
+const TIP_BALANCE_FIELD: Record<TipTier, "pebbles" | "gems" | "diamonds"> = {
+  PEBBLE: "pebbles",
+  GEM: "gems",
+  DIAMOND: "diamonds",
+}
+
 const BRAND = "#25d366"
+
 
 function CheckoutInner() {
   const params = useSearchParams()
@@ -39,6 +56,11 @@ function CheckoutInner() {
     VOICE_SESSION: 0,
     VIDEO_SESSION: 0,
   })
+  const [tipQty, setTipQty] = useState<Record<TipTier, number>>({
+    PEBBLE: 0,
+    GEM: 0,
+    DIAMOND: 0,
+  })
   const [phone, setPhone] = useState("")
   const [provider, setProvider] = useState<"MPESA" | "STRIPE">("MPESA")
   const [stage, setStage] = useState<"build" | "paying" | "success" | "failed">("build")
@@ -47,11 +69,11 @@ function CheckoutInner() {
   const pollPurchase = useCallback(async (purchaseId: string) => {
     for (let i = 0; i < 20; i++) {
       const s = await fetch(`/api/checkout/purchase?purchaseId=${purchaseId}`).then((r) => r.json())
-      if (s.success && s.data.status === "SUCCESS") { setStage("success"); setMessage("Payment received — your credits have been added."); return }
+      if (s.success && s.data.status === "SUCCESS") { setStage("success"); setMessage("Payment received — your account has been updated."); return }
       if (s.success && s.data.status === "FAILED") { setStage("failed"); setMessage("Payment was not completed. Please try again."); return }
       await new Promise((r) => setTimeout(r, 3000))
     }
-    setStage("failed"); setMessage("We didn't get confirmation in time. If you paid, your credits will appear shortly.")
+    setStage("failed"); setMessage("We didn't get confirmation in time. If you paid, your balance will appear shortly.")
   }, [])
 
   useEffect(() => {
@@ -81,14 +103,26 @@ function CheckoutInner() {
       .catch(() => setLoadError("Could not load checkout. Please try again."))
   }, [token, stripeReturn, returnedPurchaseId, pollPurchase])
 
-  const prices = info?.pricing.purchaseKes
-  const total = useMemo(() => {
-    if (!prices) return 0
-    return ITEMS.reduce((sum, it) => sum + prices[it.kind] * qty[it.kind], 0)
-  }, [prices, qty])
+  const creditPrices = info?.pricing.purchaseKes
+  const tipPrices = info?.pricing.tipPurchaseKes
 
-  // Mirror the server's min-cart rule: if buying Keys or ChatCredits, you need
-  // at least 1 Key and 5 ChatCredits together.
+  const creditTotal = useMemo(() => {
+    if (!creditPrices) return 0
+    return CREDIT_ITEMS.reduce((sum, it) => sum + creditPrices[it.kind] * qty[it.kind], 0)
+  }, [creditPrices, qty])
+
+  const tipTotal = useMemo(() => {
+    if (!tipPrices) return 0
+    return TIP_ITEMS.reduce((sum, it) => sum + tipPrices[it.tier] * tipQty[it.tier], 0)
+  }, [tipPrices, tipQty])
+
+  const total = creditTotal + tipTotal
+
+  const minHint =
+    (qty.KEY > 0 || qty.CHAT_CREDIT > 0) && (qty.KEY < 1 || qty.CHAT_CREDIT < 5)
+      ? "Minimum is 1 Key and 5 ChatCredits."
+      : ""
+
   const valid = useMemo(() => {
     if (total <= 0) return false
     const hasKeyOrChat = qty.KEY > 0 || qty.CHAT_CREDIT > 0
@@ -96,26 +130,22 @@ function CheckoutInner() {
     return provider === "STRIPE" || phone.trim().length >= 9
   }, [total, qty, phone, provider])
 
-  const minHint =
-    (qty.KEY > 0 || qty.CHAT_CREDIT > 0) && (qty.KEY < 1 || qty.CHAT_CREDIT < 5)
-      ? "Minimum is 1 Key and 5 ChatCredits."
-      : ""
-
   const step = (kind: CreditKind, delta: number) =>
     setQty((q) => ({ ...q, [kind]: Math.max(0, q[kind] + delta) }))
+
+  const tipStep = (tier: TipTier, delta: number) =>
+    setTipQty((q) => ({ ...q, [tier]: Math.max(0, q[tier] + delta) }))
 
   const pay = useCallback(async () => {
     setStage("paying")
     setMessage(provider === "MPESA" ? "Sending an M-PESA prompt to your phone…" : "Opening secure card checkout…")
     try {
+      const creditItems = Object.fromEntries(Object.entries(qty).filter(([, value]) => value > 0))
+      const tipItems = Object.fromEntries(Object.entries(tipQty).filter(([, value]) => value > 0))
       const res = await fetch("/api/checkout/purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: phone.trim(),
-          provider,
-          items: Object.fromEntries(Object.entries(qty).filter(([, value]) => value > 0)),
-        }),
+        body: JSON.stringify({ phone: phone.trim(), provider, items: creditItems, tipItems }),
       }).then((r) => r.json())
 
       if (!res.success) {
@@ -131,7 +161,7 @@ function CheckoutInner() {
       setStage("failed")
       setMessage("Something went wrong. Please try again.")
     }
-  }, [phone, qty, provider, pollPurchase])
+  }, [phone, qty, tipQty, provider, pollPurchase])
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col items-center px-4 py-10">
@@ -157,18 +187,20 @@ function CheckoutInner() {
                 {info.user?.fullName ? `For ${info.user.fullName}. ` : ""}Choose M-PESA or card payment.
               </p>
 
-              <div className="mt-5 space-y-3">
-                {ITEMS.map((it) => (
+              {/* ── Credits ───────────────────────────────────────── */}
+              <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide mt-5 mb-2">Chat Credits</p>
+              <div className="space-y-3">
+                {CREDIT_ITEMS.map((it) => (
                   <div key={it.kind} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 p-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-50">
                         <Image src={it.icon} alt="" width={22} height={22} aria-hidden />
                       </span>
                       <div className="min-w-0">
-                      <p className="font-semibold text-sm">{it.label}</p>
-                      <p className="text-xs text-neutral-500 truncate">
-                        {it.hint} · {prices?.[it.kind]} KES
-                      </p>
+                        <p className="font-semibold text-sm">{it.label}</p>
+                        <p className="text-xs text-neutral-500 truncate">
+                          {it.hint} · {creditPrices?.[it.kind]} KES
+                        </p>
                       </div>
                     </div>
                     <Stepper
@@ -179,6 +211,56 @@ function CheckoutInner() {
                     />
                   </div>
                 ))}
+              </div>
+
+              {/* ── Tip Tokens ────────────────────────────────────── */}
+              <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide mt-6 mb-2">Tip Tokens</p>
+              <p className="text-xs text-neutral-400 mb-3">
+                Pre-buy tokens to send tips directly to creators in the app. 1 USD ≈ {info.pricing.usdToKesRate} KES.
+              </p>
+              <div className="space-y-3">
+                {TIP_ITEMS.map((it) => {
+                  const balance = info.tipBalances[TIP_BALANCE_FIELD[it.tier]]
+                  return (
+                    <div
+                      key={it.tier}
+                      className="flex items-center justify-between gap-3 rounded-xl border p-3"
+                      style={{ borderColor: `${it.color}44` }}
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                          style={{ backgroundColor: `${it.color}18` }}
+                        >
+                          <Image src={it.icon} alt="" width={22} height={22} aria-hidden />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-sm">{it.label}</p>
+                            {balance > 0 && (
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                style={{ backgroundColor: `${it.color}18`, color: it.color }}
+                              >
+                                {balance} owned
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-neutral-500">
+                            ${it.usd} USD · {tipPrices?.[it.tier]} KES each
+                          </p>
+                        </div>
+                      </div>
+                      <Stepper
+                        value={tipQty[it.tier]}
+                        onDec={() => tipStep(it.tier, -1)}
+                        onInc={() => tipStep(it.tier, +1)}
+                        disabled={stage === "paying"}
+                        accentColor={it.color}
+                      />
+                    </div>
+                  )
+                })}
               </div>
 
               {minHint && <p className="text-xs text-amber-600 mt-3">{minHint}</p>}
@@ -234,12 +316,15 @@ function Stepper({
   onDec,
   onInc,
   disabled,
+  accentColor,
 }: {
   value: number
   onDec: () => void
   onInc: () => void
   disabled?: boolean
+  accentColor?: string
 }) {
+  const bg = accentColor ?? BRAND
   return (
     <div className="flex items-center gap-2 shrink-0">
       <button
@@ -254,7 +339,7 @@ function Stepper({
         onClick={onInc}
         disabled={disabled}
         className="h-8 w-8 rounded-full text-lg leading-none text-white"
-        style={{ backgroundColor: BRAND }}
+        style={{ backgroundColor: bg }}
       >
         +
       </button>

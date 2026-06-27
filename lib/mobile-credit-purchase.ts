@@ -1,25 +1,63 @@
-import { Prisma } from "@prisma/client"
+import { Prisma, TipTier } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { initiateStkPush } from "@/lib/mpesa"
-import { ON_ACCOUNT_VALUE_KES, PURCHASE_PRICE_KES, priceCart, type CartItems } from "@/lib/mobile-credits"
+import { ON_ACCOUNT_VALUE_KES, PURCHASE_PRICE_KES, TIP_USD, priceCart, type CartItems } from "@/lib/mobile-credits"
 import { createStripeCheckoutSession } from "@/lib/stripe"
 import { env } from "@/lib/env"
 import { newPaymentIdempotencyKey } from "@/lib/payment-attempts"
 import { normalizePhone } from "@/lib/mpesa"
+
+export type TipCartItems = Partial<Record<TipTier, number>>
+
+function priceTipCart(tipItems: TipCartItems, usdToKesRate: number): { totalKes: number; normalized: TipCartItems } {
+  const normalized: TipCartItems = {}
+  let total = 0
+  for (const [k, qty] of Object.entries(tipItems)) {
+    const tier = k as TipTier
+    const n = Math.floor(Number(qty) || 0)
+    if (n <= 0) continue
+    normalized[tier] = n
+    total += Math.round(TIP_USD[tier] * usdToKesRate) * n
+  }
+  return { totalKes: total, normalized }
+}
 
 /**
  * Start a credit purchase: validate the cart, initiate an MPESA STK push for
  * the total, and record a CreditPurchase linked to the checkout id. Credits
  * are NOT allocated here — only after the STK callback confirms payment (see
  * verified PaymentAttempt fulfillment in lib/payment-attempts).
+ * If tipItems is also provided, their KES value is added to the total and
+ * they are stored in pricingSnapshot for fulfillment.
  */
 export async function initiateCreditPurchase(input: {
   userId: string
   phone: string
   items: CartItems
+  tipItems?: TipCartItems
 }) {
-  const { totalKes, normalized } = priceCart(input.items)
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } })
+  const rate = Number(settings?.usdToKesRate ?? 130)
+
+  const hasCreditItems = Object.values(input.items).some((v) => (v ?? 0) > 0)
+  const hasTipItems = Object.values(input.tipItems ?? {}).some((v) => (v ?? 0) > 0)
+
+  let creditTotal = 0
+  let normalizedCredits: CartItems = {}
+  if (hasCreditItems) {
+    const r = priceCart(input.items)
+    creditTotal = r.totalKes
+    normalizedCredits = r.normalized
+  }
+
+  const { totalKes: tipTotal, normalized: normalizedTips } = priceTipCart(input.tipItems ?? {}, rate)
+
+  const totalKes = creditTotal + tipTotal
+  if (totalKes <= 0) throw new Error("Cart is empty")
+
+  const tipPriceKes = Object.fromEntries(
+    Object.values(TipTier).map((t) => [t, Math.round(TIP_USD[t] * rate)])
+  ) as Record<TipTier, number>
 
   const normalizedPhone = normalizePhone(input.phone)
   const purchase = await prisma.$transaction(async (tx) => {
@@ -27,13 +65,16 @@ export async function initiateCreditPurchase(input: {
       userId: input.userId, provider: "MPESA", purpose: "CREDIT_PURCHASE",
       amount: new Prisma.Decimal(totalKes), currency: "KES", expectedPhone: normalizedPhone,
       idempotencyKey: newPaymentIdempotencyKey("CREDIT_PURCHASE", input.userId),
-      metadata: { pricingSnapshot: { purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES }, items: normalized } as Prisma.InputJsonValue,
+      metadata: { items: normalizedCredits, tipItems: normalizedTips } as Prisma.InputJsonValue,
     } })
     return tx.creditPurchase.create({ data: {
-      userId: input.userId, phone: normalizedPhone, items: normalized as Prisma.InputJsonValue,
+      userId: input.userId, phone: normalizedPhone, items: normalizedCredits as Prisma.InputJsonValue,
       totalKes: new Prisma.Decimal(totalKes), status: "PENDING", provider: "MPESA",
       paymentAttemptId: attempt.id, exchangeRate: settings?.usdToKesRate || null,
-      pricingSnapshot: { purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES } as Prisma.InputJsonValue,
+      pricingSnapshot: {
+        purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES,
+        tipItems: normalizedTips, tipPriceKes, usdToKesRate: rate,
+      } as Prisma.InputJsonValue,
     } })
   })
 
@@ -68,14 +109,39 @@ export async function initiateCreditPurchase(input: {
   }
 }
 
-export async function initiateStripeCreditPurchase(input: { userId: string; items: CartItems }) {
-  const { totalKes, normalized } = priceCart(input.items)
+export async function initiateStripeCreditPurchase(input: {
+  userId: string
+  items: CartItems
+  tipItems?: TipCartItems
+}) {
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } })
+  const rate = Number(settings?.usdToKesRate ?? 130)
+
+  const hasCreditItems = Object.values(input.items).some((v) => (v ?? 0) > 0)
+  let creditTotal = 0
+  let normalizedCredits: CartItems = {}
+  if (hasCreditItems) {
+    const r = priceCart(input.items)
+    creditTotal = r.totalKes
+    normalizedCredits = r.normalized
+  }
+
+  const { totalKes: tipTotal, normalized: normalizedTips } = priceTipCart(input.tipItems ?? {}, rate)
+  const totalKes = creditTotal + tipTotal
+  if (totalKes <= 0) throw new Error("Cart is empty")
+
+  const tipPriceKes = Object.fromEntries(
+    Object.values(TipTier).map((t) => [t, Math.round(TIP_USD[t] * rate)])
+  ) as Record<TipTier, number>
+
   const purchase = await prisma.creditPurchase.create({ data: {
-    userId: input.userId, phone: "", items: normalized as Prisma.InputJsonValue,
+    userId: input.userId, phone: "", items: normalizedCredits as Prisma.InputJsonValue,
     totalKes: new Prisma.Decimal(totalKes), provider: "STRIPE", status: "PENDING",
     exchangeRate: settings?.usdToKesRate || null,
-    pricingSnapshot: { purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES } as Prisma.InputJsonValue,
+    pricingSnapshot: {
+      purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES,
+      tipItems: normalizedTips, tipPriceKes, usdToKesRate: rate,
+    } as Prisma.InputJsonValue,
   } })
   try {
     const base = (env.APP_URL || "").replace(/\/$/, "")

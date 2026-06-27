@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { CreditKind } from "@prisma/client"
+import { CreditKind, TipTier } from "@prisma/client"
 import { getCheckoutActorUserId } from "@/lib/checkout-auth"
 import { initiateCreditPurchase, initiateStripeCreditPurchase } from "@/lib/mobile-credit-purchase"
 import { prisma } from "@/lib/prisma"
@@ -10,7 +10,8 @@ import { env } from "@/lib/env"
 const bodySchema = z.object({
   provider: z.enum(["MPESA", "STRIPE"]).default("MPESA"),
   phone: z.string().optional().default(""),
-  items: z.record(z.nativeEnum(CreditKind), z.number().int().nonnegative()),
+  items: z.record(z.nativeEnum(CreditKind), z.number().int().nonnegative()).optional().default({}),
+  tipItems: z.record(z.nativeEnum(TipTier), z.number().int().nonnegative()).optional().default({}),
 })
 
 // Start a credit purchase from the website. Authenticated by either the
@@ -29,8 +30,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Enter a valid M-PESA phone number" }, { status: 400 })
     }
     const result = body.provider === "STRIPE"
-      ? await initiateStripeCreditPurchase({ userId, items: body.items })
-      : await initiateCreditPurchase({ userId, phone: body.phone, items: body.items })
+      ? await initiateStripeCreditPurchase({ userId, items: body.items, tipItems: body.tipItems })
+      : await initiateCreditPurchase({ userId, phone: body.phone, items: body.items, tipItems: body.tipItems })
     return NextResponse.json({ success: result.success, data: result })
   } catch (error) {
     if (error instanceof z.ZodError) {
