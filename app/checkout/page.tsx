@@ -1,6 +1,5 @@
 "use client"
 
-import Image from "next/image"
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 
@@ -30,9 +29,14 @@ const CREDIT_ITEMS: { kind: CreditKind; label: string; hint: string; icon: strin
 
 const TIP_ITEMS: { tier: TipTier; label: string; usd: number; icon: string; color: string }[] = [
   { tier: "PEBBLE", label: "Pebble", usd: 1, icon: "/icons/economy/pebble.svg", color: "#6C757D" },
-  { tier: "GEM", label: "Gem", usd: 5, icon: "/icons/economy/gem.svg", color: "#0D6EFD" },
+  { tier: "GEM", label: "Gem", usd: 5, icon: "/icons/economy/gem.svg", color: "#10b981" },
   { tier: "DIAMOND", label: "Diamond", usd: 10, icon: "/icons/economy/diamond.svg", color: "#7B2D8B" },
 ]
+
+function Icon({ src, size = 22 }: { src: string; size?: number }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" width={size} height={size} aria-hidden />
+}
 
 const TIP_BALANCE_FIELD: Record<TipTier, "pebbles" | "gems" | "diamonds"> = {
   PEBBLE: "pebbles",
@@ -171,7 +175,8 @@ function CheckoutInner() {
     <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col items-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 justify-center mb-6">
-          <Image src="/chatandtip-logo.jpg" alt="ChatAndTip" width={54} height={34} className="h-9 w-14 object-contain" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/chatandtip-logo.jpg" alt="ChatAndTip" width={54} height={34} className="h-9 w-14 object-contain" />
           <span className="text-lg font-bold">ChatAndTip</span>
         </div>
 
@@ -198,7 +203,7 @@ function CheckoutInner() {
                   <div key={it.kind} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 p-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-50">
-                        <Image src={it.icon} alt="" width={22} height={22} aria-hidden />
+                        <Icon src={it.icon} />
                       </span>
                       <div className="min-w-0">
                         <p className="font-semibold text-sm">{it.label}</p>
@@ -236,7 +241,7 @@ function CheckoutInner() {
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
                           style={{ backgroundColor: `${it.color}18` }}
                         >
-                          <Image src={it.icon} alt="" width={22} height={22} aria-hidden />
+                          <Icon src={it.icon} />
                         </span>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
