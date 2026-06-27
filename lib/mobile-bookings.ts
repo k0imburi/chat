@@ -166,7 +166,9 @@ export async function bookingAction(userId: string, bookingId: string, action: s
   }
   if (action === "decline") {
     if (!isCreator || booking.status !== "PROPOSED") throw new Error("This proposal cannot be declined")
-    return prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, booking); return tx.callBooking.update({ where: { id: booking.id }, data: { status: "DECLINED", declinedAt: new Date() } }) }, { timeout: 20000, maxWait: 10000 })
+    const updated = await prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, booking); return tx.callBooking.update({ where: { id: booking.id }, data: { status: "DECLINED", declinedAt: new Date() } }) }, { timeout: 20000, maxWait: 10000 })
+    await notifyBooking(booking.customerId, booking.creatorId, "Call request declined", "User did not confirm availability", booking.id, booking.customer.email)
+    return updated
   }
   if (action === "cancel") {
     if (!["PROPOSED", "APPROVED"].includes(booking.status)) throw new Error("This booking cannot be cancelled")
@@ -225,14 +227,22 @@ export async function reconcileBookings() {
   const creatorNoShows = await prisma.callBooking.findMany({ where: {
     status: { in: ["APPROVED", "LIVE"] }, creatorJoinedAt: null,
     scheduledStart: { lte: addMinutes(now, -3) }, scheduledEnd: { gt: now },
-  } })
-  for (const b of creatorNoShows) await prisma.$transaction(async (tx) => {
-    await releaseBookingReservation(tx, b)
-    await tx.callBooking.update({ where: { id: b.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
-    const count = await tx.creatorStrike.count({ where: { creatorId: b.creatorId, expiresAt: { gt: now } } })
-    await tx.creatorStrike.create({ data: { creatorId: b.creatorId, bookingId: b.id, reason: "Creator did not join within three minutes", expiresAt: addDays(now, 3) } })
-    if (count + 1 >= 3) await tx.user.update({ where: { id: b.creatorId }, data: { activeStrikeCount: count + 1, earningSuspendedUntil: addDays(now, 3) } })
-  }, { timeout: 20000, maxWait: 10000 })
+  }, include: { creator: true } })
+  for (const b of creatorNoShows) {
+    const strikeTotal = await prisma.$transaction(async (tx) => {
+      await releaseBookingReservation(tx, b)
+      await tx.callBooking.update({ where: { id: b.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
+      const count = await tx.creatorStrike.count({ where: { creatorId: b.creatorId, expiresAt: { gt: now } } })
+      await tx.creatorStrike.create({ data: { creatorId: b.creatorId, bookingId: b.id, reason: "Creator did not join within three minutes", expiresAt: addDays(now, 3) } })
+      if (count + 1 >= 3) await tx.user.update({ where: { id: b.creatorId }, data: { activeStrikeCount: count + 1, earningSuspendedUntil: addDays(now, 3) } })
+      return count + 1
+    }, { timeout: 20000, maxWait: 10000 })
+    // Notify the creator of the strike in-app + email each time it is recorded.
+    const strikeMessage = strikeTotal >= 3
+      ? `You missed a booked call and received a strike (${strikeTotal}/3). Your account is restricted from sessions for 72 hours.`
+      : `You missed a booked call and received a strike (${strikeTotal}/3).`
+    await notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email)
+  }
   const due = await prisma.callBooking.findMany({ where: { status: { in: ["APPROVED", "LIVE"] }, scheduledEnd: { lte: now } } })
   for (const b of due) await prisma.$transaction(async (tx) => {
     if (!b.creatorJoinedAt) {
