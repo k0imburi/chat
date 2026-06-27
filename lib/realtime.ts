@@ -33,6 +33,12 @@ export type ChatRealtimeEvent =
     }
   | {
       channel: "chat"
+      type: "message_deleted"
+      otherUserId: string
+      data: Record<string, unknown>
+    }
+  | {
+      channel: "chat"
       type: "chat_cleared"
       otherUserId: string
       clearedAt: string

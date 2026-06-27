@@ -36,8 +36,9 @@ export async function initiateCreditPurchase(input: {
   items: CartItems
   tipItems?: TipCartItems
 }) {
-  const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } })
+  const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true, transactionFeePercent: true } })
   const rate = Number(settings?.usdToKesRate ?? 130)
+  const feePercent = Number(settings?.transactionFeePercent ?? 0)
 
   const hasCreditItems = Object.values(input.items).some((v) => (v ?? 0) > 0)
   const hasTipItems = Object.values(input.tipItems ?? {}).some((v) => (v ?? 0) > 0)
@@ -52,8 +53,10 @@ export async function initiateCreditPurchase(input: {
 
   const { totalKes: tipTotal, normalized: normalizedTips } = priceTipCart(input.tipItems ?? {}, rate)
 
-  const totalKes = creditTotal + tipTotal
-  if (totalKes <= 0) throw new Error("Cart is empty")
+  const subtotal = creditTotal + tipTotal
+  if (subtotal <= 0) throw new Error("Cart is empty")
+  const feeKes = feePercent > 0 ? Math.round(subtotal * feePercent / 100) : 0
+  const totalKes = subtotal + feeKes
 
   const tipPriceKes = Object.fromEntries(
     Object.values(TipTier).map((t) => [t, Math.round(TIP_USD[t] * rate)])
@@ -74,6 +77,7 @@ export async function initiateCreditPurchase(input: {
       pricingSnapshot: {
         purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES,
         tipItems: normalizedTips, tipPriceKes, usdToKesRate: rate,
+        feePercent, feeKes,
       } as Prisma.InputJsonValue,
     } })
   })
@@ -114,8 +118,9 @@ export async function initiateStripeCreditPurchase(input: {
   items: CartItems
   tipItems?: TipCartItems
 }) {
-  const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } })
+  const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true, transactionFeePercent: true } })
   const rate = Number(settings?.usdToKesRate ?? 130)
+  const feePercent = Number(settings?.transactionFeePercent ?? 0)
 
   const hasCreditItems = Object.values(input.items).some((v) => (v ?? 0) > 0)
   let creditTotal = 0
@@ -127,8 +132,10 @@ export async function initiateStripeCreditPurchase(input: {
   }
 
   const { totalKes: tipTotal, normalized: normalizedTips } = priceTipCart(input.tipItems ?? {}, rate)
-  const totalKes = creditTotal + tipTotal
-  if (totalKes <= 0) throw new Error("Cart is empty")
+  const subtotal = creditTotal + tipTotal
+  if (subtotal <= 0) throw new Error("Cart is empty")
+  const feeKes = feePercent > 0 ? Math.round(subtotal * feePercent / 100) : 0
+  const totalKes = subtotal + feeKes
 
   const tipPriceKes = Object.fromEntries(
     Object.values(TipTier).map((t) => [t, Math.round(TIP_USD[t] * rate)])
@@ -141,6 +148,7 @@ export async function initiateStripeCreditPurchase(input: {
     pricingSnapshot: {
       purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES,
       tipItems: normalizedTips, tipPriceKes, usdToKesRate: rate,
+      feePercent, feeKes,
     } as Prisma.InputJsonValue,
   } })
   try {

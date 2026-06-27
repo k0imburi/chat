@@ -28,9 +28,10 @@ export async function GET(request: Request) {
       getCreditBalances(userId),
       getTipWallet(userId),
       resolveMpesaConfig(),
-      prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } }),
+      prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true, transactionFeePercent: true } }),
     ])
     const rate = Number(settings?.usdToKesRate ?? 130)
+    const transactionFeePercent = Number(settings?.transactionFeePercent ?? 0)
     const tipPurchaseKes = Object.fromEntries(
       Object.values(TipTier).map((tier) => [tier, Math.round(TIP_USD[tier] * rate)])
     ) as Record<TipTier, number>
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
           minPurchase: MIN_PURCHASE,
           tipPurchaseKes,
           usdToKesRate: rate,
+          transactionFeePercent,
         },
         providers: {
           mpesa: isMpesaConfigComplete(mpesaConfig),

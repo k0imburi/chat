@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { getMessages, sendMessage } from "@/lib/mobile-chats"
+import { getMessages, sendMessage, deleteMessage } from "@/lib/mobile-chats"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { logError } from "@/lib/log-error"
 
@@ -38,6 +38,29 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
       { success: false, message: error instanceof Error ? error.message : "Failed to load messages" },
       { status: 500 },
     )
+  }
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
+  const session = await getMobileSessionFromRequest(request)
+  if (!session?.userId) {
+    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
+  }
+
+  try {
+    const params = paramsSchema.parse(await context.params)
+    const url = new URL(request.url)
+    const messageId = url.searchParams.get("messageId") || ""
+    if (!messageId) {
+      return NextResponse.json({ success: false, message: "messageId is required" }, { status: 400 })
+    }
+    await deleteMessage(session.userId, params.otherUserId, messageId)
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Failed to delete message"
+    const status = msg.includes("only delete your own") ? 403 : msg.includes("not found") ? 404 : 500
+    if (status === 500) logError("/api/mobile/chats/[otherUserId]/messages DELETE", error)
+    return NextResponse.json({ success: false, message: msg }, { status })
   }
 }
 

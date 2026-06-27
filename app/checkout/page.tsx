@@ -16,6 +16,7 @@ type Info = {
     minPurchase: Partial<Record<CreditKind, number>>
     tipPurchaseKes: Record<TipTier, number>
     usdToKesRate: number
+    transactionFeePercent: number
   }
   providers: { mpesa: boolean; stripe: boolean }
 }
@@ -116,7 +117,10 @@ function CheckoutInner() {
     return TIP_ITEMS.reduce((sum, it) => sum + tipPrices[it.tier] * tipQty[it.tier], 0)
   }, [tipPrices, tipQty])
 
-  const total = creditTotal + tipTotal
+  const subtotal = creditTotal + tipTotal
+  const feePercent = info?.pricing.transactionFeePercent ?? 0
+  const feeKes = feePercent > 0 ? Math.round(subtotal * feePercent / 100) : 0
+  const total = subtotal + feeKes
 
   const minHint =
     (qty.KEY > 0 || qty.CHAT_CREDIT > 0) && (qty.KEY < 1 || qty.CHAT_CREDIT < 5)
@@ -282,9 +286,23 @@ function CheckoutInner() {
                 style={{ ["--brand" as string]: BRAND }}
               /></>}
 
-              <div className="flex items-center justify-between mt-5">
-                <span className="text-sm text-neutral-500">Total</span>
-                <span className="text-xl font-bold">{total.toLocaleString()} KES</span>
+              <div className="mt-5 space-y-1">
+                {feeKes > 0 && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-neutral-500">Subtotal</span>
+                      <span className="text-sm text-neutral-700">{subtotal.toLocaleString()} KES</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-neutral-500">Transaction fee ({feePercent}%)</span>
+                      <span className="text-sm text-neutral-700">{feeKes.toLocaleString()} KES</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-neutral-500">Total</span>
+                  <span className="text-xl font-bold">{total.toLocaleString()} KES</span>
+                </div>
               </div>
 
               <button
