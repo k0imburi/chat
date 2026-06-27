@@ -219,7 +219,7 @@ function CheckoutInner() {
               )}
 
               <p className="text-[11px] text-neutral-400 text-center mt-4">
-                Credits are added only after the selected provider confirms payment through its signed callback.
+                Recharge account
               </p>
             </>
           )}

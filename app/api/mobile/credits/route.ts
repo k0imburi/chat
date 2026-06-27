@@ -6,6 +6,7 @@ import {
   ON_ACCOUNT_VALUE_KES,
   TIP_USD,
 } from "@/lib/mobile-credits"
+import { getTipWallet } from "@/lib/mobile-tip-wallet"
 import { logError } from "@/lib/log-error"
 
 export async function GET(request: Request) {
@@ -14,11 +15,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   }
   try {
-    const balances = await getCreditBalances(session.userId)
+    const [balances, tipWallet] = await Promise.all([
+      getCreditBalances(session.userId),
+      getTipWallet(session.userId),
+    ])
     return NextResponse.json({
       success: true,
       data: {
-        balances,
+        balances: {
+          keys: balances.keys,
+          chatCredits: balances.chatCredits,
+          voiceSessions: balances.voiceSessions,
+          videoSessions: balances.videoSessions,
+          pebbles: tipWallet.pebbles,
+          gems: tipWallet.gems,
+          diamonds: tipWallet.diamonds,
+        },
         pricing: {
           purchaseKes: PURCHASE_PRICE_KES,
           onAccountKes: ON_ACCOUNT_VALUE_KES,

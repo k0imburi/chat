@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { PaymentPurpose, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { allocateCreditsInTransaction, recordTipInTransaction, type CartItems } from "@/lib/mobile-credits"
+import { creditTipTokensInTransaction } from "@/lib/mobile-tip-wallet"
 
 export function newPaymentIdempotencyKey(purpose: PaymentPurpose, userId: string) {
   return `${purpose.toLowerCase()}:${userId}:${randomUUID()}`
@@ -62,10 +63,14 @@ export async function fulfillVerifiedTipAttempt(attemptId: string) {
     if (!purchase || Number(purchase.totalKes) !== Number(attempt.amount)) throw new Error("Tip purchase does not match the verified attempt")
     const claimed = await tx.paymentAttempt.updateMany({ where: { id: attempt.id, status: "VERIFYING" }, data: { status: "FULFILLING" } })
     if (!claimed.count) return { fulfilled: false, purchaseId: purchase.id }
-    await recordTipInTransaction(tx, {
-      senderId: purchase.senderId, receiverId: purchase.receiverId, tier: purchase.tier,
-      transactionId: purchase.id, exchangeRate: Number(purchase.exchangeRate),
-    })
+    if (purchase.receiverId) {
+      await recordTipInTransaction(tx, {
+        senderId: purchase.senderId, receiverId: purchase.receiverId, tier: purchase.tier,
+        transactionId: purchase.id, exchangeRate: Number(purchase.exchangeRate),
+      })
+    } else {
+      await creditTipTokensInTransaction(tx, purchase.senderId, purchase.tier, purchase.qty)
+    }
     await tx.tipPurchase.update({ where: { id: purchase.id }, data: { status: "SUCCESS", recorded: true } })
     await tx.paymentAttempt.update({ where: { id: attempt.id }, data: { status: "SUCCEEDED", fulfilledAt: new Date() } })
     return { fulfilled: true, purchaseId: purchase.id }
