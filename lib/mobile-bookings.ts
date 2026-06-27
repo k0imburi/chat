@@ -8,7 +8,9 @@ import { ON_ACCOUNT_VALUE_KES } from "@/lib/mobile-credits"
 
 const SESSION_MINUTES = 15
 const BUFFER_MINUTES = 10
-const ACTIVE: BookingStatus[] = ["PROPOSED", "APPROVED", "LIVE"]
+// COUNTER_PROPOSED keeps its original scheduledStart held (the customer still
+// has a pending booking on that slot) until they accept the new time or reject.
+const ACTIVE: BookingStatus[] = ["PROPOSED", "COUNTER_PROPOSED", "APPROVED", "LIVE"]
 
 const addMinutes = (date: Date, minutes: number) => new Date(date.getTime() + minutes * 60_000)
 const addDays = (date: Date, days: number) => new Date(date.getTime() + days * 86_400_000)
@@ -154,7 +156,8 @@ export async function settleBookedSession(tx: Prisma.TransactionClient, booking:
   await tx.earningLot.create({ data: { userId: booking.creatorId, source, sourceId: booking.id, amount: value, availableAt: addDays(new Date(), 30) } })
 }
 
-export async function bookingAction(userId: string, bookingId: string, action: string, reason?: string) {
+export async function bookingAction(userId: string, bookingId: string, action: string, opts?: { reason?: string; start?: string }) {
+  const reason = opts?.reason
   const booking = await prisma.callBooking.findUnique({ where: { id: bookingId }, include: { customer: true, creator: true } })
   if (!booking || (booking.customerId !== userId && booking.creatorId !== userId)) throw new Error("Booking not found")
   const isCreator = booking.creatorId === userId
@@ -170,10 +173,60 @@ export async function bookingAction(userId: string, bookingId: string, action: s
     await notifyBooking(booking.customerId, booking.creatorId, "Call request declined", "User did not confirm availability", booking.id, booking.customer.email)
     return updated
   }
+  // Creator suggests a different time instead of declining outright. The
+  // customer's reserved session credit stays held until they accept or reject.
+  if (action === "propose_alternative") {
+    if (!isCreator || booking.status !== "PROPOSED") throw new Error("This proposal cannot be rescheduled")
+    if (!opts?.start) throw new Error("A new time is required")
+    const proposedStart = new Date(opts.start)
+    if (!Number.isFinite(proposedStart.getTime())) throw new Error("Invalid time")
+    if (proposedStart.toISOString() === booking.scheduledStart.toISOString()) throw new Error("Pick a different time")
+    const slots = await availableSlots(booking.creatorId, booking.type, 31)
+    if (!slots.some((s) => s.start === proposedStart.toISOString())) throw new Error("That time is not available")
+    const proposedEnd = addMinutes(proposedStart, SESSION_MINUTES)
+    const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(proposedStart, -120).getTime()))
+    if (expires <= new Date()) throw new Error("That time is too soon to propose")
+    const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: {
+      status: "COUNTER_PROPOSED", proposedStart, proposedEnd, counterProposedAt: new Date(), proposalExpiresAt: expires,
+    } })
+    await notifyBooking(booking.customerId, booking.creatorId, "New time suggested", `${booking.creator.fullName} suggested a different time for your ${booking.type.toLowerCase()} call.`, booking.id, booking.customer.email)
+    return updated
+  }
+  // Customer accepts the creator's suggested time: the booking moves to that
+  // slot and is approved (the creator already committed to it).
+  if (action === "accept_alternative") {
+    if (isCreator || booking.status !== "COUNTER_PROPOSED" || !booking.proposedStart || !booking.proposedEnd) throw new Error("There is no time to accept")
+    if (booking.proposalExpiresAt <= new Date()) throw new Error("This suggestion has expired")
+    const proposedStart = booking.proposedStart
+    const slots = await availableSlots(booking.creatorId, booking.type, 31)
+    if (!slots.some((s) => s.start === proposedStart.toISOString())) throw new Error("That time is no longer available")
+    try {
+      const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: {
+        status: "APPROVED", approvedAt: new Date(),
+        scheduledStart: booking.proposedStart, scheduledEnd: booking.proposedEnd,
+        proposedStart: null, proposedEnd: null,
+      } })
+      await notifyBooking(booking.creatorId, booking.customerId, "Time confirmed", `${booking.customer.fullName} accepted your suggested time.`, booking.id, booking.creator.email)
+      return updated
+    } catch {
+      throw new Error("That time is no longer available")
+    }
+  }
+  // Customer rejects the creator's suggested time: refund the reservation.
+  if (action === "reject_alternative") {
+    if (isCreator || booking.status !== "COUNTER_PROPOSED") throw new Error("There is no time to reject")
+    const updated = await prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, booking); return tx.callBooking.update({ where: { id: booking.id }, data: { status: "DECLINED", declinedAt: new Date(), proposedStart: null, proposedEnd: null } }) }, { timeout: 20000, maxWait: 10000 })
+    await notifyBooking(booking.creatorId, booking.customerId, "Suggested time declined", `${booking.customer.fullName} declined your suggested time.`, booking.id, booking.creator.email)
+    return updated
+  }
   if (action === "cancel") {
-    if (!["PROPOSED", "APPROVED"].includes(booking.status)) throw new Error("This booking cannot be cancelled")
+    if (!["PROPOSED", "COUNTER_PROPOSED", "APPROVED"].includes(booking.status)) throw new Error("This booking cannot be cancelled")
+    // An unconfirmed booking (still PROPOSED/COUNTER_PROPOSED) never carries a
+    // late-cancel penalty — only a confirmed (APPROVED) one settles to the
+    // creator when the customer cancels inside the 12-hour window.
+    const isConfirmed = booking.status === "APPROVED"
     return prisma.$transaction(async (tx) => {
-      if (isCreator || booking.scheduledStart.getTime() - Date.now() >= 12 * 3600_000) await releaseBookingReservation(tx, booking)
+      if (!isConfirmed || isCreator || booking.scheduledStart.getTime() - Date.now() >= 12 * 3600_000) await releaseBookingReservation(tx, booking)
       else await settleBookedSession(tx, booking)
       return tx.callBooking.update({ where: { id: booking.id }, data: { status: "CANCELLED", cancelledAt: new Date(), endReason: reason } })
     }, { timeout: 20000, maxWait: 10000 })
@@ -201,7 +254,7 @@ export async function joinBooking(userId: string, bookingId: string) {
 
 export async function reconcileBookings() {
   const now = new Date()
-  const expired = await prisma.callBooking.findMany({ where: { status: "PROPOSED", proposalExpiresAt: { lte: now } } })
+  const expired = await prisma.callBooking.findMany({ where: { status: { in: ["PROPOSED", "COUNTER_PROPOSED"] }, proposalExpiresAt: { lte: now } } })
   for (const b of expired) await prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, b); await tx.callBooking.update({ where: { id: b.id }, data: { status: "EXPIRED" } }) }, { timeout: 20000, maxWait: 10000 })
   const reminders = await prisma.callBooking.findMany({ where: { status: "APPROVED", reminderSentAt: null, scheduledStart: { gt: now, lte: addMinutes(now, 10) } }, include: { customer: true, creator: true } })
   for (const b of reminders) {

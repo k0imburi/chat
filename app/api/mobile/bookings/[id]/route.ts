@@ -7,7 +7,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!session?.userId) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   try {
     const [{ id }, body] = await Promise.all([context.params, request.json()])
-    const data = await bookingAction(session.userId, id, String(body.action || ""), body.reason ? String(body.reason) : undefined)
+    const data = await bookingAction(session.userId, id, String(body.action || ""), {
+      reason: body.reason ? String(body.reason) : undefined,
+      start: body.start ? String(body.start) : undefined,
+    })
     return NextResponse.json({ success: true, data })
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Booking update failed" }, { status: 400 })

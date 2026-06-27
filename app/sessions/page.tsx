@@ -108,7 +108,10 @@ async function updateBooking(formData: FormData) {
     viewer.userId,
     String(formData.get("bookingId") || ""),
     String(formData.get("action") || ""),
-    formData.get("reason") ? String(formData.get("reason")) : undefined,
+    {
+      reason: formData.get("reason") ? String(formData.get("reason")) : undefined,
+      start: formData.get("start") ? String(formData.get("start")) : undefined,
+    },
   )
   revalidatePath("/sessions")
 }

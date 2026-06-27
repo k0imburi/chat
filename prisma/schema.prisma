@@ -80,6 +80,7 @@ enum BookingType {
 
 enum BookingStatus {
   PROPOSED
+  COUNTER_PROPOSED
   APPROVED
   DECLINED
   EXPIRED
@@ -773,6 +774,9 @@ model CallBooking {
   scheduledStart       DateTime
   scheduledEnd         DateTime
   proposalExpiresAt    DateTime
+  proposedStart        DateTime?
+  proposedEnd          DateTime?
+  counterProposedAt    DateTime?
   channelId            String        @unique
   customerJoinedAt     DateTime?
   creatorJoinedAt      DateTime?
