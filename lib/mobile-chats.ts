@@ -217,6 +217,22 @@ async function getOrCreateThread(userId: string, otherUserId: string, tx: Prisma
   })
 
   if (existing) {
+    // Lazily backfill initiatorId for threads that predate the locking system.
+    const thread = await tx.chatThread.findUnique({
+      where: { id: existing.threadId },
+      select: { initiatorId: true },
+    })
+    if (!thread?.initiatorId) {
+      const firstMsg = await tx.chatMessage.findFirst({
+        where: { threadId: existing.threadId },
+        orderBy: { sentAt: "asc" },
+        select: { senderId: true },
+      })
+      await tx.chatThread.update({
+        where: { id: existing.threadId },
+        data: { initiatorId: firstMsg?.senderId ?? userId },
+      })
+    }
     return existing.threadId
   }
 
@@ -299,6 +315,8 @@ export async function getMessages(userId: string, otherUserId: string) {
   const participant = await getParticipant(userId, otherUserId)
   if (!participant) return []
 
+  const clearedAt = participant.clearedAt
+
   const result = await prisma.$transaction(async (tx) => {
     await tx.chatParticipant.update({
       where: { id: participant.id },
@@ -338,7 +356,10 @@ export async function getMessages(userId: string, otherUserId: string) {
 
     const [messages, threadState] = await Promise.all([
       tx.chatMessage.findMany({
-        where: { threadId: participant.threadId },
+        where: {
+          threadId: participant.threadId,
+          ...(clearedAt ? { sentAt: { gt: clearedAt } } : {}),
+        },
         orderBy: { sentAt: "desc" },
       }),
       tx.chatThread.findUniqueOrThrow({
@@ -729,6 +750,7 @@ export async function clearChat(userId: string, otherUserId: string) {
     data: {
       archived: true,
       unreadCount: 0,
+      clearedAt: new Date(),
     },
   })
 
