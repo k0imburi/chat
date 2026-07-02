@@ -760,25 +760,6 @@ export async function markChatViewed(userId: string, otherUserId: string) {
   return { success: true }
 }
 
-export async function deleteMessage(userId: string, otherUserId: string, messageId: string) {
-  const participant = await getParticipant(userId, otherUserId)
-  if (!participant) throw new Error("Chat not found")
-
-  const message = await prisma.chatMessage.findFirst({
-    where: { id: messageId, threadId: participant.threadId },
-  })
-  if (!message) throw new Error("Message not found")
-  if (message.senderId !== userId) throw new Error("You can only delete your own messages")
-
-  await prisma.chatMessage.delete({ where: { id: messageId } })
-
-  const deleted = { id: messageId }
-  emitChatRealtimeToUser(userId, { channel: "chat", type: "message_deleted", otherUserId, data: deleted })
-  emitChatRealtimeToUser(otherUserId, { channel: "chat", type: "message_deleted", otherUserId: userId, data: deleted })
-
-  return { success: true }
-}
-
 export async function clearChat(userId: string, otherUserId: string) {
   const participant = await getParticipant(userId, otherUserId)
   if (!participant) {
