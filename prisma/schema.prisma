@@ -253,6 +253,7 @@ model User {
   paymentAttempts       PaymentAttempt[]
   livenessVerification  LivenessVerification?
   savedVideos           SavedVideo[]
+  e2eKey                UserKey?
 
   @@map("users")
 }
@@ -1045,4 +1046,12 @@ model SavedVideo {
 
   @@unique([userId, mediaId])
   @@index([userId, savedAt])
+}
+
+model UserKey {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  publicKey String   @db.Text
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
