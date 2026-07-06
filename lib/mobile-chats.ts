@@ -1,6 +1,6 @@
 import "server-only"
 
-import { ChatMessageType, Prisma, UserRole } from "@prisma/client"
+import { ChatMessageType, CreditKind, Prisma, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
@@ -443,6 +443,7 @@ export async function sendMessage(input: {
     const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
     const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
     let locked = false
+    let autoDeductCredit = false
     if (!earningSuspended && isNonInitiator) {
       // Ice breaker: count prior messages from this sender in this thread
       const priorCount = await tx.chatMessage.count({ where: { threadId, senderId: input.senderId } })
@@ -450,9 +451,21 @@ export async function sendMessage(input: {
         // First-ever message from non-initiator is free
         locked = false
       } else if (thread.icebreakerUnlocked) {
-        // Check 24h re-lock: if no message in last 24h, lock again
         const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
-        locked = !thread.lastMessageAt || thread.lastMessageAt < recentCutoff
+        if (!thread.lastMessageAt || thread.lastMessageAt < recentCutoff) {
+          locked = true // 24h elapsed since last activity → re-lock
+        } else {
+          // Within the 24h active window — unlock if initiator has chatCredits
+          const initiatorAcct = thread.initiatorId
+            ? await tx.creditAccount.findUnique({ where: { userId: thread.initiatorId } })
+            : null
+          if (initiatorAcct && initiatorAcct.chatCredits > 0) {
+            locked = false
+            autoDeductCredit = true
+          } else {
+            locked = true // credits exhausted → lock until topped up
+          }
+        }
       } else {
         locked = true
       }
@@ -480,6 +493,17 @@ export async function sendMessage(input: {
         locked,
       },
     })
+
+    // Auto-deduct one chatCredit from the initiator for messages within the 24h window
+    if (autoDeductCredit && thread?.initiatorId) {
+      await consumeCreditInTransaction(tx, {
+        userId: thread.initiatorId,
+        creatorId: input.senderId,
+        kind: "CHAT_CREDIT" as CreditKind,
+        idempotencyKey: `autochat:${message.id}`,
+        metadata: { threadId, messageId: message.id, autoDeducted: true },
+      })
+    }
 
     await tx.chatThread.update({
       where: { id: threadId },
@@ -621,6 +645,41 @@ export async function unlockReply(input: { userId: string; messageId: string }) 
       idempotencyKey: `unlock:${message.id}`,
       metadata: { threadId: message.thread.id, messageId: message.id },
     })
+
+    // On first KEY unlock: bulk-unlock all other locked creator messages (spending chatCredits)
+    if (kind === "KEY") {
+      const otherLocked = await tx.chatMessage.findMany({
+        where: {
+          threadId: message.thread.id,
+          locked: true,
+          id: { not: message.id },
+          senderId: message.senderId,
+        },
+        orderBy: { sentAt: "asc" },
+        take: 20,
+        select: { id: true },
+      })
+      for (const other of otherLocked) {
+        const flipped = await tx.chatMessage.updateMany({
+          where: { id: other.id, locked: true },
+          data: { locked: false },
+        })
+        if (flipped.count === 0) continue // already unlocked by concurrent request
+        try {
+          await consumeCreditInTransaction(tx, {
+            userId: input.userId,
+            creatorId: message.senderId,
+            kind: "CHAT_CREDIT" as CreditKind,
+            idempotencyKey: `unlock:${other.id}`,
+            metadata: { threadId: message.thread.id, messageId: other.id, bulkUnlock: true },
+          })
+        } catch {
+          // Credits exhausted — re-lock this message and stop
+          await tx.chatMessage.update({ where: { id: other.id }, data: { locked: true } })
+          break
+        }
+      }
+    }
 
     const updated = await tx.chatMessage.findUniqueOrThrow({ where: { id: message.id } })
     return { message: updated, creatorId: message.senderId }

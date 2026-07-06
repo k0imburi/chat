@@ -1,9 +1,11 @@
 import "server-only"
-import { TipTier, Prisma } from "@prisma/client"
+import { ChatMessageType, TipTier, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { initiateStkPush, normalizePhone } from "@/lib/mpesa"
 import { TIP_USD, TIP_CREATOR_SHARE, TIP_REVIEW_THRESHOLD } from "@/lib/mobile-credits"
 import { newPaymentIdempotencyKey } from "@/lib/payment-attempts"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
+import { createUserNotification } from "@/lib/mobile-notifications"
 
 export type TipWallet = { pebbles: number; gems: number; diamonds: number }
 
@@ -151,6 +153,13 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       data: { [field]: { decrement: 1 } },
     })
 
+    // Credit the receiver's token balance
+    await tx.creditAccount.upsert({
+      where: { userId: input.receiverId },
+      create: { userId: input.receiverId, [field]: 1 },
+      update: { [field]: { increment: 1 } },
+    })
+
     const priorCount = await tx.tip.count({ where: { senderId: input.senderId } })
     const flaggedForReview = priorCount >= TIP_REVIEW_THRESHOLD
 
@@ -166,9 +175,39 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       },
     })
 
+    // Create TIP chat message in the existing thread (if one exists)
+    const participant = await tx.chatParticipant.findFirst({
+      where: { userId: input.senderId, otherUserId: input.receiverId },
+      select: { threadId: true },
+    })
+    let tipMessage: { id: string; threadId: string; sentAt: Date } | null = null
+    if (participant) {
+      const msg = await tx.chatMessage.create({
+        data: {
+          threadId: participant.threadId,
+          senderId: input.senderId,
+          type: ChatMessageType.TIP,
+          text: input.tier,
+          reactions: {},
+          locked: false,
+        },
+        select: { id: true, threadId: true, sentAt: true },
+      })
+      tipMessage = msg
+      await tx.chatThread.update({
+        where: { id: participant.threadId },
+        data: { lastMessageAt: msg.sentAt, lastMessageType: ChatMessageType.TIP },
+      })
+      await tx.chatParticipant.updateMany({
+        where: { threadId: participant.threadId, userId: input.receiverId },
+        data: { unreadCount: { increment: 1 } },
+      })
+    }
+
     const updated = await tx.creditAccount.findUnique({ where: { userId: input.senderId } })
     return {
       tip,
+      tipMessage,
       wallet: {
         pebbles: updated?.pebbles ?? 0,
         gems: updated?.gems ?? 0,
@@ -176,6 +215,40 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       },
     }
   }, { timeout: 20_000, maxWait: 10_000 })
+
+  // Push TIP message to both parties in real time
+  if (result.tipMessage) {
+    const serializedTip = {
+      id: result.tipMessage.id,
+      chatId: result.tipMessage.threadId,
+      senderId: input.senderId,
+      type: "tip",
+      textMsg: input.tier,
+      imageUrl: "",
+      replyToId: "",
+      replyToText: "",
+      replyToSenderId: "",
+      replyToSenderName: "",
+      reactions: {},
+      isRead: false,
+      locked: false,
+      lockedContentType: "",
+      unlockKind: "",
+      sentAt: result.tipMessage.sentAt.toISOString(),
+    }
+    emitChatRealtimeToUser(input.senderId, { channel: "chat", type: "message_created", otherUserId: input.receiverId, data: serializedTip })
+    emitChatRealtimeToUser(input.receiverId, { channel: "chat", type: "message_created", otherUserId: input.senderId, data: serializedTip })
+  }
+
+  const tierName = ({ PEBBLE: "Pebble", GEM: "Gem", DIAMOND: "Diamond" })[input.tier] ?? input.tier
+  await createUserNotification({
+    userId: input.receiverId,
+    senderId: input.senderId,
+    title: "New tip",
+    message: `You received a ${tierName} tip`,
+    type: "message",
+    metadata: { tipId: result.tip.id },
+  })
 
   return result
 }
