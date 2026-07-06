@@ -1,13 +1,48 @@
-import { PrismaClient, LoginProvider, MediaKind, NotificationChannel, NotificationStatus, PlanInterval, UserRole, UserStatus } from "@prisma/client"
+import { PrismaClient, UserRole } from "@prisma/client"
 import bcrypt from "bcryptjs"
 
 const prisma: PrismaClient = new PrismaClient()
 
+// Seed economy balances for a set of known test accounts.
+// Does NOT touch users, media, or any other data.
+const ECONOMY_ACCOUNTS = [
+  "pablokahura",
+  "koimburi",
+  "lucyjoymwende",
+  "joelm",
+]
+
+const ECONOMY_GRANT = {
+  keys: 10,
+  chatCredits: 50,
+  voiceSessions: 5,
+  videoSessions: 5,
+  pebbles: 15,
+  gems: 8,
+  diamonds: 3,
+}
+
 async function main() {
+  // ── Admin account ─────────────────────────────────────────────
   const adminEmail = process.env.DEFAULT_ADMIN_EMAIL ?? "admin@chatandtip.com"
   const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD ?? "123456"
   const passwordHash = await bcrypt.hash(adminPassword, 12)
 
+  await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: { passwordHash, role: UserRole.SUPER_ADMIN, isActive: true },
+    create: {
+      fullName: "Super Admin",
+      email: adminEmail,
+      passwordHash,
+      role: UserRole.SUPER_ADMIN,
+      isActive: true,
+      gender: "",
+    },
+  })
+  console.log(`✓ Admin: ${adminEmail}`)
+
+  // ── App settings (idempotent) ─────────────────────────────────
   await prisma.appSettings.upsert({
     where: { id: 1 },
     update: {
@@ -38,212 +73,33 @@ async function main() {
     },
   })
 
-  await prisma.user.upsert({
-    where: { email: adminEmail },
-    update: {
-      passwordHash,
-      role: UserRole.SUPER_ADMIN,
-      isActive: true,
-      fullName: "Super Admin",
-      gender: "",
-    },
-    create: {
-      fullName: "Super Admin",
-      email: adminEmail,
-      passwordHash,
-      role: UserRole.SUPER_ADMIN,
-      isActive: true,
-      gender: "",
-    },
-  })
+  // ── Economy grants ────────────────────────────────────────────
+  let granted = 0
+  let skipped = 0
 
-  const activeAdmin = await prisma.user.findFirstOrThrow({
-    where: { email: adminEmail },
-  })
-
-  const users = await Promise.all(
-    [
-      {
-        fullName: "Amina Njeri",
-        email: "amina@example.com",
-        phoneNumber: "+254700123456",
-        gender: "F",
-        country: "Kenya",
-        city: "Nairobi",
-      status: UserStatus.ACTIVE,
-        verified: true,
-        loginProvider: LoginProvider.EMAIL,
-      },
-      {
-        fullName: "Daniel Otieno",
-        email: "daniel@example.com",
-        phoneNumber: "+254700654321",
-        gender: "M",
-        country: "Kenya",
-        city: "Kisumu",
-      status: UserStatus.REPORTED,
-        verified: false,
-        loginProvider: LoginProvider.GOOGLE,
-      },
-      {
-        fullName: "Grace Wanjiku",
-        email: "grace@example.com",
-        phoneNumber: "+254711000999",
-        gender: "F",
-        country: "Uganda",
-        city: "Kampala",
-      status: UserStatus.BLOCKED,
-        verified: false,
-        loginProvider: LoginProvider.PHONE,
-      },
-    ].map(async (user, index) => {
-      const existing = await prisma.user.findFirst({
-        where: {
-          email: user.email,
-          role: UserRole.USER,
-        },
-      })
-
-      const data = {
-        ...user,
-        swipeCount: (index + 1) * 17,
-        birthday: new Date(1996 + index, index + 1, 12),
-        lastActiveAt: new Date(),
-      }
-
-      if (existing) {
-        return prisma.user.update({
-          where: { id: existing.id },
-          data,
-        })
-      }
-
-      return prisma.user.create({
-        data: {
-          ...data,
-          role: UserRole.USER,
-          isActive: true,
-        },
-      })
+  for (const handle of ECONOMY_ACCOUNTS) {
+    // Match by email containing the handle (case-insensitive)
+    const user = await prisma.user.findFirst({
+      where: { email: { contains: handle } },
     })
-  )
 
-  await prisma.providerAccount.createMany({
-    data: [
-      {
-        userId: users[1].id,
-        provider: LoginProvider.GOOGLE,
-        providerUserId: "seed-google-daniel",
-        email: users[1].email,
-      },
-      {
-        userId: users[2].id,
-        provider: LoginProvider.PHONE,
-        providerUserId: users[2].phoneNumber ?? "",
-        email: users[2].email,
-      },
-    ].filter((account) => account.providerUserId),
-    skipDuplicates: true,
-  })
+    if (!user) {
+      console.log(`  ⚠ No user found matching "${handle}" — skipped`)
+      skipped++
+      continue
+    }
 
-  await prisma.userMedia.createMany({
-    data: users.flatMap((user, index) => [
-      {
-        userId: user.id,
-        kind: MediaKind.PROFILE_VIDEO,
-        url: `https://images.unsplash.com/photo-15${index + 10}000000000?auto=format&fit=crop&w=1200&q=80`,
-        thumbnailUrl: `https://images.unsplash.com/photo-15${index + 10}000000000?auto=format&fit=crop&w=600&q=80`,
-        views: 40 + index * 10,
-      },
-      {
-        userId: user.id,
-        kind: MediaKind.GALLERY_VIDEO,
-        url: `https://samplelib.com/lib/preview/mp4/sample-5s.mp4`,
-        thumbnailUrl: `https://images.unsplash.com/photo-15${index + 11}000000000?auto=format&fit=crop&w=600&q=80`,
-        views: 12 + index * 4,
-      },
-    ]),
-    skipDuplicates: true,
-  })
+    await prisma.creditAccount.upsert({
+      where: { userId: user.id },
+      update: ECONOMY_GRANT,
+      create: { userId: user.id, ...ECONOMY_GRANT },
+    })
 
-  await prisma.report.createMany({
-    data: [
-      {
-        reportedUserId: users[1].id,
-        reportedById: users[0].id,
-        message: "Repeated spam links in private messages.",
-      },
-      {
-        reportedUserId: users[2].id,
-        reportedById: users[1].id,
-        message: "Profile content violated community standards.",
-      },
-    ],
-    skipDuplicates: true,
-  })
+    console.log(`  ✓ ${user.email} → ${ECONOMY_GRANT.keys} keys · ${ECONOMY_GRANT.chatCredits} chat credits · ${ECONOMY_GRANT.voiceSessions} voice · ${ECONOMY_GRANT.videoSessions} video · ${ECONOMY_GRANT.pebbles}P ${ECONOMY_GRANT.gems}G ${ECONOMY_GRANT.diamonds}D`)
+    granted++
+  }
 
-  await prisma.paymentPlan.createMany({
-    data: [
-      {
-        name: "Starter",
-        code: "starter-monthly",
-        description: "Entry premium access for one month.",
-        amount: 9.99,
-        currency: "USD",
-        interval: PlanInterval.MONTHLY,
-        features: ["Unlimited swipes", "Profile boost"],
-        sortOrder: 1,
-      },
-      {
-        name: "VIP",
-        code: "vip-quarterly",
-        description: "Quarterly premium plan with visibility perks.",
-        amount: 24.99,
-        currency: "USD",
-        interval: PlanInterval.MONTHLY,
-        intervalCount: 3,
-        features: ["Unlimited swipes", "Priority support", "Featured badge"],
-        sortOrder: 2,
-      },
-    ],
-    skipDuplicates: true,
-  })
-
-  const admin = activeAdmin
-
-  await prisma.notificationCampaign.createMany({
-    data: [
-      {
-        title: "Welcome back",
-        message: "Your new admin panel is ready with MySQL and R2.",
-        channel: NotificationChannel.IN_APP,
-        status: NotificationStatus.SENT,
-        sentAt: new Date(),
-        createdById: admin.id,
-      },
-    ],
-    skipDuplicates: true,
-  })
-
-  await prisma.userNotification.createMany({
-    data: [
-      {
-        userId: users[0].id,
-        senderId: users[1].id,
-        title: "New like",
-        message: "Daniel liked your latest profile video.",
-        type: "like",
-      },
-      {
-        userId: users[1].id,
-        senderId: users[0].id,
-        title: "Tip request",
-        message: "Amina requested a tip response in chat.",
-        type: "tip",
-      },
-    ],
-    skipDuplicates: true,
-  })
+  console.log(`\nDone: ${granted} account(s) updated, ${skipped} skipped`)
 }
 
 main()
