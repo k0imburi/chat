@@ -62,6 +62,7 @@ function serializeChatSummary(participant: ChatParticipantWithThread, receiver: 
 
 function buildLockedPreview(text: string, contentType: string): string {
   if (contentType === "image") return ""
+  if (text.startsWith("enc:")) return ""
   const preview = text.slice(0, 10)
   return preview.length < text.length ? `${preview}…` : preview
 }
