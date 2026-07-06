@@ -41,32 +41,34 @@ function kmDistance(aLat: number, aLng: number, bLat: number, bLng: number) {
 }
 
 export async function getDiscoverFeed(currentUserId: string) {
-  const currentUser = await prisma.user.findUnique({
-    where: { id: currentUserId },
-    include: {
-      media: true,
-      blockedUsers: true,
-      blockedByUsers: true,
-      sentLikes: true,
-      sentSwipes: true,
-    },
-  })
+  const [currentUser, followRows, seenRows] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: currentUserId },
+      include: {
+        media: true,
+        blockedUsers: true,
+        blockedByUsers: true,
+        sentLikes: true,
+        sentSwipes: true,
+      },
+    }),
+    prisma.follow.findMany({
+      where: { followerId: currentUserId },
+      select: { followedId: true },
+    }),
+    prisma.discoverSeen.findMany({
+      where: { userId: currentUserId },
+      select: { mediaId: true },
+    }),
+  ])
+
   if (!currentUser) {
     throw new Error("Current user not found")
   }
 
-  // Posts this user has already seen — used to push fresh content first.
-  const seenRows = await prisma.discoverSeen.findMany({
-    where: { userId: currentUserId },
-    select: { mediaId: true },
-  })
   const seenMediaIds = new Set(seenRows.map((row) => row.mediaId))
-
-  const userFilter = ((currentUser.filter as Prisma.JsonObject | null) ?? {}) as Record<string, unknown>
-  const minAge = Number(userFilter.minAge ?? 18)
-  const maxAge = Number(userFilter.maxAge ?? 100)
-  const maxDistance = Number(userFilter.maxDistance ?? 100)
-  const genderFilter = String(userFilter.gender ?? "All")
+  const followedIds = followRows.map((r) => r.followedId)
+  const hasFollows = followedIds.length > 0
 
   const blockedIds = new Set<string>([
     ...currentUser.blockedUsers.map((item) => item.blockedId),
@@ -78,37 +80,50 @@ export async function getDiscoverFeed(currentUserId: string) {
   )
   const swipedIds = new Set(currentUser.sentSwipes.map((item) => item.receiverId))
 
+  // When the user follows people, discover shows only their content (no filters).
+  // When they follow nobody yet, fall back to the geo/age/gender-filtered pool.
   const candidates = await prisma.user.findMany({
     where: {
-      id: { not: currentUserId },
       status: { notIn: ["BLOCKED", "HIDDEN"] },
+      ...(hasFollows
+        ? { id: { in: followedIds } }
+        : { id: { not: currentUserId } }),
     },
     include: { media: true },
     orderBy: { createdAt: "desc" },
   })
 
+  const userFilter = ((currentUser.filter as Prisma.JsonObject | null) ?? {}) as Record<string, unknown>
+  const minAge = Number(userFilter.minAge ?? 18)
+  const maxAge = Number(userFilter.maxAge ?? 100)
+  const maxDistance = Number(userFilter.maxDistance ?? 100)
+  const genderFilter = String(userFilter.gender ?? "All")
+
   const filteredUsers = candidates.filter((candidate) => {
     if (blockedIds.has(candidate.id)) return false
     if (swipedIds.has(candidate.id)) return false
-    if (genderFilter !== "All" && candidate.gender !== genderFilter) return false
 
-    const age = toAge(candidate.birthday)
-    if (age === null || age < minAge || age > maxAge) return false
+    // Age/gender/distance filters only apply to the global-pool fallback.
+    if (!hasFollows) {
+      if (genderFilter !== "All" && candidate.gender !== genderFilter) return false
 
-    if (
-      currentUser.latitude !== null &&
-      currentUser.longitude !== null &&
-      candidate.latitude !== null &&
-      candidate.longitude !== null
-    ) {
-      const distance = kmDistance(
-        Number(currentUser.latitude),
-        Number(currentUser.longitude),
-        Number(candidate.latitude),
-        Number(candidate.longitude),
-      )
+      const age = toAge(candidate.birthday)
+      if (age === null || age < minAge || age > maxAge) return false
 
-      if (distance > maxDistance) return false
+      if (
+        currentUser.latitude !== null &&
+        currentUser.longitude !== null &&
+        candidate.latitude !== null &&
+        candidate.longitude !== null
+      ) {
+        const distance = kmDistance(
+          Number(currentUser.latitude),
+          Number(currentUser.longitude),
+          Number(candidate.latitude),
+          Number(candidate.longitude),
+        )
+        if (distance > maxDistance) return false
+      }
     }
 
     // Keep anyone with at least one gallery post (video OR image).
