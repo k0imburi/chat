@@ -35,24 +35,24 @@ export default async function InboxThreadPage({ params }: { params: Promise<{ id
 
   return (
     <CustomerShell active="/inbox" signedIn>
-      <section className="overflow-hidden rounded-3xl border border-black/5 bg-white shadow-sm">
-        <div className="flex items-center gap-3 border-b border-black/5 p-4">
-          <Link href="/inbox" className="rounded-full border border-black/10 px-3 py-1.5 text-xs font-bold">Back</Link>
-          <div className="relative h-11 w-11 overflow-hidden rounded-full bg-neutral-100">
+      <section className="overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+        <div className="flex items-center gap-3 border-b border-white/10 p-4">
+          <Link href="/inbox" className="rounded-full border border-white/20 px-3 py-1.5 text-xs font-bold text-white/80">Back</Link>
+          <div className="relative h-11 w-11 overflow-hidden rounded-full bg-white/10">
             {other.profileAvatarUrl ? <Image src={other.profileAvatarUrl} alt="" fill sizes="44px" className="object-cover" /> : null}
           </div>
           <div className="min-w-0">
             <h1 className="truncate font-black">{other.fullname || "ChatAndTip"}</h1>
-            <p className="truncate text-xs text-neutral-500">{broadcastOnly ? "Broadcast-only thread" : "Conversation"}</p>
+            <p className="truncate text-xs text-white/50">{broadcastOnly ? "Broadcast-only thread" : "Conversation"}</p>
           </div>
         </div>
 
-        <div className="min-h-[460px] space-y-3 bg-neutral-50 p-4">
+        <div className="min-h-[460px] space-y-3 bg-black/30 p-4">
           {chronological.map((message) => {
             const mine = message.senderId === viewer.userId
             return (
               <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[82%] rounded-3xl px-4 py-3 text-sm shadow-sm ${mine ? "bg-[#25d366] text-white" : "bg-white text-neutral-900"}`}>
+                <div className={`max-w-[82%] rounded-3xl px-4 py-3 text-sm ${mine ? "bg-[#25d366] text-white" : "bg-white/10 text-white"}`}>
                   {message.locked ? (
                     <LockedMessage messageId={message.id} unlockKind={message.unlockKind} otherUserId={id} />
                   ) : message.imageUrl ? (
@@ -60,23 +60,23 @@ export default async function InboxThreadPage({ params }: { params: Promise<{ id
                   ) : (
                     <p className="whitespace-pre-wrap leading-6">{message.textMsg || "Media message"}</p>
                   )}
-                  <p className={`mt-2 text-[10px] ${mine ? "text-white/70" : "text-neutral-400"}`}>{new Date(message.sentAt).toLocaleString("en-KE", { timeZone: "Africa/Nairobi" })}</p>
+                  <p className={`mt-2 text-[10px] ${mine ? "text-white/70" : "text-white/40"}`}>{new Date(message.sentAt).toLocaleString("en-KE", { timeZone: "Africa/Nairobi" })}</p>
                 </div>
               </div>
             )
           })}
-          {!chronological.length ? <p className="py-16 text-center text-sm text-neutral-500">No messages yet.</p> : null}
+          {!chronological.length ? <p className="py-16 text-center text-sm text-white/50">No messages yet.</p> : null}
         </div>
 
         {broadcastOnly ? (
-          <div className="border-t border-black/5 bg-amber-50 p-4 text-sm font-medium text-amber-900">Replies are not available for broadcast messages.</div>
+          <div className="border-t border-white/10 bg-amber-950/40 p-4 text-sm font-medium text-amber-400">Replies are not available for broadcast messages.</div>
         ) : (
-          <form action={sendTextMessage} className="grid gap-3 border-t border-black/5 p-4 sm:grid-cols-[1fr_auto]">
+          <form action={sendTextMessage} className="grid gap-3 border-t border-white/10 p-4 sm:grid-cols-[1fr_auto]">
             <input type="hidden" name="receiverId" value={id} />
             <div className="space-y-2">
               <Textarea name="text" placeholder="Write a message…" className="min-h-12 resize-none rounded-3xl" />
               <Input name="image" type="file" accept="image/*" className="rounded-2xl" />
-              <p className="text-[11px] text-neutral-400">Images are stored privately and only signed after entitlement checks.</p>
+              <p className="text-[11px] text-white/30">Images are stored privately and only signed after entitlement checks.</p>
             </div>
             <Button type="submit" className="self-end rounded-full px-6">Send</Button>
           </form>
@@ -149,7 +149,7 @@ function LockedMessage({ messageId, unlockKind, otherUserId }: { messageId: stri
       <form action={unlockMessage} className="mt-4">
         <input type="hidden" name="messageId" value={messageId} />
         <input type="hidden" name="otherUserId" value={otherUserId} />
-        <Button size="sm" type="submit" variant="outline" className="bg-white/80">Unlock with {unlockKind === "KEY" ? "Key" : "ChatCredit"}</Button>
+        <Button size="sm" type="submit" variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/20">Unlock with {unlockKind === "KEY" ? "Key" : "ChatCredit"}</Button>
       </form>
     </div>
   )

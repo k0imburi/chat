@@ -62,7 +62,7 @@ function serializeChatSummary(participant: ChatParticipantWithThread, receiver: 
 
 function buildLockedPreview(text: string, contentType: string): string {
   if (contentType === "image") return ""
-  const preview = text.slice(0, 40)
+  const preview = text.slice(0, 10)
   return preview.length < text.length ? `${preview}…` : preview
 }
 
@@ -459,6 +459,9 @@ export async function sendMessage(input: {
     }
     if (locked && imageUrl && !imageObjectKey) {
       throw new Error("Paid image replies must use private upload storage")
+    }
+    if (locked && !imageUrl && !imageObjectKey && textMsg.length < 100) {
+      throw new Error("Locked messages must be at least 100 characters")
     }
 
     const message = await tx.chatMessage.create({

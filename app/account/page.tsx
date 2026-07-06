@@ -9,14 +9,14 @@ export default async function AccountPage() {
 
   return (
     <CustomerShell active="/account" signedIn>
-      <section className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
         <div className="flex items-center gap-4">
-          <div className="relative h-20 w-20 overflow-hidden rounded-full bg-neutral-100">
+          <div className="relative h-20 w-20 overflow-hidden rounded-full bg-white/10">
             {user.profileAvatarUrl ? <Image src={user.profileAvatarUrl} alt="" fill sizes="80px" className="object-cover" /> : null}
           </div>
           <div className="min-w-0">
             <h1 className="truncate text-3xl font-black">{user.fullname || "Your account"}</h1>
-            <p className="text-sm text-neutral-500">{user.email || user.phoneNumber || user.username}</p>
+            <p className="text-sm text-white/50">{user.email || user.phoneNumber || user.username}</p>
           </div>
         </div>
 
@@ -27,10 +27,10 @@ export default async function AccountPage() {
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <Link href="/wallet" className="rounded-2xl bg-neutral-950 px-4 py-4 text-center text-sm font-black text-white">Wallet & earnings</Link>
-          <Link href={`/profiles/${user.userId}`} className="rounded-2xl border border-black/10 px-4 py-4 text-center text-sm font-black">View public profile</Link>
-          <Link href="/account/edit" className="rounded-2xl border border-black/10 px-4 py-4 text-center text-sm font-black">Edit profile</Link>
-          <Link href="/create" className="rounded-2xl border border-black/10 px-4 py-4 text-center text-sm font-black">Create post</Link>
+          <Link href="/wallet" className="rounded-2xl bg-[#25d366] px-4 py-4 text-center text-sm font-black text-white">Wallet & earnings</Link>
+          <Link href={`/profiles/${user.userId}`} className="rounded-2xl border border-white/15 px-4 py-4 text-center text-sm font-black text-white">View public profile</Link>
+          <Link href="/account/edit" className="rounded-2xl border border-white/15 px-4 py-4 text-center text-sm font-black text-white">Edit profile</Link>
+          <Link href="/create" className="rounded-2xl border border-white/15 px-4 py-4 text-center text-sm font-black text-white">Create post</Link>
         </div>
       </section>
     </CustomerShell>
@@ -38,5 +38,5 @@ export default async function AccountPage() {
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-2xl bg-neutral-50 p-4 text-center"><p className="text-2xl font-black tabular-nums">{value.toLocaleString()}</p><p className="text-xs font-bold text-neutral-500">{label}</p></div>
+  return <div className="rounded-2xl bg-white/8 p-4 text-center"><p className="text-2xl font-black tabular-nums">{value.toLocaleString()}</p><p className="text-xs font-bold text-white/50">{label}</p></div>
 }

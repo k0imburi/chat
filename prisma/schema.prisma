@@ -252,6 +252,7 @@ model User {
   creatorPayouts        CreatorPayout[]
   paymentAttempts       PaymentAttempt[]
   livenessVerification  LivenessVerification?
+  savedVideos           SavedVideo[]
 
   @@map("users")
 }
@@ -311,6 +312,7 @@ model UserMedia {
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   likeRecords    VideoLike[]
   comments       VideoComment[]
+  savedBy        SavedVideo[]
 
   @@index([userId, kind])
 }
@@ -1030,4 +1032,16 @@ model AppSettings {
   awsRegion                  String   @default("us-east-1")
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
+}
+
+model SavedVideo {
+  id        String    @id @default(cuid())
+  userId    String
+  mediaId   String
+  savedAt   DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media     UserMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, mediaId])
+  @@index([userId, savedAt])
 }

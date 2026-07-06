@@ -11,8 +11,8 @@ export default async function EditAccountPage() {
   if (!user) return <CustomerShell active="/account" signedIn={false}><SignInRequired title="Sign in to edit your profile" /></CustomerShell>
   return (
     <CustomerShell active="/account" signedIn>
-      <section className="rounded-[2rem] border border-black/5 bg-white p-5 shadow-sm">
-        <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-600">Account</p>
+      <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+        <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-400">Account</p>
         <h1 className="mt-2 text-3xl font-black">Edit profile</h1>
         <form action={saveProfile} className="mt-6 space-y-4">
           <input type="hidden" name="userId" value={user.userId} />
@@ -25,7 +25,7 @@ export default async function EditAccountPage() {
             <Field label="Country" name="country" defaultValue={user.location?.country || ""} />
           </div>
           <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-neutral-500">Bio</span>
+            <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-white/50">Bio</span>
             <Textarea name="bio" defaultValue={user.bio || ""} className="min-h-32 rounded-3xl" />
           </label>
           <Button type="submit" className="rounded-full px-7">Save profile</Button>
@@ -38,7 +38,7 @@ export default async function EditAccountPage() {
 function Field({ label, name, defaultValue, type = "text" }: { label: string; name: string; defaultValue: string; type?: string }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-neutral-500">{label}</span>
+      <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-white/50">{label}</span>
       <Input name={name} defaultValue={defaultValue} type={type} className="h-11 rounded-2xl" />
     </label>
   )
