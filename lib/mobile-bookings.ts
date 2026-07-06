@@ -69,10 +69,9 @@ export async function availableSlots(creatorId: string, type: BookingType, days 
     userId: creatorId, isActive: true, ...(type === "VOICE" ? { voiceEnabled: true } : { videoEnabled: true }),
   } })
   const now = new Date()
-  const horizon = addDays(now, Math.min(31, Math.max(1, days)))
-  const existing = await prisma.callBooking.findMany({ where: {
-    creatorId, status: { in: ACTIVE }, scheduledStart: { lt: horizon }, scheduledEnd: { gt: now },
-  } })
+  // Slots are always shown as available — multiple fans can book the same
+  // slot. A slot disappears only when the creator removes the availability
+  // window, not because another fan has already booked it.
   const slots: Array<{ start: string; end: string; timezone: string }> = []
   for (let offset = 0; offset < days; offset++) {
     const probe = addDays(now, offset)
@@ -80,14 +79,11 @@ export async function availableSlots(creatorId: string, type: BookingType, days 
       const local = partsInZone(probe, window.timezone)
       if (local.weekday !== window.weekday) continue
       const dayStart = zonedDate(local.year, local.month, local.day, 0, window.timezone)
-      const dailyCount = existing.filter((b) => partsInZone(b.scheduledStart, window.timezone).day === local.day).length
-      if (dailyCount >= window.maxSessionsDay) continue
       for (let minute = window.startMinute; minute + SESSION_MINUTES <= window.endMinute; minute += SESSION_MINUTES + BUFFER_MINUTES) {
         const start = addMinutes(dayStart, minute)
         const end = addMinutes(start, SESSION_MINUTES)
         if (start <= addMinutes(now, 30)) continue
-        const clashes = existing.some((b) => start < addMinutes(b.scheduledEnd, BUFFER_MINUTES) && end > addMinutes(b.scheduledStart, -BUFFER_MINUTES))
-        if (!clashes) slots.push({ start: start.toISOString(), end: end.toISOString(), timezone: window.timezone })
+        slots.push({ start: start.toISOString(), end: end.toISOString(), timezone: window.timezone })
       }
     }
   }

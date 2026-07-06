@@ -94,9 +94,18 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       )
     }
 
-    return NextResponse.json(
-      { success: false, message: error instanceof Error ? error.message : "Failed to send message" },
-      { status: 500 },
-    )
+    const msg = error instanceof Error ? error.message : "Failed to send message"
+    // Return 400 for known user-facing validation errors so clients can
+    // surface them directly. Everything else is a 500.
+    const USER_ERRORS = [
+      "100 characters",
+      "private upload storage",
+      "broadcast messages",
+      "Message content is required",
+      "Messaging is unavailable",
+      "You cannot message",
+    ]
+    const isUserError = USER_ERRORS.some((e) => msg.includes(e))
+    return NextResponse.json({ success: false, message: msg }, { status: isUserError ? 400 : 500 })
   }
 }
