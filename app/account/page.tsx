@@ -38,5 +38,5 @@ export default async function AccountPage() {
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-2xl bg-white/8 p-4 text-center"><p className="text-2xl font-black tabular-nums">{value.toLocaleString()}</p><p className="text-xs font-bold text-white/50">{label}</p></div>
+  return <div className="rounded-2xl bg-white/10 p-4 text-center"><p className="text-2xl font-black tabular-nums">{value.toLocaleString()}</p><p className="text-xs font-bold text-white/50">{label}</p></div>
 }

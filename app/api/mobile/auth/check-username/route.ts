@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   }
 
   const existing = await prisma.user.findFirst({
-    where: { username: { equals: username, mode: "insensitive" } },
+    where: { username },
     select: { id: true },
   })
 

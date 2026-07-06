@@ -38,11 +38,11 @@ export default async function SessionsPage() {
 
 function BookingList({ title, empty, bookings, userId }: { title: string; empty: string; userId: string; bookings: Awaited<ReturnType<typeof getCustomerBookings>> }) {
   return (
-    <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-sm">
-      <div className="border-b border-black/5 p-5"><h2 className="text-xl font-black">{title}</h2></div>
-      <div className="divide-y divide-black/5">
+    <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/5">
+      <div className="border-b border-white/10 p-5"><h2 className="text-xl font-black">{title}</h2></div>
+      <div className="divide-y divide-white/10">
         {bookings.map((booking) => <BookingCard key={booking.id} booking={booking} userId={userId} />)}
-        {!bookings.length ? <p className="p-8 text-center text-sm text-neutral-500">{empty}</p> : null}
+        {!bookings.length ? <p className="p-8 text-center text-sm text-white/50">{empty}</p> : null}
       </div>
     </section>
   )
@@ -55,7 +55,7 @@ function BookingCard({ booking, userId }: { booking: Awaited<ReturnType<typeof g
   return (
     <article className="p-4">
       <div className="flex gap-3">
-        <div className="relative h-12 w-12 overflow-hidden rounded-full bg-neutral-100">
+        <div className="relative h-12 w-12 overflow-hidden rounded-full bg-white/10">
           {other.avatarUrl ? <Image src={other.avatarUrl} alt="" fill sizes="48px" className="object-cover" /> : null}
         </div>
         <div className="min-w-0 flex-1">

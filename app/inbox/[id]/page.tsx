@@ -142,9 +142,9 @@ function LockedMessage({ messageId, unlockKind, otherUserId }: { messageId: stri
     <div className="min-w-52">
       <div className="mb-3 flex items-center gap-2 font-black"><Lock className="h-4 w-4" /> Locked reply</div>
       <div className="space-y-2">
-        <div className="h-3 w-40 rounded-full bg-neutral-200/80" />
-        <div className="h-3 w-32 rounded-full bg-neutral-200/70" />
-        <div className="h-3 w-44 rounded-full bg-neutral-200/60" />
+        <div className="h-3 w-40 rounded-full bg-white/25" />
+        <div className="h-3 w-32 rounded-full bg-white/18" />
+        <div className="h-3 w-44 rounded-full bg-white/12" />
       </div>
       <form action={unlockMessage} className="mt-4">
         <input type="hidden" name="messageId" value={messageId} />

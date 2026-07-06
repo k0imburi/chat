@@ -18,8 +18,8 @@ export default async function CreatePage() {
 
   return (
     <CustomerShell active="/create" signedIn>
-      <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-sm">
-        <div className="bg-neutral-950 p-6 text-white">
+      <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/5">
+        <div className="bg-white/5 p-6">
           <p className="text-sm font-bold uppercase tracking-[0.22em] text-emerald-400">Create</p>
           <h1 className="mt-2 text-3xl font-black">Share a post</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/60">Upload an image or video, add a caption, and publish to Discover. Public posts remain free.</p>
@@ -28,44 +28,44 @@ export default async function CreatePage() {
         <form action={createPost} className="space-y-5 p-5">
           <input type="hidden" name="userId" value={user.userId} />
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="rounded-3xl bg-emerald-50 p-4">
+            <label className="rounded-3xl bg-emerald-900/30 p-4">
               <input type="radio" name="kind" value="IMAGE" defaultChecked className="accent-emerald-500" />
-              <ImagePlus className="mt-4 h-7 w-7 text-emerald-700" />
+              <ImagePlus className="mt-4 h-7 w-7 text-emerald-400" />
               <p className="mt-2 font-black">Image post</p>
-              <p className="mt-1 text-xs text-neutral-500">Single image for the feed.</p>
+              <p className="mt-1 text-xs text-white/50">Single image for the feed.</p>
             </label>
-            <label className="rounded-3xl bg-purple-50 p-4">
+            <label className="rounded-3xl bg-purple-900/30 p-4">
               <input type="radio" name="kind" value="GALLERY_VIDEO" className="accent-purple-500" />
-              <Video className="mt-4 h-7 w-7 text-purple-700" />
+              <Video className="mt-4 h-7 w-7 text-purple-400" />
               <p className="mt-2 font-black">Video post</p>
-              <p className="mt-1 text-xs text-neutral-500">Video reel for the feed.</p>
+              <p className="mt-1 text-xs text-white/50">Video reel for the feed.</p>
             </label>
-            <label className="rounded-3xl bg-blue-50 p-4">
+            <label className="rounded-3xl bg-blue-900/30 p-4">
               <input type="radio" name="kind" value="PROFILE_VIDEO" className="accent-blue-500" />
-              <Video className="mt-4 h-7 w-7 text-blue-700" />
+              <Video className="mt-4 h-7 w-7 text-blue-400" />
               <p className="mt-2 font-black">Profile video</p>
-              <p className="mt-1 text-xs text-neutral-500">Replace your profile video.</p>
+              <p className="mt-1 text-xs text-white/50">Replace your profile video.</p>
             </label>
           </div>
 
-          <label className="block rounded-[2rem] border-2 border-dashed border-neutral-200 bg-neutral-50 p-6 text-center">
+          <label className="block rounded-[2rem] border-2 border-dashed border-white/20 bg-white/5 p-6 text-center">
             <span className="block text-lg font-black">Choose media file</span>
-            <span className="mt-1 block text-sm text-neutral-500">Up to 200MB. Images and videos are uploaded to R2.</span>
-            <Input name="file" type="file" accept="image/*,video/*" required className="mx-auto mt-4 max-w-md rounded-2xl bg-white" />
+            <span className="mt-1 block text-sm text-white/50">Up to 200MB. Images and videos are uploaded to R2.</span>
+            <Input name="file" type="file" accept="image/*,video/*" required className="mx-auto mt-4 max-w-md rounded-2xl bg-white/10" />
           </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-neutral-500">Title</span>
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-white/50">Title</span>
               <Input name="title" placeholder="Optional title" className="h-11 rounded-2xl" />
             </label>
             <label className="block">
-              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-neutral-500">Thumbnail URL</span>
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-white/50">Thumbnail URL</span>
               <Input name="thumbnailUrl" placeholder="Optional thumbnail URL" className="h-11 rounded-2xl" />
             </label>
           </div>
           <label className="block">
-            <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-neutral-500">Caption</span>
+            <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-white/50">Caption</span>
             <Textarea name="caption" placeholder="Write a caption…" className="min-h-32 rounded-3xl" />
           </label>
 

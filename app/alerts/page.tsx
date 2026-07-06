@@ -9,28 +9,28 @@ export default async function NotificationsPage() {
 
   return (
     <CustomerShell active="/alerts" signedIn>
-      <div className="rounded-3xl border border-black/5 bg-white shadow-sm">
-        <div className="border-b border-black/5 p-5">
+      <div className="rounded-3xl border border-white/10 bg-white/5">
+        <div className="border-b border-white/10 p-5">
           <h1 className="text-2xl font-black">Alerts</h1>
-          <p className="mt-1 text-sm text-neutral-500">Likes, comments, broadcasts and booking updates open their exact destination when available.</p>
+          <p className="mt-1 text-sm text-white/50">Likes, comments, broadcasts and booking updates open their exact destination when available.</p>
         </div>
-        <div className="divide-y divide-black/5">
+        <div className="divide-y divide-white/10">
           {notifications.data.map((item) => {
             const href = mediaTargetFromNotification(item.metadata) || (item.type === "broadcast" ? "/inbox" : "/")
             return (
-              <Link key={item.id} href={href} className={`block p-5 hover:bg-neutral-50 ${item.isRead ? "" : "bg-emerald-50/60"}`}>
+              <Link key={item.id} href={href} className={`block p-5 hover:bg-white/5 ${item.isRead ? "" : "bg-emerald-900/20"}`}>
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="font-extrabold">{item.title || notificationTitle(item.type)}</p>
-                    <p className="mt-1 text-sm leading-6 text-neutral-600">{item.message}</p>
-                    <p className="mt-2 text-xs text-neutral-400">{new Date(item.createdAt).toLocaleString("en-KE", { timeZone: "Africa/Nairobi" })}</p>
+                    <p className="mt-1 text-sm leading-6 text-white/60">{item.message}</p>
+                    <p className="mt-2 text-xs text-white/40">{new Date(item.createdAt).toLocaleString("en-KE", { timeZone: "Africa/Nairobi" })}</p>
                   </div>
                   {!item.isRead ? <span className="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-500" /> : null}
                 </div>
               </Link>
             )
           })}
-          {!notifications.data.length ? <p className="p-8 text-center text-sm text-neutral-500">No alerts yet.</p> : null}
+          {!notifications.data.length ? <p className="p-8 text-center text-sm text-white/50">No alerts yet.</p> : null}
         </div>
       </div>
     </CustomerShell>
