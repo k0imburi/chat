@@ -5,6 +5,16 @@ import { prisma } from "@/lib/prisma"
 import { serializeMobileUserWithLikes } from "@/lib/mobile-users"
 import { FEED_LIMIT, hotScore } from "@/lib/discover-score"
 
+// Stable non-cryptographic hash for a string — used to give trending a
+// deterministic shuffle that differs from discover's recency ordering.
+function idHashFraction(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0
+  }
+  return ((h >>> 0) % 10_000) / 10_000
+}
+
 function toAge(birthday: Date | null) {
   if (!birthday) return null
   const today = new Date()
@@ -134,15 +144,18 @@ export async function getDiscoverFeed(currentUserId: string) {
           video,
           _seen: id ? seenMediaIds.has(id) : false,
           _score: score,
+          _createdAt: createdAt.getTime(),
         }
       })
     })
     .flat()
 
-  // Unseen posts first (each group ranked by hot score), then seen posts as
-  // a fallback so the feed never runs empty for active users.
+  // Unseen posts first (newest content first — keeps discover feeling fresh
+  // and ensures its ordering differs from trending's engagement-ranked sort).
+  // Seen posts fall back to hotScore so highly-engaged content surfaces again.
   entries.sort((a, b) => {
     if (a._seen !== b._seen) return a._seen ? 1 : -1
+    if (!a._seen) return b._createdAt - a._createdAt
     return b._score - a._score
   })
 
@@ -160,27 +173,23 @@ export async function getTrendingFeed() {
     include: { media: true },
   })
 
-  const now = Date.now()
-
   const entries = users
     .flatMap((user) => {
       const serialized = serializeMobileUserWithLikes(user, new Set())
       const videos = Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []
-      // Strip gallery from the user profile — the app only needs avatar/name,
-      // not the full post list. Keeps the response payload small.
       const { gallery: _g, ...userProfile } = serialized
       return videos.map((video) => {
-        const createdAt = new Date(String(video.createdAt || now))
-        const score = hotScore(
-          Number(video.likes ?? 0),
-          Number(video.commentCount ?? 0),
-          Number(video.views ?? 0),
-          createdAt,
-          now,
-        )
-        return { user: userProfile, video, _score: score }
+        const likes = Number(video.likes ?? 0)
+        const comments = Number(video.commentCount ?? 0)
+        const views = Number(video.views ?? 0)
+        // Pure engagement score: no time decay so genuinely popular content
+        // stays at the top, and the feed ordering differs from discover's
+        // recency-first sort. ID hash tiebreaks equal-scored items stably.
+        const engagement = likes * 3 + comments * 5 + views * 0.1
+        const tiebreak = idHashFraction(String(video.id ?? ""))
+        return { user: userProfile, video, _score: engagement + tiebreak }
       })
     })
     .sort((a, b) => b._score - a._score)
