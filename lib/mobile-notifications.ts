@@ -179,6 +179,14 @@ export async function deleteAllNotifications(userId: string) {
   return { success: true, deleted: result.count }
 }
 
+type TargetFilter = {
+  roles?: ('USER' | 'CREATOR')[]
+  gender?: string[]
+  verified?: boolean
+  createdAfter?: string
+  userIds?: string[]
+}
+
 export async function broadcastCampaignNotifications(input: {
   title?: string | null
   message: string
@@ -186,6 +194,7 @@ export async function broadcastCampaignNotifications(input: {
   channel?: string
   afterUserId?: string
   batchSize?: number
+  targetFilter?: TargetFilter | null
 }) {
   const systemUser = await prisma.user.upsert({
     where: { externalId: "system:chatandtip" },
@@ -203,12 +212,23 @@ export async function broadcastCampaignNotifications(input: {
     include: { media: true },
   })
 
+  const tf = input.targetFilter
+  const roleFilter = tf?.roles?.length
+    ? tf.roles.map((r) => UserRole[r as keyof typeof UserRole])
+    : [UserRole.USER]
+
   const users = await prisma.user.findMany({
     where: {
-      role: UserRole.USER,
+      role: { in: roleFilter },
       isActive: true,
-      id: { not: systemUser.id },
-      ...(input.afterUserId ? { id: { gt: input.afterUserId, not: systemUser.id } } : {}),
+      id: {
+        not: systemUser.id,
+        ...(input.afterUserId ? { gt: input.afterUserId } : {}),
+        ...(tf?.userIds?.length ? { in: tf.userIds } : {}),
+      },
+      ...(tf?.gender?.length ? { gender: { in: tf.gender } } : {}),
+      ...(tf?.verified !== undefined ? { verified: tf.verified } : {}),
+      ...(tf?.createdAfter ? { createdAt: { gte: new Date(tf.createdAfter) } } : {}),
     },
     select: { id: true, deviceToken: true },
     orderBy: { id: "asc" },

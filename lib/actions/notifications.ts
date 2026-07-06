@@ -17,14 +17,40 @@ const schema = z.object({
   title: z.string().optional(),
   message: z.string().min(3),
   channel: z.nativeEnum(NotificationChannel),
-  scheduledAt: z.string().optional(), // ISO datetime string from the form
+  scheduledAt: z.string().optional(),
+  audience: z.enum(["all", "creators", "fans", "verified", "custom"]).optional(),
+  genderFilter: z.string().optional(),
+  createdAfter: z.string().optional(),
+  userIds: z.string().optional(),
 })
+
+function _buildTargetFilter(parsed: {
+  audience?: string
+  genderFilter?: string
+  createdAfter?: string
+  userIds?: string
+}) {
+  if (!parsed.audience || parsed.audience === "all") return null
+  const filter: Record<string, unknown> = {}
+  if (parsed.audience === "creators") filter.roles = ["CREATOR"]
+  else if (parsed.audience === "fans") filter.roles = ["USER"]
+  else if (parsed.audience === "verified") filter.verified = true
+  else if (parsed.audience === "custom" && parsed.userIds) {
+    filter.userIds = parsed.userIds.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
+  }
+  if (parsed.genderFilter) filter.gender = [parsed.genderFilter.toUpperCase()]
+  if (parsed.createdAfter) filter.createdAfter = parsed.createdAfter
+  return Object.keys(filter).length ? filter : null
+}
 
 async function _runDelivery(campaignId: string) {
   const campaign = await prisma.notificationCampaign.findUniqueOrThrow({ where: { id: campaignId } })
   const meta = campaign.metadata && typeof campaign.metadata === "object" && !Array.isArray(campaign.metadata)
     ? (campaign.metadata as Record<string, unknown>)
     : {}
+  const targetFilter = campaign.targetFilter && typeof campaign.targetFilter === "object" && !Array.isArray(campaign.targetFilter)
+    ? (campaign.targetFilter as Record<string, unknown>)
+    : null
   let lastUserId = typeof meta.lastUserId === "string" ? meta.lastUserId : undefined
   let totalDelivered = Number(meta.delivered ?? 0)
   const BATCH = 200
@@ -37,6 +63,7 @@ async function _runDelivery(campaignId: string) {
       channel: campaign.channel,
       afterUserId: lastUserId,
       batchSize: BATCH,
+      targetFilter: targetFilter as Parameters<typeof broadcastCampaignNotifications>[0]['targetFilter'],
     })
     totalDelivered += result.created
     const done = result.created < BATCH
@@ -70,10 +97,16 @@ export async function createNotificationCampaignAction(
       message: formData.get("message"),
       channel: formData.get("channel"),
       scheduledAt: formData.get("scheduledAt") || undefined,
+      audience: formData.get("audience") || undefined,
+      genderFilter: formData.get("genderFilter") || undefined,
+      createdAfter: formData.get("createdAfter") || undefined,
+      userIds: formData.get("userIds") || undefined,
     })
 
     const scheduledAt = parsed.scheduledAt ? new Date(parsed.scheduledAt) : null
     const isScheduled = scheduledAt && scheduledAt > new Date()
+
+    const targetFilter = _buildTargetFilter(parsed)
 
     const campaign = await prisma.notificationCampaign.create({
       data: {
@@ -82,6 +115,7 @@ export async function createNotificationCampaignAction(
         channel: parsed.channel,
         status: NotificationStatus.DRAFT,
         scheduledAt,
+        targetFilter: targetFilter as Prisma.InputJsonValue ?? Prisma.DbNull,
         metadata: { deliveryState: isScheduled ? "SCHEDULED" : "DELIVERING" },
         createdById: session.id,
       },

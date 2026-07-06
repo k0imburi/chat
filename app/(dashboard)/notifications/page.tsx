@@ -124,6 +124,38 @@ export default async function NotificationsPage() {
                 />
               </div>
               <div className="space-y-2">
+                <Label htmlFor="audience">Audience</Label>
+                <select id="audience" name="audience" className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm">
+                  <option value="all">All users</option>
+                  <option value="fans">Fans only</option>
+                  <option value="creators">Creators only</option>
+                  <option value="verified">Verified users</option>
+                  <option value="custom">Custom ID list</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="genderFilter">Gender filter (optional)</Label>
+                <select id="genderFilter" name="genderFilter" className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm">
+                  <option value="">Any gender</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="createdAfter">Joined after (optional)</Label>
+                <Input id="createdAfter" name="createdAfter" type="date" className="w-full" />
+                <p className="text-xs text-muted-foreground">Only reach users who joined after this date.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="userIds">Custom user IDs (comma-separated)</Label>
+                <textarea
+                  id="userIds"
+                  name="userIds"
+                  className="min-h-20 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="Only used when Audience = Custom ID list"
+                />
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="scheduledAt">Schedule for (optional)</Label>
                 <Input
                   id="scheduledAt"
