@@ -94,22 +94,14 @@ export async function submitLivenessVerification(
       : now,
   }
 
-  if (autoDecision === "APPROVE") {
-    await prisma.$transaction([
-      prisma.livenessVerification.upsert({
-        where: { userId },
-        create: { userId, ...upsertData },
-        update: upsertData,
-      }),
-      prisma.user.update({ where: { id: userId }, data: { verified: true } }),
-    ])
-  } else {
-    await prisma.livenessVerification.upsert({
-      where: { userId },
-      create: { userId, ...upsertData },
-      update: upsertData,
-    })
-  }
+  // Liveness/selfie is KYC (used to gate payouts) — it does NOT grant the
+  // verified badge. The blue check is admin-granted; the gold check is the
+  // official/broadcast account. So we only persist the KYC record here.
+  await prisma.livenessVerification.upsert({
+    where: { userId },
+    create: { userId, ...upsertData },
+    update: upsertData,
+  })
 
   return { status: newStatus, similarity: compareResult.similarity, autoDecision }
 }

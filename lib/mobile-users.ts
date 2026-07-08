@@ -159,6 +159,9 @@ export function serializeMobileUser(user: UserWithMedia) {
     deviceSystem: user.deviceSystem || "",
     swipeCount: user.swipeCount,
     verified: user.verified ? 1 : 0,
+    // Official/broadcast account (the system ChatAndTip sender) — the app
+    // renders its verified check in gold rather than blue.
+    isBroadcaster: user.externalId === "system:chatandtip",
     lastSwipeDate: user.lastSwipeDate?.toISOString() || null,
     status: mapStatus(user.status),
     loginProvider: mapMobileLoginProvider(user.loginProvider),

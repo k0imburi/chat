@@ -152,31 +152,24 @@ export async function getDiscoverFeed(currentUserId: string) {
       return videos.map((video) => {
         const id = String(video.id || "")
         const createdAt = new Date(String(video.createdAt || now))
-        const score = hotScore(
-          Number(video.likes ?? 0),
-          Number(video.commentCount ?? 0),
-          Number(video.views ?? 0),
-          createdAt,
-          now,
-        )
         return {
           user: userProfile,
           video,
           _seen: id ? seenMediaIds.has(id) : false,
-          _score: score,
           _createdAt: createdAt.getTime(),
         }
       })
     })
     .flat()
 
-  // Unseen posts first (newest content first — keeps discover feeling fresh
-  // and ensures its ordering differs from trending's engagement-ranked sort).
-  // Seen posts fall back to hotScore so highly-engaged content surfaces again.
+  // Discover is "following + fresh": people you follow (when hasFollows the
+  // candidate pool is already follow-scoped) surfaced newest-first, with
+  // unseen posts ahead of seen ones. It is ordered purely by recency and NEVER
+  // by engagement/hotScore, so it stays visibly different from the Trending
+  // tab (which ranks by the hot-score algorithm).
   entries.sort((a, b) => {
     if (a._seen !== b._seen) return a._seen ? 1 : -1
-    if (!a._seen) return b._createdAt - a._createdAt
-    return b._score - a._score
+    return b._createdAt - a._createdAt
   })
 
   // Strip internal scoring fields before returning.
@@ -206,6 +199,7 @@ export async function getTrendingFeed(currentUserId?: string) {
     likedRows.map((row) => row.mediaId).filter((value): value is string => Boolean(value)),
   )
 
+  const now = Date.now()
   const entries = users
     .flatMap((user) => {
       const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds)
@@ -214,15 +208,20 @@ export async function getTrendingFeed(currentUserId?: string) {
         : []
       const { gallery: _g, ...userProfile } = serialized
       return videos.map((video) => {
-        const likes = Number(video.likes ?? 0)
-        const comments = Number(video.commentCount ?? 0)
-        const views = Number(video.views ?? 0)
-        // Pure engagement score: no time decay so genuinely popular content
-        // stays at the top, and the feed ordering differs from discover's
-        // recency-first sort. ID hash tiebreaks equal-scored items stably.
-        const engagement = likes * 3 + comments * 5 + views * 0.1
-        const tiebreak = idHashFraction(String(video.id ?? ""))
-        return { user: userProfile, video, _score: engagement + tiebreak }
+        // Trending is ranked strictly by the hot-score algorithm (engagement
+        // blended with recency). This is deliberately a different ordering
+        // from discover's following-first / freshness sort, so swapping tabs
+        // shows visibly different content. ID hash tiebreaks equal scores.
+        const createdAt = new Date(String(video.createdAt ?? now))
+        const score = hotScore(
+          Number(video.likes ?? 0),
+          Number(video.commentCount ?? 0),
+          Number(video.views ?? 0),
+          createdAt,
+          now,
+        )
+        const tiebreak = idHashFraction(String(video.id ?? "")) * 1e-6
+        return { user: userProfile, video, _score: score + tiebreak }
       })
     })
     .sort((a, b) => b._score - a._score)
