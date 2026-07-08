@@ -326,7 +326,7 @@ export async function getMessages(userId: string, otherUserId: string) {
   await ensureUsersCanChat(userId, otherUserId)
 
   const participant = await getParticipant(userId, otherUserId)
-  if (!participant) return []
+  if (!participant) return { messages: [], willChargeReply: false }
 
   const clearedAt = participant.clearedAt
 
@@ -367,7 +367,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       })
     }
 
-    const [messages, threadState] = await Promise.all([
+    const [messages, threadState, myPriorCount, viewer] = await Promise.all([
       tx.chatMessage.findMany({
         where: {
           threadId: participant.threadId,
@@ -377,15 +377,31 @@ export async function getMessages(userId: string, otherUserId: string) {
       }),
       tx.chatThread.findUniqueOrThrow({
         where: { id: participant.threadId },
-        select: { icebreakerUnlocked: true },
+        select: { icebreakerUnlocked: true, initiatorId: true, broadcastOnly: true },
       }),
+      tx.chatMessage.count({ where: { threadId: participant.threadId, senderId: userId } }),
+      tx.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } }),
     ])
+
+    // The viewer's next reply will charge the other party (paid reply) when the
+    // viewer is the non-initiator, has already sent their free icebreaker reply,
+    // is not earning-suspended, and the thread isn't broadcast-only. The app
+    // uses this to enforce the 100-char minimum in the composer.
+    const earningSuspended = Boolean(viewer?.earningSuspendedUntil && viewer.earningSuspendedUntil > new Date())
+    const willChargeReply = Boolean(
+      !threadState.broadcastOnly &&
+      !earningSuspended &&
+      threadState.initiatorId != null &&
+      threadState.initiatorId !== userId &&
+      myPriorCount > 0,
+    )
 
     const chatSummary = await getChatSummaryForUser(tx, userId, otherUserId)
 
     return {
       messages,
       unlockKind: threadState.icebreakerUnlocked ? "CHAT_CREDIT" as const : "KEY" as const,
+      willChargeReply,
       chatSummary,
       readAt: new Date().toISOString(),
     }
@@ -407,11 +423,12 @@ export async function getMessages(userId: string, otherUserId: string) {
     readAt: result.readAt,
   })
 
-  return Promise.all(
+  const serializedMessages = await Promise.all(
     result.messages.map((message) =>
       serializeChatMessageForViewer(message, userId, result.unlockKind),
     ),
   )
+  return { messages: serializedMessages, willChargeReply: result.willChargeReply }
 }
 
 export async function sendMessage(input: {
@@ -486,8 +503,12 @@ export async function sendMessage(input: {
     // For encrypted text, the client reports the true plaintext length —
     // textMsg.length would measure ciphertext, which is always inflated.
     const effectiveLength = textMsg.startsWith("enc:") ? (input.textLength ?? 0) : textMsg.length
-    if (locked && !imageUrl && !imageObjectKey && effectiveLength < 100) {
-      throw new Error("Locked messages must be at least 100 characters")
+    // A creator being paid for the reply (whether it will be locked, or
+    // auto-charged to the initiator within the 24h window) must write a real
+    // message — no charging someone then replying one letter at a time.
+    const isPaidReply = locked || autoDeductCredit
+    if (isPaidReply && !imageUrl && !imageObjectKey && effectiveLength < 100) {
+      throw new Error("Paid replies must be at least 100 characters")
     }
 
     const message = await tx.chatMessage.create({

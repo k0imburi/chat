@@ -23,9 +23,9 @@ export default async function InboxThreadPage({ params }: { params: Promise<{ id
   const other = await getCustomerProfile(id)
   if (!other) return notFound()
 
-  let messages: Awaited<ReturnType<typeof getMessages>> = []
+  let messages: Awaited<ReturnType<typeof getMessages>>["messages"] = []
   try {
-    messages = await getMessages(viewer.userId, id)
+    messages = (await getMessages(viewer.userId, id)).messages
   } catch {
     messages = []
   }
