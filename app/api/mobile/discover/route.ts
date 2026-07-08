@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url)
     const mode = url.searchParams.get("mode") ?? "discover"
     const feed = mode === "trending"
-      ? await getTrendingFeed()
+      ? await getTrendingFeed(session.userId)
       : await getDiscoverFeed(session.userId)
     return NextResponse.json({ success: true, data: feed })
   } catch (error) {

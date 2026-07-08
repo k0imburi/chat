@@ -175,12 +175,17 @@ export async function serializeMobileUserWithCounts(user: UserWithMedia) {
   return { ...serializeMobileUser(user), followersCount, followingCount }
 }
 
-export function serializeMobileUserWithLikes(user: UserWithMedia, likedMediaIds: Set<string>) {
+export function serializeMobileUserWithLikes(
+  user: UserWithMedia,
+  likedMediaIds: Set<string>,
+  savedMediaIds: Set<string> = new Set(),
+) {
   const serialized = serializeMobileUser(user) as Record<string, unknown>
   const profileVideo = serialized.profileVideo as Record<string, unknown>
   const gallery = (serialized.gallery as Array<Record<string, unknown>>).map((video) => ({
     ...video,
     isLiked: likedMediaIds.has(String(video.id || "")),
+    isSaved: savedMediaIds.has(String(video.id || "")),
   }))
 
   return {
@@ -188,6 +193,7 @@ export function serializeMobileUserWithLikes(user: UserWithMedia, likedMediaIds:
     profileVideo: {
       ...profileVideo,
       isLiked: likedMediaIds.has(String(profileVideo.id || "")),
+      isSaved: savedMediaIds.has(String(profileVideo.id || "")),
     },
     gallery,
   }

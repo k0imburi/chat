@@ -41,7 +41,7 @@ function kmDistance(aLat: number, aLng: number, bLat: number, bLng: number) {
 }
 
 export async function getDiscoverFeed(currentUserId: string) {
-  const [currentUser, followRows, seenRows] = await Promise.all([
+  const [currentUser, followRows, seenRows, savedRows] = await Promise.all([
     prisma.user.findUnique({
       where: { id: currentUserId },
       include: {
@@ -60,6 +60,10 @@ export async function getDiscoverFeed(currentUserId: string) {
       where: { userId: currentUserId },
       select: { mediaId: true },
     }),
+    prisma.savedVideo.findMany({
+      where: { userId: currentUserId },
+      select: { mediaId: true },
+    }),
   ])
 
   if (!currentUser) {
@@ -67,6 +71,7 @@ export async function getDiscoverFeed(currentUserId: string) {
   }
 
   const seenMediaIds = new Set(seenRows.map((row) => row.mediaId))
+  const savedMediaIds = new Set(savedRows.map((row) => row.mediaId))
   const followedIds = followRows.map((r) => r.followedId)
   const hasFollows = followedIds.length > 0
 
@@ -137,7 +142,7 @@ export async function getDiscoverFeed(currentUserId: string) {
   // Build one feed entry per gallery post, scored by the hot algorithm.
   const entries = filteredUsers
     .map((user) => {
-      const serialized = serializeMobileUserWithLikes(user, likedMediaIds)
+      const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds)
       const videos = Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []
@@ -180,17 +185,30 @@ export async function getDiscoverFeed(currentUserId: string) {
     .map(({ user, video }) => ({ user, video }))
 }
 
-export async function getTrendingFeed() {
-  const users = await prisma.user.findMany({
-    where: {
-      status: { notIn: ["BLOCKED", "HIDDEN"] },
-    },
-    include: { media: true },
-  })
+export async function getTrendingFeed(currentUserId?: string) {
+  const [users, savedRows, likedRows] = await Promise.all([
+    prisma.user.findMany({
+      where: {
+        status: { notIn: ["BLOCKED", "HIDDEN"] },
+      },
+      include: { media: true },
+    }),
+    currentUserId
+      ? prisma.savedVideo.findMany({ where: { userId: currentUserId }, select: { mediaId: true } })
+      : Promise.resolve([]),
+    currentUserId
+      ? prisma.videoLike.findMany({ where: { senderId: currentUserId }, select: { mediaId: true } })
+      : Promise.resolve([]),
+  ])
+
+  const savedMediaIds = new Set(savedRows.map((row) => row.mediaId))
+  const likedMediaIds = new Set(
+    likedRows.map((row) => row.mediaId).filter((value): value is string => Boolean(value)),
+  )
 
   const entries = users
     .flatMap((user) => {
-      const serialized = serializeMobileUserWithLikes(user, new Set())
+      const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds)
       const videos = Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []
