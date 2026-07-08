@@ -73,6 +73,7 @@ function serializeChatMessage(message: {
   senderId: string
   type: ChatMessageType
   text: string | null
+  previewText?: string | null
   imageUrl: string | null
   imageObjectKey?: string | null
   replyToId: string | null
@@ -93,13 +94,18 @@ function serializeChatMessage(message: {
     : /https?:\/\/\S+/i.test(rawText)
       ? "link"
       : "text"
+  // Client-captured plaintext preview covers encrypted text; fall back to
+  // slicing rawText for older/unencrypted messages sent before this existed.
+  const lockedPreview = message.previewText
+    ? `${message.previewText}…`
+    : buildLockedPreview(rawText, lockedContentType)
 
   return {
     id: message.id,
     chatId: message.threadId,
     senderId: message.senderId,
     type: parseChatMessageType(message.type),
-    textMsg: hideContent ? buildLockedPreview(rawText, lockedContentType) : rawText,
+    textMsg: hideContent ? lockedPreview : rawText,
     imageUrl: hideContent ? "" : message.imageUrl || "",
     replyToId: message.replyToId || "",
     replyToText: hideContent ? "" : message.replyToText || "",
@@ -412,6 +418,8 @@ export async function sendMessage(input: {
   senderId: string
   receiverId: string
   textMsg?: string
+  previewText?: string
+  textLength?: number
   imageUrl?: string
   imageObjectKey?: string
   replyToId?: string
@@ -420,6 +428,7 @@ export async function sendMessage(input: {
   replyToSenderName?: string
 }) {
   const textMsg = input.textMsg?.trim() || ""
+  const previewText = input.previewText?.trim().slice(0, 10) || ""
   const imageUrl = input.imageUrl?.trim() || ""
   const imageObjectKey = input.imageObjectKey?.trim() || ""
 
@@ -474,7 +483,10 @@ export async function sendMessage(input: {
     if (locked && imageUrl && !imageObjectKey) {
       throw new Error("Paid image replies must use private upload storage")
     }
-    if (locked && !imageUrl && !imageObjectKey && textMsg.length < 100) {
+    // For encrypted text, the client reports the true plaintext length —
+    // textMsg.length would measure ciphertext, which is always inflated.
+    const effectiveLength = textMsg.startsWith("enc:") ? (input.textLength ?? 0) : textMsg.length
+    if (locked && !imageUrl && !imageObjectKey && effectiveLength < 100) {
       throw new Error("Locked messages must be at least 100 characters")
     }
 
@@ -484,6 +496,7 @@ export async function sendMessage(input: {
         senderId: input.senderId,
         type: messageType,
         text: textMsg || null,
+        previewText: previewText || null,
         imageUrl: imageUrl || null,
         imageObjectKey: imageObjectKey || null,
         replyToId: input.replyToId || null,

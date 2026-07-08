@@ -743,6 +743,9 @@ model ChatMessage {
   // Credits gating: a reply from the non-initiator is locked until the
   // thread initiator spends a Key (first) or ChatCredit (subsequent) to unlock.
   locked              Boolean         @default(false)
+  // Plaintext preview (~10 chars) captured client-side before encryption, so
+  // locked E2E-encrypted messages can still show a teaser server-side.
+  previewText         String?
   broadcastCampaignId String?
   sentAt              DateTime        @default(now())
   thread              ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
