@@ -55,6 +55,9 @@ export async function createUserNotification(input: {
   message: string
   type?: string
   metadata?: Record<string, unknown>
+  // Broadcasts already send their own optimized push in a batch loop — they
+  // pass skipPush to avoid a duplicate push here.
+  skipPush?: boolean
 }) {
   const notification = await prisma.userNotification.create({
     data: {
@@ -79,6 +82,32 @@ export async function createUserNotification(input: {
     type: "notification_created",
     data: serialized,
   })
+
+  // Push to the recipient's device so OFFLINE users are alerted too (bookings,
+  // likes, comments, tips, etc.). Best-effort — never block on it. FCM data
+  // values must be strings, so metadata is stringified for deep-linking.
+  if (!input.skipPush) {
+    void (async () => {
+      try {
+        const recipient = await prisma.user.findUnique({
+          where: { id: input.userId },
+          select: { deviceToken: true },
+        })
+        if (!recipient?.deviceToken) return
+        const pushData: Record<string, string> = { type: input.type || "alert" }
+        for (const [k, v] of Object.entries(input.metadata || {})) {
+          if (v != null) pushData[k] = String(v)
+        }
+        await sendFcmPush(recipient.deviceToken, {
+          title: input.title || "ChatAndTip",
+          body: input.message,
+          data: pushData,
+        })
+      } catch {
+        // ignore — push is best-effort
+      }
+    })()
+  }
 
   return serialized
 }
@@ -299,6 +328,7 @@ export async function broadcastCampaignNotifications(input: {
       message: input.message,
       type: "broadcast",
       metadata: { campaignId: input.campaignId, threadId: delivery.message.threadId, targetType: "broadcast", channel: input.channel || "IN_APP" },
+      skipPush: true, // broadcast loop sends its own FCM push below
     })
 
     // FCM push for offline users — fire-and-forget, doesn't block the loop

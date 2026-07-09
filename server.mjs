@@ -263,8 +263,41 @@ app
       console.log(`> Realtime websocket on ws://${hostname}:${port}/ws/mobile`);
     });
 
+    // ── In-process cron ──────────────────────────────────────────────
+    // This server is always-on, so we drive the time-based jobs from here
+    // instead of needing a separate Railway cron service. Both endpoints are
+    // idempotent (idempotency keys + status-guarded updates), so overlapping
+    // or repeated runs are safe. Booking reconcile powers proposal expiry,
+    // 10-min reminders, no-show fines/strikes, session settlement and the
+    // under-review auto-refund; payment reconcile settles pending M-PESA.
+    let reconcileTimer = null;
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) {
+      const hitJob = async (path) => {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${cronSecret}` },
+          });
+          if (!res.ok) console.warn(`[cron] ${path} -> HTTP ${res.status}`);
+        } catch (err) {
+          console.warn(`[cron] ${path} failed: ${err?.message ?? err}`);
+        }
+      };
+      const runJobs = () => {
+        hitJob("/api/jobs/bookings/reconcile");
+        hitJob("/api/jobs/payments/reconcile");
+      };
+      reconcileTimer = setInterval(runJobs, 60_000);
+      setTimeout(runJobs, 15_000); // first run shortly after boot
+      console.log("> Cron scheduler running every 60s (bookings + payments)");
+    } else {
+      console.warn("> CRON_SECRET not set — cron scheduler disabled");
+    }
+
     const shutdown = () => {
       clearInterval(heartbeat);
+      if (reconcileTimer) clearInterval(reconcileTimer);
       for (const sockets of userSockets.values()) {
         for (const socket of sockets) {
           socket.close();
