@@ -241,13 +241,18 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
   }
 
   const tierName = ({ PEBBLE: "Pebble", GEM: "Gem", DIAMOND: "Diamond" })[input.tier] ?? input.tier
+  const sender = await prisma.user.findUnique({
+    where: { id: input.senderId },
+    select: { fullName: true },
+  })
+  const senderName = sender?.fullName?.split(" ").at(0) || "Someone"
   await createUserNotification({
     userId: input.receiverId,
     senderId: input.senderId,
     title: "New tip",
-    message: `You received a ${tierName} tip`,
-    type: "message",
-    metadata: { tipId: result.tip.id },
+    message: `${senderName} sent you a ${tierName} tip 🎁`,
+    type: "tip",
+    metadata: { tipId: result.tip.id, tier: input.tier, senderName },
   })
 
   return result
