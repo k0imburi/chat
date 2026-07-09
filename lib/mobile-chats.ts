@@ -471,6 +471,11 @@ export async function sendMessage(input: {
     const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
     let locked = false
     let autoDeductCredit = false
+    // When 24h of inactivity has passed the conversation resets to the
+    // icebreaker state: this first reply is free again, and the cycle restarts
+    // (the next reply needs a Key). We flip icebreakerUnlocked back to false
+    // after saving the message.
+    let resetIcebreaker = false
     if (!earningSuspended && isNonInitiator) {
       // Ice breaker: count prior messages from this sender in this thread
       const priorCount = await tx.chatMessage.count({ where: { threadId, senderId: input.senderId } })
@@ -480,7 +485,9 @@ export async function sendMessage(input: {
       } else if (thread.icebreakerUnlocked) {
         const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
         if (!thread.lastMessageAt || thread.lastMessageAt < recentCutoff) {
-          locked = true // 24h elapsed since last activity → re-lock
+          // 24h elapsed → treat the first reply as a fresh, free icebreaker.
+          locked = false
+          resetIcebreaker = true
         } else {
           // Within the 24h active window — unlock if initiator has chatCredits
           const initiatorAcct = thread.initiatorId
@@ -546,6 +553,8 @@ export async function sendMessage(input: {
         lastMessageText: textMsg || null,
         lastMessageType: messageType,
         lastMessageAt: message.sentAt,
+        // Post-24h icebreaker: restart the Key/ChatCredit cycle.
+        ...(resetIcebreaker ? { icebreakerUnlocked: false } : {}),
       },
     })
 

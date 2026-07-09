@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { findMobileUserById, serializeMobileUserWithCounts } from "@/lib/mobile-users"
+import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
   const user = await findMobileUserById(id)
 
@@ -9,8 +10,15 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ success: false, message: "User not found" }, { status: 404 })
   }
 
-  return NextResponse.json({
-    success: true,
-    user: await serializeMobileUserWithCounts(user),
-  })
+  const session = await getMobileSessionFromRequest(request)
+  const serialized = await serializeMobileUserWithCounts(user)
+
+  // Copyright-flagged posts are visible only to their owner.
+  if (session?.userId !== id && Array.isArray(serialized.gallery)) {
+    serialized.gallery = serialized.gallery.filter(
+      (v) => !(v as { copyrightStatus?: string | null }).copyrightStatus,
+    )
+  }
+
+  return NextResponse.json({ success: true, user: serialized })
 }

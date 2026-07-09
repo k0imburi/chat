@@ -84,9 +84,10 @@ export async function getDiscoverFeed(currentUserId: string) {
   const entries = filteredUsers
     .map((user) => {
       const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds)
-      const videos = Array.isArray(serialized.gallery)
+      const videos = (Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []
+      ).filter((v) => !v.copyrightStatus) // hide copyright-flagged posts
       // Strip gallery from the user profile — the app only needs avatar/name,
       // not the full post list. Keeps the response payload small.
       const { gallery: _g, ...userProfile } = serialized
@@ -149,9 +150,10 @@ export async function getTrendingFeed(currentUserId?: string) {
   const entries = users
     .flatMap((user) => {
       const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds)
-      const videos = Array.isArray(serialized.gallery)
+      const videos = (Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []
+      ).filter((v) => !v.copyrightStatus) // hide copyright-flagged posts
       const { gallery: _g, ...userProfile } = serialized
       return videos.map((video) => {
         // Trending is ranked strictly by the hot-score algorithm (engagement

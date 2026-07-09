@@ -16,6 +16,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!media || !media.user.isActive || ["BLOCKED", "HIDDEN"].includes(media.user.status)) {
     return NextResponse.json({ success: false, message: "This post is no longer available" }, { status: 404 })
   }
+  // Copyright-flagged posts are visible only to their owner.
+  if (media.copyrightStatus && media.userId !== session.userId) {
+    return NextResponse.json({ success: false, message: "This post is no longer available" }, { status: 404 })
+  }
 
   const user = await serializeMobileUserWithCounts(media.user)
   let gallery = user.gallery

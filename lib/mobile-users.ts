@@ -88,6 +88,7 @@ function serializeVideo(media?: UserMedia | null) {
       commentCount: 0,
       createdAt: null,
       isLiked: false,
+      copyrightStatus: null as string | null,
     }
   }
 
@@ -110,6 +111,7 @@ function serializeVideo(media?: UserMedia | null) {
     commentCount: media.commentCount,
     createdAt: media.createdAt.toISOString(),
     isLiked: false,
+    copyrightStatus: media.copyrightStatus ?? null,
   }
 }
 
