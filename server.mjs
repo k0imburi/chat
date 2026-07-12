@@ -270,7 +270,7 @@ app
     // or repeated runs are safe. Booking reconcile powers proposal expiry,
     // 10-min reminders, no-show fines/strikes, session settlement and the
     // under-review auto-refund; payment reconcile settles pending M-PESA.
-    let reconcileTimer = null;
+    const cronTimers = [];
     const cronSecret = process.env.CRON_SECRET;
     if (cronSecret) {
       const hitJob = async (path) => {
@@ -284,20 +284,25 @@ app
           console.warn(`[cron] ${path} failed: ${err?.message ?? err}`);
         }
       };
-      const runJobs = () => {
+      // Every minute: booking reconcile (reminders/no-shows/settlement) + M-PESA.
+      const runMinutely = () => {
         hitJob("/api/jobs/bookings/reconcile");
         hitJob("/api/jobs/payments/reconcile");
       };
-      reconcileTimer = setInterval(runJobs, 60_000);
-      setTimeout(runJobs, 15_000); // first run shortly after boot
-      console.log("> Cron scheduler running every 60s (bookings + payments)");
+      cronTimers.push(setInterval(runMinutely, 60_000));
+      setTimeout(runMinutely, 15_000); // first run shortly after boot
+      // Hourly: deliver queued broadcast campaigns.
+      cronTimers.push(setInterval(() => hitJob("/api/jobs/broadcasts/deliver"), 60 * 60_000));
+      // Daily: process matured creator payouts.
+      cronTimers.push(setInterval(() => hitJob("/api/jobs/payouts/daily"), 24 * 60 * 60_000));
+      console.log("> Cron scheduler running (minutely: bookings+payments, hourly: broadcasts, daily: payouts)");
     } else {
       console.warn("> CRON_SECRET not set — cron scheduler disabled");
     }
 
     const shutdown = () => {
       clearInterval(heartbeat);
-      if (reconcileTimer) clearInterval(reconcileTimer);
+      for (const t of cronTimers) clearInterval(t);
       for (const sockets of userSockets.values()) {
         for (const socket of sockets) {
           socket.close();

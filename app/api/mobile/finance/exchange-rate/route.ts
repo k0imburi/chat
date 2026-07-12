@@ -26,11 +26,13 @@ export async function GET() {
     // fall through to DB fallback
   }
 
-  // Fallback: use AppSettings.usdToKesRate
+  // Fallback: AppSettings.usdToKesRate, else a sane default. Note usdToKesRate
+  // DEFAULTS to 0, and `0 ?? 130` is 0 — so guard on > 0 or the app would show
+  // no KES estimate at withdrawal.
   try {
     const settings = await prisma.appSettings.findFirst()
-    const fallback = (settings as Record<string, unknown>)?.usdToKesRate as number | undefined
-    const rate = fallback ?? 130
+    const fallback = Number((settings as Record<string, unknown>)?.usdToKesRate ?? 0)
+    const rate = fallback > 0 ? fallback : 130
     return NextResponse.json({ rate, source: 'fallback' })
   } catch {
     return NextResponse.json({ rate: 130, source: 'fallback' })
