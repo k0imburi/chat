@@ -53,6 +53,9 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_ENABLED: z.string().default("false"),
+  PAYSTACK_SECRET_KEY: z.string().optional(),
+  PAYSTACK_PUBLIC_KEY: z.string().optional(),
+  PAYSTACK_ENABLED: z.string().default("false"),
   FIREBASE_SERVICE_ACCOUNT: z.string().optional(), // JSON string of Firebase service account key
   CRON_SECRET: z.string().optional(),
   NEXT_PUBLIC_APP_NAME: z.string().default("ChatAndTip Admin"),

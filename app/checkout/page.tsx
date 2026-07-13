@@ -17,7 +17,7 @@ type Info = {
     usdToKesRate: number
     transactionFeePercent: number
   }
-  providers: { mpesa: boolean; stripe: boolean }
+  providers: { mpesa: boolean; stripe: boolean; paystack: boolean }
 }
 
 const CREDIT_ITEMS: { kind: CreditKind; label: string; hint: string; icon: string }[] = [
@@ -52,6 +52,7 @@ function CheckoutInner() {
   const token = params.get("t") || ""
   const returnedPurchaseId = params.get("purchaseId") || ""
   const stripeReturn = params.get("stripe") || ""
+  const paystackReturn = params.get("paystack") || ""
 
   const [info, setInfo] = useState<Info | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -67,7 +68,7 @@ function CheckoutInner() {
     DIAMOND: 0,
   })
   const [phone, setPhone] = useState("")
-  const [provider, setProvider] = useState<"MPESA" | "STRIPE">("MPESA")
+  const [provider, setProvider] = useState<"MPESA" | "STRIPE" | "PAYSTACK">("MPESA")
   const [stage, setStage] = useState<"build" | "paying" | "success" | "failed">("build")
   const [message, setMessage] = useState<string>("")
 
@@ -96,17 +97,22 @@ function CheckoutInner() {
           return
         }
         setInfo(res.data)
-        if (!res.data.providers?.mpesa && res.data.providers?.stripe) setProvider("STRIPE")
+        // Default to M-PESA when available; otherwise prefer Paystack
+        // (Google Pay / card), then Stripe.
+        if (!res.data.providers?.mpesa) {
+          if (res.data.providers?.paystack) setProvider("PAYSTACK")
+          else if (res.data.providers?.stripe) setProvider("STRIPE")
+        }
         if (res.data.user?.phoneNumber) setPhone(res.data.user.phoneNumber)
         if (stripeReturn === "cancelled") setMessage("Card payment was cancelled. You can try again.")
-        if (stripeReturn === "success" && returnedPurchaseId) {
+        if ((stripeReturn === "success" || paystackReturn === "return") && returnedPurchaseId) {
           setStage("paying")
-          setMessage("Confirming your card payment…")
+          setMessage("Confirming your payment…")
           void pollPurchase(returnedPurchaseId)
         }
       })
       .catch(() => setLoadError("Could not load checkout. Please try again."))
-  }, [token, stripeReturn, returnedPurchaseId, pollPurchase])
+  }, [token, stripeReturn, paystackReturn, returnedPurchaseId, pollPurchase])
 
   const creditPrices = info?.pricing.purchaseKes
   const tipPrices = info?.pricing.tipPurchaseKes
@@ -135,7 +141,8 @@ function CheckoutInner() {
     if (total <= 0) return false
     const hasKeyOrChat = qty.KEY > 0 || qty.CHAT_CREDIT > 0
     if (hasKeyOrChat && (qty.KEY < 1 || qty.CHAT_CREDIT < 5)) return false
-    return provider === "STRIPE" || phone.trim().length >= 9
+    // Only M-PESA needs a phone number; hosted gateways collect their own.
+    return provider !== "MPESA" || phone.trim().length >= 9
   }, [total, qty, phone, provider])
 
   const step = (kind: CreditKind, delta: number) =>
@@ -146,7 +153,7 @@ function CheckoutInner() {
 
   const pay = useCallback(async () => {
     setStage("paying")
-    setMessage(provider === "MPESA" ? "Sending an M-PESA prompt to your phone…" : "Opening secure card checkout…")
+    setMessage(provider === "MPESA" ? "Sending an M-PESA prompt to your phone…" : "Opening secure checkout…")
     try {
       const creditItems = Object.fromEntries(Object.entries(qty).filter(([, value]) => value > 0))
       const tipItems = Object.fromEntries(Object.entries(tipQty).filter(([, value]) => value > 0))
@@ -163,7 +170,8 @@ function CheckoutInner() {
       }
 
       const purchaseId = res.data.purchaseId as string
-      if (provider === "STRIPE" && res.data.redirectUrl) { window.location.assign(res.data.redirectUrl); return }
+      // Hosted gateways (Stripe, Paystack/Google Pay) return a redirect URL.
+      if (provider !== "MPESA" && res.data.redirectUrl) { window.location.assign(res.data.redirectUrl); return }
       await pollPurchase(purchaseId)
     } catch {
       setStage("failed")
@@ -274,12 +282,12 @@ function CheckoutInner() {
 
               {minHint && <p className="text-xs text-amber-600 mt-3">{minHint}</p>}
 
-              {info.providers.mpesa && info.providers.stripe ? <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-neutral-100 p-1">
+              {info.providers.mpesa && (info.providers.paystack || info.providers.stripe) ? <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-neutral-100 p-1">
                 <button type="button" onClick={() => setProvider("MPESA")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${provider === "MPESA" ? "bg-white shadow-sm" : "text-neutral-500"}`}>M-PESA</button>
-                <button type="button" onClick={() => setProvider("STRIPE")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${provider === "STRIPE" ? "bg-white shadow-sm" : "text-neutral-500"}`}>Card</button>
+                <button type="button" onClick={() => setProvider(info.providers.paystack ? "PAYSTACK" : "STRIPE")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${provider !== "MPESA" ? "bg-white shadow-sm" : "text-neutral-500"}`}>Google Pay / Card</button>
               </div> : null}
 
-              {!info.providers.mpesa && !info.providers.stripe ? <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Payments are temporarily unavailable.</p> : null}
+              {!info.providers.mpesa && !info.providers.paystack && !info.providers.stripe ? <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Payments are temporarily unavailable.</p> : null}
 
               {provider === "MPESA" && <><label className="block text-xs font-medium text-neutral-600 mt-5 mb-1">M-PESA phone number</label><input
                 value={phone}
@@ -312,11 +320,11 @@ function CheckoutInner() {
 
               <button
                 onClick={pay}
-                disabled={!valid || stage === "paying" || (!info.providers.mpesa && !info.providers.stripe)}
+                disabled={!valid || stage === "paying" || (!info.providers.mpesa && !info.providers.paystack && !info.providers.stripe)}
                 className="w-full mt-4 rounded-xl py-3 font-semibold text-white disabled:opacity-50 transition"
                 style={{ backgroundColor: BRAND }}
               >
-                {stage === "paying" ? "Starting payment…" : provider === "MPESA" ? "Pay with M-PESA" : "Pay securely by card"}
+                {stage === "paying" ? "Starting payment…" : provider === "MPESA" ? "Pay with M-PESA" : "Continue with Google Pay / Card"}
               </button>
 
               {stage === "paying" && (

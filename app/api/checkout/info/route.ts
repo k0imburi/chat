@@ -10,7 +10,8 @@ import {
 } from "@/lib/mobile-credits"
 import { getTipWallet } from "@/lib/mobile-tip-wallet"
 import { logError } from "@/lib/log-error"
-import { env } from "@/lib/env"
+import { resolveStripeConfig } from "@/lib/stripe"
+import { resolvePaystackConfig } from "@/lib/paystack"
 import { isMpesaConfigComplete, resolveMpesaConfig } from "@/lib/mpesa"
 import { prisma } from "@/lib/prisma"
 import { TipTier } from "@prisma/client"
@@ -52,7 +53,8 @@ export async function GET(request: Request) {
         },
         providers: {
           mpesa: isMpesaConfigComplete(mpesaConfig),
-          stripe: env.STRIPE_ENABLED === "true",
+          stripe: (await resolveStripeConfig()).enabled,
+          paystack: (await resolvePaystackConfig()).enabled,
         },
       },
     })

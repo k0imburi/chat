@@ -1010,6 +1010,16 @@ model AppSettings {
   mpesaStoreNumber           String?
   mpesaShortcodeType         String   @default("CustomerPayBillOnline")
   mpesaEnvironment           String   @default("sandbox")
+  // Stripe (delivers Google Pay + cards in the hosted checkout). Managed here
+  // so payments can be turned on from the dashboard without a redeploy.
+  stripeEnabled              Boolean  @default(false)
+  stripeSecretKey            String?
+  stripeWebhookSecret        String?
+  // Paystack (Google Pay + M-PESA + cards, settles in KES). Primary web/app
+  // top-up gateway. Also dashboard-managed.
+  paystackEnabled            Boolean  @default(false)
+  paystackSecretKey          String?
+  paystackPublicKey          String?
   paypalClientId             String?
   paypalClientSecret         String?
   r2AccountId                String?

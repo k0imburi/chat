@@ -57,6 +57,12 @@ export default async function SettingsPage() {
                 <input type="hidden" name="mpesaStoreNumber" value={settings?.mpesaStoreNumber ?? ""} />
                 <input type="hidden" name="mpesaShortcodeType" value={settings?.mpesaShortcodeType ?? "CustomerPayBillOnline"} />
                 <input type="hidden" name="mpesaEnvironment" value={settings?.mpesaEnvironment ?? "sandbox"} />
+                <input type="hidden" name="stripeEnabled" value={settings?.stripeEnabled ? "on" : ""} />
+                <input type="hidden" name="stripeSecretKey" value={settings?.stripeSecretKey ?? ""} />
+                <input type="hidden" name="stripeWebhookSecret" value={settings?.stripeWebhookSecret ?? ""} />
+                <input type="hidden" name="paystackEnabled" value={settings?.paystackEnabled ? "on" : ""} />
+                <input type="hidden" name="paystackSecretKey" value={settings?.paystackSecretKey ?? ""} />
+                <input type="hidden" name="paystackPublicKey" value={settings?.paystackPublicKey ?? ""} />
                 <input type="hidden" name="paypalClientId" value={settings?.paypalClientId ?? ""} />
                 <input type="hidden" name="paypalClientSecret" value={settings?.paypalClientSecret ?? ""} />
                 <input type="hidden" name="allowVideoModeration" value={String(settings?.allowVideoModeration ?? false)} />
@@ -100,6 +106,12 @@ export default async function SettingsPage() {
                 <input type="hidden" name="mpesaStoreNumber" defaultValue={settings?.mpesaStoreNumber ?? ""} />
                 <input type="hidden" name="mpesaShortcodeType" defaultValue={settings?.mpesaShortcodeType ?? "CustomerPayBillOnline"} />
                 <input type="hidden" name="mpesaEnvironment" defaultValue={settings?.mpesaEnvironment ?? "sandbox"} />
+                <input type="hidden" name="stripeEnabled" value={settings?.stripeEnabled ? "on" : ""} />
+                <input type="hidden" name="stripeSecretKey" defaultValue={settings?.stripeSecretKey ?? ""} />
+                <input type="hidden" name="stripeWebhookSecret" defaultValue={settings?.stripeWebhookSecret ?? ""} />
+                <input type="hidden" name="paystackEnabled" value={settings?.paystackEnabled ? "on" : ""} />
+                <input type="hidden" name="paystackSecretKey" defaultValue={settings?.paystackSecretKey ?? ""} />
+                <input type="hidden" name="paystackPublicKey" defaultValue={settings?.paystackPublicKey ?? ""} />
                 <input type="hidden" name="paypalClientId" defaultValue={settings?.paypalClientId ?? ""} />
                 <input type="hidden" name="paypalClientSecret" defaultValue={settings?.paypalClientSecret ?? ""} />
 
@@ -163,6 +175,42 @@ export default async function SettingsPage() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card className="rounded-lg">
+              <CardHeader>
+                <CardTitle>Stripe (Google Pay &amp; cards)</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <CheckboxField label="Enable Stripe (Google Pay / card checkout)" name="stripeEnabled" checked={settings?.stripeEnabled ?? false} />
+                </div>
+                <Field label="Secret key (sk_live_… / sk_test_…)" name="stripeSecretKey" defaultValue={settings?.stripeSecretKey ?? ""} />
+                <Field label="Webhook signing secret (whsec_…)" name="stripeWebhookSecret" defaultValue={settings?.stripeWebhookSecret ?? ""} />
+                <p className="md:col-span-2 text-xs text-white/50">
+                  Add a Stripe webhook pointing to <code>/api/stripe/webhook</code> (event
+                  {" "}checkout.session.completed) and paste its signing secret here. Google Pay
+                  then appears automatically in the checkout on both web and app.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-lg">
+              <CardHeader>
+                <CardTitle>Paystack (Google Pay, M-PESA &amp; cards)</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <CheckboxField label="Enable Paystack (primary Google Pay / card / M-PESA checkout)" name="paystackEnabled" checked={settings?.paystackEnabled ?? false} />
+                </div>
+                <Field label="Secret key (sk_live_… / sk_test_…)" name="paystackSecretKey" defaultValue={settings?.paystackSecretKey ?? ""} />
+                <Field label="Public key (pk_live_… / pk_test_…)" name="paystackPublicKey" defaultValue={settings?.paystackPublicKey ?? ""} />
+                <p className="md:col-span-2 text-xs text-white/50">
+                  Add a Paystack webhook pointing to <code>/api/paystack/webhook</code>. Enable
+                  {" "}Google Pay, M-PESA and cards in your Paystack dashboard; they then appear in
+                  {" "}the checkout on both web and app. Settles in KES.
+                </p>
+              </CardContent>
+            </Card>
 
             <input type="hidden" name="appName" defaultValue={settings?.appName} />
             <input type="hidden" name="contactEmail" defaultValue={settings?.contactEmail ?? ""} />

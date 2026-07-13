@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server"
-import { constructStripeEvent } from "@/lib/stripe"
+import { constructStripeEvent, resolveStripeConfig } from "@/lib/stripe"
 import { prisma } from "@/lib/prisma"
 import { allocateCredits, type CartItems } from "@/lib/mobile-credits"
 import { logError } from "@/lib/log-error"
-import { env } from "@/lib/env"
 
 export async function POST(request: Request) {
-  if (env.STRIPE_ENABLED !== "true") return NextResponse.json({ received: false }, { status: 404 })
+  const stripe = await resolveStripeConfig()
+  if (!stripe.enabled) return NextResponse.json({ received: false }, { status: 404 })
   const rawBody = await request.text()
   try {
-    const event = constructStripeEvent(rawBody, request.headers.get("stripe-signature"))
+    const event = constructStripeEvent(rawBody, request.headers.get("stripe-signature"), stripe.webhookSecret)
     if (!["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed"].includes(event.type)) {
       return NextResponse.json({ received: true })
     }
