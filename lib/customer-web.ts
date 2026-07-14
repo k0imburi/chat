@@ -21,6 +21,8 @@ export type CustomerFeedEntry = {
     bio?: string
     followersCount?: number
     followingCount?: number
+    verified?: number
+    isBroadcaster?: boolean
   }
   video: {
     id: string

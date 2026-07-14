@@ -35,7 +35,7 @@ export function ReelCommentButton({
           <div className="flex h-12 w-12 items-center justify-center">
             <MessageCircle className="h-[26px] w-[26px] text-white" />
           </div>
-          <span className="text-xs font-bold text-white drop-shadow-sm">
+          <span className="text-xs font-bold text-white">
             {commentCount.toLocaleString()}
           </span>
         </button>

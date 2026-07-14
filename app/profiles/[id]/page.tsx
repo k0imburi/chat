@@ -2,11 +2,15 @@ import { revalidatePath } from "next/cache"
 import Image from "next/image"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { MessageCircle, PhoneCall, Video } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CustomerShell } from "@/components/customer/customer-shell"
 import { PostGrid } from "@/components/customer/post-grid"
+import { ReportButton } from "@/components/customer/report-button"
+import { VerifiedBadge } from "@/components/customer/verified-badge"
 import { getCurrentCustomerUser, getCustomerProfile, type CustomerFeedEntry } from "@/lib/customer-web"
 import { checkFollowStatus, followUser } from "@/lib/mobile-social"
+import { prisma } from "@/lib/prisma"
 
 export default async function ProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -55,23 +59,38 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
               >
                 Tip
               </Link>
-              <Link
-                href={`/book/${profile.userId}?type=VOICE`}
-                className="rounded-full border border-white/20 px-3 py-1.5 text-xs font-bold text-white/70"
-              >
-                Voice
-              </Link>
-              <Link
-                href="/inbox"
-                className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-white"
-              >
-                Message
-              </Link>
+              {viewer && viewer.userId !== id ? (
+                <>
+                  <Link
+                    href={`/book/${profile.userId}?type=VOICE`}
+                    aria-label="Voice call"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-white/70"
+                  >
+                    <PhoneCall className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    href={`/book/${profile.userId}?type=VIDEO`}
+                    aria-label="Video call"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-white/70"
+                  >
+                    <Video className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    href={`/inbox/${profile.userId}`}
+                    aria-label="Message"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                  </Link>
+                  <ReportButton action={reportProfile.bind(null, id)} iconOnly />
+                </>
+              ) : null}
             </div>
           </div>
 
-          <h1 className="mt-3 text-2xl font-black leading-tight">
+          <h1 className="mt-3 flex items-center gap-1.5 text-2xl font-black leading-tight">
             {profile.fullname || "ChatAndTip creator"}
+            <VerifiedBadge verified={profile.verified} isBroadcaster={profile.isBroadcaster} className="h-5 w-5" />
           </h1>
           <p className="text-sm text-white/50">
             {profile.username ? `@${profile.username}` : "Creator"}
@@ -114,4 +133,16 @@ async function toggleProfileFollow(formData: FormData) {
     follow: String(formData.get("next")) === "true",
   })
   revalidatePath(`/profiles/${followedId}`)
+}
+
+async function reportProfile(reportedUserId: string, formData: FormData) {
+  "use server"
+  const viewer = await getCurrentCustomerUser()
+  if (!viewer) throw new Error("Sign in required")
+  const message = String(formData.get("message") || "").trim()
+  if (!message) return
+  await prisma.report.create({
+    data: { message, reportedUserId, reportedById: viewer.userId },
+  })
+  await prisma.user.update({ where: { id: reportedUserId }, data: { status: "REPORTED" } })
 }

@@ -190,15 +190,15 @@ export async function toggleVideoLike(input: {
           userId: input.currentUserId,
           senderId: input.ownerId,
           title: owner?.fullName?.split(" ").at(0) || "Someone",
-          message: "You got a match. Open the app to chat now!",
-          type: "match",
+          message: "You liked each other's posts — you can chat now!",
+          type: "mutual_like",
         }),
         createUserNotification({
           userId: input.ownerId,
           senderId: input.currentUserId,
           title: senderName,
-          message: "You got a match. Open the app to chat now!",
-          type: "match",
+          message: "You liked each other's posts — you can chat now!",
+          type: "mutual_like",
         }),
       ])
 

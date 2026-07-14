@@ -14,6 +14,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
+import { ModeToggle } from "@/components/mode-toggle"
 import type { SessionUser } from "@/lib/auth"
 
 const idLike = (s: string) => s.length > 16 && /^[a-zA-Z0-9_-]+$/.test(s) && !/^[a-z-]+$/.test(s)
@@ -88,6 +89,7 @@ export function AdminHeader({ session }: { session: SessionUser }) {
 
       {/* Right — user pill */}
       <div className="flex items-center gap-3 pr-4">
+        <ModeToggle />
         <div className="hidden flex-col items-end sm:flex">
           <span className="text-xs font-semibold leading-none text-foreground">{session.name}</span>
           <span className="mt-0.5 text-[10px] leading-none text-muted-foreground">

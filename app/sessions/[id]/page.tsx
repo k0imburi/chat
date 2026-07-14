@@ -46,7 +46,7 @@ export default async function SessionRoomPage({ params }: { params: Promise<{ id
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <Info label="Status" value={booking.status.replaceAll("_", " ")} />
-            <Info label="Timezone" value={booking.timezone} />
+            <Info label="Timezone" value="EAT (East Africa Time)" />
             <Info label="Customer joined" value={booking.customerJoinedAt ? booking.customerJoinedAt.toLocaleString("en-KE", { timeZone: "Africa/Nairobi" }) : "Not yet"} />
             <Info label="Creator joined" value={booking.creatorJoinedAt ? booking.creatorJoinedAt.toLocaleString("en-KE", { timeZone: "Africa/Nairobi" }) : "Not yet"} />
           </div>

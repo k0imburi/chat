@@ -198,7 +198,7 @@ function FullScreenPost({
               <img src={user.profileAvatarUrl} alt="" className="h-full w-full object-cover" />
             ) : null}
           </div>
-          <span className="absolute -bottom-1.5 left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow">
+          <span className="absolute -bottom-1.5 left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white">
             +
           </span>
         </Link>
@@ -262,10 +262,10 @@ function FullScreenPost({
       {/* ── Bottom info ── */}
       <div className="absolute bottom-20 left-4 right-20 z-10 space-y-1.5">
         <Link href={`/profiles/${user.userId}`}>
-          <p className="text-[15px] font-black text-white drop-shadow-md">{handle}</p>
+          <p className="text-[15px] font-black text-white">{handle}</p>
         </Link>
         {caption ? (
-          <p className="line-clamp-3 text-sm leading-5 text-white/90 drop-shadow-sm">{caption}</p>
+          <p className="line-clamp-3 text-sm leading-5 text-white/90">{caption}</p>
         ) : null}
       </div>
     </div>
@@ -287,9 +287,9 @@ function ActionButton({
     <button onClick={onClick} className="flex flex-col items-center gap-1">
       <div className="flex h-12 w-12 items-center justify-center">{icon}</div>
       {count !== undefined ? (
-        <span className="text-xs font-bold text-white drop-shadow-sm">{count.toLocaleString()}</span>
+        <span className="text-xs font-bold text-white">{count.toLocaleString()}</span>
       ) : (
-        <span className="text-xs font-bold text-white/70 drop-shadow-sm">{label}</span>
+        <span className="text-xs font-bold text-white/70">{label}</span>
       )}
     </button>
   )

@@ -41,6 +41,7 @@ export function CommentSheet({
 }: Props) {
   const [open, setOpen] = useState(false)
   const [comments, setComments] = useState(initialComments)
+  const [loading, setLoading] = useState(false)
   const [text, setText] = useState("")
   const [posting, setPosting] = useState(false)
   const textRef = useRef<HTMLTextAreaElement>(null)
@@ -74,9 +75,21 @@ export function CommentSheet({
     }
   }
 
-  const handleOpen = () => {
+  const handleOpen = async () => {
     setOpen(true)
     setTimeout(() => textRef.current?.focus(), 300)
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/comments?mediaId=${encodeURIComponent(mediaId)}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.comments)) setComments(data.comments)
+      }
+    } catch {
+      // Keep whatever comments were already loaded.
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -91,7 +104,7 @@ export function CommentSheet({
           <div className="flex h-12 w-12 items-center justify-center">
             <MessageCircle className="h-[26px] w-[26px] text-white" />
           </div>
-          <span className="text-xs font-bold text-white drop-shadow-sm">
+          <span className="text-xs font-bold text-white">
             {commentCount.toLocaleString()}
           </span>
         </button>
@@ -132,7 +145,11 @@ export function CommentSheet({
 
         {/* Scrollable comment list */}
         <div className="flex-1 overflow-y-auto px-4 py-3" style={{ scrollbarWidth: "none" }}>
-          {comments.length === 0 ? (
+          {loading ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <p className="text-sm text-neutral-400">Loading comments…</p>
+            </div>
+          ) : comments.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-10 text-center">
               <MessageCircle className="h-8 w-8 text-neutral-300" />
               <p className="text-sm text-neutral-400">No comments yet. Be the first!</p>

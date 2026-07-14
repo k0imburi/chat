@@ -1,4 +1,4 @@
-import { revalidatePath } from "next/cache"
+import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { Heart } from "lucide-react"
@@ -6,8 +6,37 @@ import { FeedShell } from "@/components/customer/feed-shell"
 import { ImageCarousel } from "@/components/customer/image-carousel"
 import { ShareButton } from "@/components/customer/share-button"
 import { ReelCommentButton } from "@/components/customer/reel-comment-button"
-import { followUser, toggleVideoLike } from "@/lib/mobile-social"
+import { LikeButton, FollowButton } from "@/components/customer/reel-actions"
+import { ReportButton } from "@/components/customer/report-button"
+import { VerifiedBadge } from "@/components/customer/verified-badge"
 import { getCurrentCustomerUser, getCustomerMedia } from "@/lib/customer-web"
+import { prisma } from "@/lib/prisma"
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params
+  const media = await getCustomerMedia(id)
+  if (!media) return {}
+  const title = media.video.title || media.video.caption || "ChatAndTip post"
+  const description =
+    media.video.description || media.video.caption || `${media.user.fullname || "A creator"} on ChatAndTip`
+  const image = media.video.thumbnailUrl || media.video.imageUrl || undefined
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      images: image ? [{ url: image, width: 1080, height: 1080 }] : undefined,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: image ? [image] : undefined,
+    },
+  }
+}
 
 export default async function PublicReelPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -74,29 +103,26 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
                 ) : null}
               </div>
               {!media.following && !ownPost && (
-                <span className="absolute -bottom-1.5 left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow">
+                <span className="absolute -bottom-1.5 left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white">
                   +
                 </span>
               )}
             </Link>
 
-            {viewer && !ownPost ? (
-              <form action={toggleLike} className="flex flex-col items-center gap-1">
-                <input type="hidden" name="ownerId" value={media.user.userId} />
-                <input type="hidden" name="mediaId" value={post.id} />
-                <button type="submit" className="flex h-12 w-12 items-center justify-center">
-                  <Heart
-                    className={`h-[26px] w-[26px] ${post.isLiked ? "fill-rose-500 text-rose-500" : "text-white"}`}
-                  />
-                </button>
-                <span className="text-xs font-bold text-white drop-shadow-sm">{post.likes.toLocaleString()}</span>
-              </form>
+            {!ownPost ? (
+              <LikeButton
+                viewerId={viewer?.userId}
+                ownerId={media.user.userId}
+                mediaId={post.id}
+                initialLiked={Boolean(post.isLiked)}
+                initialLikes={post.likes}
+              />
             ) : (
               <div className="flex flex-col items-center gap-1">
                 <div className="flex h-12 w-12 items-center justify-center">
                   <Heart className="h-[26px] w-[26px] text-white" />
                 </div>
-                <span className="text-xs font-bold text-white drop-shadow-sm">{post.likes.toLocaleString()}</span>
+                <span className="text-xs font-bold text-white">{post.likes.toLocaleString()}</span>
               </div>
             )}
 
@@ -118,34 +144,29 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
                 />
               </div>
             </div>
+
+            {!ownPost && viewer ? (
+              <ReportButton action={reportUser.bind(null, media.user.userId)} />
+            ) : null}
           </div>
 
           {/* Bottom info */}
           <div className="absolute bottom-20 left-4 right-20 space-y-1.5">
             <div className="flex items-center gap-3">
-              <Link href={`/profiles/${media.user.userId}`}>
-                <p className="text-[15px] font-black text-white drop-shadow-md">{handle}</p>
+              <Link href={`/profiles/${media.user.userId}`} className="flex items-center gap-1.5">
+                <p className="text-[15px] font-black text-white">{handle}</p>
+                <VerifiedBadge verified={media.user.verified} isBroadcaster={media.user.isBroadcaster} />
               </Link>
-              {viewer && !ownPost ? (
-                <form action={toggleFollow}>
-                  <input type="hidden" name="creatorId" value={media.user.userId} />
-                  <input type="hidden" name="mediaId" value={post.id} />
-                  <input type="hidden" name="next" value={media.following ? "false" : "true"} />
-                  <button
-                    type="submit"
-                    className={`rounded-full border px-3 py-1 text-xs font-bold ${
-                      media.following
-                        ? "border-white/40 text-white/70"
-                        : "border-white text-white"
-                    }`}
-                  >
-                    {media.following ? "Following" : "Follow"}
-                  </button>
-                </form>
+              {!ownPost ? (
+                <FollowButton
+                  viewerId={viewer?.userId}
+                  followedId={media.user.userId}
+                  initialFollowing={media.following}
+                />
               ) : null}
             </div>
             {caption ? (
-              <p className="line-clamp-2 text-sm leading-5 text-white/90 drop-shadow-sm">{caption}</p>
+              <p className="line-clamp-2 text-sm leading-5 text-white/90">{caption}</p>
             ) : null}
           </div>
         </div>
@@ -154,27 +175,14 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
   )
 }
 
-async function toggleLike(formData: FormData) {
+async function reportUser(reportedUserId: string, formData: FormData) {
   "use server"
   const viewer = await getCurrentCustomerUser()
   if (!viewer) throw new Error("Sign in required")
-  const ownerId = String(formData.get("ownerId") || "")
-  const mediaId = String(formData.get("mediaId") || "")
-  await toggleVideoLike({ currentUserId: viewer.userId, ownerId, videoId: mediaId })
-  revalidatePath(`/reels/${mediaId}`)
-}
-
-async function toggleFollow(formData: FormData) {
-  "use server"
-  const viewer = await getCurrentCustomerUser()
-  if (!viewer) throw new Error("Sign in required")
-  const followedId = String(formData.get("creatorId") || "")
-  const mediaId = String(formData.get("mediaId") || "")
-  await followUser({
-    followerId: viewer.userId,
-    followedId,
-    follow: String(formData.get("next")) === "true",
+  const message = String(formData.get("message") || "").trim()
+  if (!message) return
+  await prisma.report.create({
+    data: { message, reportedUserId, reportedById: viewer.userId },
   })
-  revalidatePath(`/reels/${mediaId}`)
-  revalidatePath(`/profiles/${followedId}`)
+  await prisma.user.update({ where: { id: reportedUserId }, data: { status: "REPORTED" } })
 }

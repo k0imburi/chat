@@ -1,13 +1,30 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { getCurrentCustomerUser } from "@/lib/customer-web"
-import { createComment } from "@/lib/mobile-comments"
+import { createComment, getComments } from "@/lib/mobile-comments"
 import { logError } from "@/lib/log-error"
 
 const schema = z.object({
   mediaId: z.string().min(1),
   text: z.string().min(1).max(1000),
 })
+
+export async function GET(request: Request) {
+  const url = new URL(request.url)
+  const mediaId = url.searchParams.get("mediaId") || ""
+  if (!mediaId) {
+    return NextResponse.json({ success: false, message: "mediaId is required" }, { status: 400 })
+  }
+
+  try {
+    const viewer = await getCurrentCustomerUser()
+    const data = await getComments(mediaId, viewer?.userId ?? "")
+    return NextResponse.json({ success: true, comments: data.comments, nextCursor: data.nextCursor })
+  } catch (error) {
+    logError("/api/comments", error)
+    return NextResponse.json({ success: false, message: "Failed to load comments" }, { status: 500 })
+  }
+}
 
 export async function POST(request: Request) {
   const viewer = await getCurrentCustomerUser()

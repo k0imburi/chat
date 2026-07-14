@@ -47,7 +47,7 @@ export default async function BookCreatorPage({ params, searchParams }: { params
                 <input type="hidden" name="start" value={slot.start} />
                 <input type="hidden" name="timezone" value={slot.timezone} />
                 <p className="font-black">{new Date(slot.start).toLocaleDateString("en-KE", { weekday: "long", month: "short", day: "numeric", timeZone: "Africa/Nairobi" })}</p>
-                <p className="mt-1 text-sm text-neutral-500">{new Date(slot.start).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Nairobi" })} · {slot.timezone}</p>
+                <p className="mt-1 text-sm text-neutral-500">{new Date(slot.start).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Nairobi" })} · EAT</p>
                 <Button type="submit" className="mt-4 w-full rounded-full">Propose this time</Button>
               </form>
             ))}

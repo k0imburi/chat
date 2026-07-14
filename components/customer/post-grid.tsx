@@ -67,19 +67,20 @@ function PostGridItem({ entry }: { entry: CustomerFeedEntry }) {
         </span>
       )}
 
-      {isVideo && !isMulti && (
-        <span className="absolute bottom-2 right-2 rounded-full bg-black/60 p-1.5 text-white backdrop-blur-sm">
+      {isVideo && (
+        <span className="absolute left-2 top-2 rounded-full bg-black/60 p-1.5 text-white backdrop-blur-sm">
           <Play className="h-3 w-3 fill-current" />
         </span>
       )}
 
-      <div className="absolute inset-0 flex items-center justify-center gap-5 bg-black/50 text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-        <span className="flex items-center gap-1.5 text-sm font-bold drop-shadow">
-          <Heart className="h-4 w-4 fill-current" />
+      {/* Always-visible stats bar — a hover-only overlay never shows on touch devices */}
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-white">
+        <span className="flex items-center gap-1 text-xs font-bold">
+          <Heart className="h-3.5 w-3.5 fill-current" />
           {video.likes.toLocaleString()}
         </span>
-        <span className="flex items-center gap-1.5 text-sm font-bold drop-shadow">
-          <MessageCircle className="h-4 w-4 fill-current" />
+        <span className="flex items-center gap-1 text-xs font-bold">
+          <MessageCircle className="h-3.5 w-3.5 fill-current" />
           {video.commentCount.toLocaleString()}
         </span>
       </div>
