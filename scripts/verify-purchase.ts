@@ -26,12 +26,12 @@ async function main() {
   if (!user) throw new Error("No USER account")
   await cleanup(user.id)
 
-  // 1. Pricing
+  // 1. Pricing (USD base x exchange rate; using rate 130 for these checks)
   console.log("priceCart:")
-  check("1 Key + 5 ChatCredits = 220 KES", priceCart({ KEY: 1, CHAT_CREDIT: 5 }).totalKes === 220)
-  check("1 VoiceCall session = 450 KES", priceCart({ VOICE_SESSION: 1 }).totalKes === 450)
+  check("1 Key + 5 ChatCredits = 260 KES @ rate 130", priceCart({ KEY: 1, CHAT_CREDIT: 5 }, 130).totalKes === 260)
+  check("1 VoiceCall session = 520 KES @ rate 130", priceCart({ VOICE_SESSION: 1 }, 130).totalKes === 520)
   let threw = false
-  try { priceCart({ KEY: 1, CHAT_CREDIT: 2 }) } catch { threw = true }
+  try { priceCart({ KEY: 1, CHAT_CREDIT: 2 }, 130) } catch { threw = true }
   check("below min ChatCredits throws", threw)
 
   // 2. Allocate on successful callback

@@ -2,12 +2,14 @@ import { NextResponse } from "next/server"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import {
   getCreditBalances,
-  PURCHASE_PRICE_KES,
+  purchasePriceKesFor,
+  PURCHASE_PRICE_USD,
   ON_ACCOUNT_VALUE_KES,
   TIP_USD,
 } from "@/lib/mobile-credits"
 import { getTipWallet } from "@/lib/mobile-tip-wallet"
 import { logError } from "@/lib/log-error"
+import { prisma } from "@/lib/prisma"
 
 export async function GET(request: Request) {
   const session = await getMobileSessionFromRequest(request)
@@ -15,10 +17,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   }
   try {
-    const [balances, tipWallet] = await Promise.all([
+    const [balances, tipWallet, settings] = await Promise.all([
       getCreditBalances(session.userId),
       getTipWallet(session.userId),
+      prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } }),
     ])
+    const rate = Number(settings?.usdToKesRate ?? 130)
     return NextResponse.json({
       success: true,
       data: {
@@ -32,9 +36,11 @@ export async function GET(request: Request) {
           diamonds: tipWallet.diamonds,
         },
         pricing: {
-          purchaseKes: PURCHASE_PRICE_KES,
+          purchaseUsd: PURCHASE_PRICE_USD,
+          purchaseKes: purchasePriceKesFor(rate),
           onAccountKes: ON_ACCOUNT_VALUE_KES,
           tipUsd: TIP_USD,
+          usdToKesRate: rate,
         },
       },
     })

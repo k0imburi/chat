@@ -2,12 +2,23 @@ import { CreditKind, Prisma, TipTier } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 
 // ── Pricing & value tables (single source of truth) ────────────────
-// What the user PAYS at checkout (KES).
-export const PURCHASE_PRICE_KES: Record<CreditKind, number> = {
-  KEY: 120,
-  CHAT_CREDIT: 20,
-  VOICE_SESSION: 450,
-  VIDEO_SESSION: 600,
+// What the user PAYS at checkout, in USD — converted to KES at the live
+// admin-configured exchange rate, the same way tips (TIP_USD) already work.
+export const PURCHASE_PRICE_USD: Record<CreditKind, number> = {
+  KEY: 1,
+  CHAT_CREDIT: 0.2,
+  VOICE_SESSION: 4,
+  VIDEO_SESSION: 5,
+}
+
+/** Snapshot of today's KES prices for each item at the given exchange rate. */
+export function purchasePriceKesFor(usdToKesRate: number): Record<CreditKind, number> {
+  return {
+    KEY: Math.round(PURCHASE_PRICE_USD.KEY * usdToKesRate),
+    CHAT_CREDIT: Math.round(PURCHASE_PRICE_USD.CHAT_CREDIT * usdToKesRate),
+    VOICE_SESSION: Math.round(PURCHASE_PRICE_USD.VOICE_SESSION * usdToKesRate),
+    VIDEO_SESSION: Math.round(PURCHASE_PRICE_USD.VIDEO_SESSION * usdToKesRate),
+  }
 }
 
 // What each credit is WORTH once on the account / transferred to a creator (KES).
@@ -266,16 +277,17 @@ export async function recordTipInTransaction(
 export type CartItems = Partial<Record<CreditKind, number>>
 
 /** Validate a purchase cart against minimums/increments; return the KES total. */
-export function priceCart(items: CartItems): { totalKes: number; normalized: CartItems } {
+export function priceCart(items: CartItems, usdToKesRate: number): { totalKes: number; normalized: CartItems } {
   const normalized: CartItems = {}
   let total = 0
+  const priceKes = purchasePriceKesFor(usdToKesRate)
 
   for (const [k, qty] of Object.entries(items)) {
     const kind = k as CreditKind
     const n = Math.floor(Number(qty) || 0)
     if (n <= 0) continue
     normalized[kind] = n
-    total += PURCHASE_PRICE_KES[kind] * n
+    total += priceKes[kind] * n
   }
 
   // Minimum cart: at least 1 Key + 5 ChatCredits must be present together.

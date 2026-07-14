@@ -3,7 +3,7 @@ import { getCheckoutActorUserId } from "@/lib/checkout-auth"
 import { findMobileUserById } from "@/lib/mobile-users"
 import {
   getCreditBalances,
-  PURCHASE_PRICE_KES,
+  purchasePriceKesFor,
   ON_ACCOUNT_VALUE_KES,
   MIN_PURCHASE,
   TIP_USD,
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
         balances,
         tipBalances: { pebbles: tipWallet.pebbles, gems: tipWallet.gems, diamonds: tipWallet.diamonds },
         pricing: {
-          purchaseKes: PURCHASE_PRICE_KES,
+          purchaseKes: purchasePriceKesFor(rate),
           onAccountKes: ON_ACCOUNT_VALUE_KES,
           minPurchase: MIN_PURCHASE,
           tipPurchaseKes,

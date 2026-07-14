@@ -1,7 +1,7 @@
 import { Prisma, TipTier } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { initiateStkPush } from "@/lib/mpesa"
-import { ON_ACCOUNT_VALUE_KES, PURCHASE_PRICE_KES, TIP_USD, priceCart, type CartItems } from "@/lib/mobile-credits"
+import { ON_ACCOUNT_VALUE_KES, TIP_USD, priceCart, purchasePriceKesFor, type CartItems } from "@/lib/mobile-credits"
 import { createStripeCheckoutSession } from "@/lib/stripe"
 import { initializePaystackTransaction } from "@/lib/paystack"
 import { env } from "@/lib/env"
@@ -47,7 +47,7 @@ export async function initiateCreditPurchase(input: {
   let creditTotal = 0
   let normalizedCredits: CartItems = {}
   if (hasCreditItems) {
-    const r = priceCart(input.items)
+    const r = priceCart(input.items, rate)
     creditTotal = r.totalKes
     normalizedCredits = r.normalized
   }
@@ -76,7 +76,7 @@ export async function initiateCreditPurchase(input: {
       totalKes: new Prisma.Decimal(totalKes), status: "PENDING", provider: "MPESA",
       paymentAttemptId: attempt.id, exchangeRate: settings?.usdToKesRate || null,
       pricingSnapshot: {
-        purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES,
+        purchaseKes: purchasePriceKesFor(rate), creatorValueKes: ON_ACCOUNT_VALUE_KES,
         tipItems: normalizedTips, tipPriceKes, usdToKesRate: rate,
         feePercent, feeKes,
       } as Prisma.InputJsonValue,
@@ -127,7 +127,7 @@ export async function initiateStripeCreditPurchase(input: {
   let creditTotal = 0
   let normalizedCredits: CartItems = {}
   if (hasCreditItems) {
-    const r = priceCart(input.items)
+    const r = priceCart(input.items, rate)
     creditTotal = r.totalKes
     normalizedCredits = r.normalized
   }
@@ -147,7 +147,7 @@ export async function initiateStripeCreditPurchase(input: {
     totalKes: new Prisma.Decimal(totalKes), provider: "STRIPE", status: "PENDING",
     exchangeRate: settings?.usdToKesRate || null,
     pricingSnapshot: {
-      purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES,
+      purchaseKes: purchasePriceKesFor(rate), creatorValueKes: ON_ACCOUNT_VALUE_KES,
       tipItems: normalizedTips, tipPriceKes, usdToKesRate: rate,
       feePercent, feeKes,
     } as Prisma.InputJsonValue,
@@ -182,7 +182,7 @@ export async function initiatePaystackCreditPurchase(input: {
   let creditTotal = 0
   let normalizedCredits: CartItems = {}
   if (hasCreditItems) {
-    const r = priceCart(input.items)
+    const r = priceCart(input.items, rate)
     creditTotal = r.totalKes
     normalizedCredits = r.normalized
   }
@@ -206,7 +206,7 @@ export async function initiatePaystackCreditPurchase(input: {
     totalKes: new Prisma.Decimal(totalKes), provider: "PAYSTACK", status: "PENDING",
     exchangeRate: settings?.usdToKesRate || null,
     pricingSnapshot: {
-      purchaseKes: PURCHASE_PRICE_KES, creatorValueKes: ON_ACCOUNT_VALUE_KES,
+      purchaseKes: purchasePriceKesFor(rate), creatorValueKes: ON_ACCOUNT_VALUE_KES,
       tipItems: normalizedTips, tipPriceKes, usdToKesRate: rate,
       feePercent, feeKes,
     } as Prisma.InputJsonValue,
