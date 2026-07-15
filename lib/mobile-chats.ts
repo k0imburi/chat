@@ -1,6 +1,6 @@
 import "server-only"
 
-import { ChatMessageType, CreditKind, Prisma, UserRole } from "@prisma/client"
+import { ChatMessageType, CreditKind, Prisma, PrismaClient, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
@@ -182,13 +182,19 @@ async function getParticipant(userId: string, otherUserId: string) {
   })
 }
 
+// Accepts either the main client or a transaction client — this is
+// deliberately run OUTSIDE sendMessage's transaction (see below): it's a
+// read-only summary for realtime broadcast, not something that needs to be
+// atomic with the message write, and its `include: { media: true }` can be
+// a genuinely heavy query for a creator with a large gallery — heavy enough
+// on its own to blow Prisma's 5s interactive-transaction budget.
 async function getChatSummaryForUser(
-  tx: Prisma.TransactionClient,
+  db: Prisma.TransactionClient | PrismaClient,
   userId: string,
   otherUserId: string,
 ) {
   const [participant, receiver] = await Promise.all([
-    tx.chatParticipant.findFirst({
+    db.chatParticipant.findFirst({
       where: {
         userId,
         otherUserId,
@@ -204,7 +210,7 @@ async function getChatSummaryForUser(
         },
       },
     }),
-    tx.user.findFirst({
+    db.user.findFirst({
       where: {
         id: otherUserId,
         role: UserRole.USER,
@@ -396,23 +402,23 @@ export async function getMessages(userId: string, otherUserId: string) {
       myPriorCount > 0,
     )
 
-    const chatSummary = await getChatSummaryForUser(tx, userId, otherUserId)
-
     return {
       messages,
       unlockKind: threadState.icebreakerUnlocked ? "CHAT_CREDIT" as const : "KEY" as const,
       willChargeReply,
-      chatSummary,
       readAt: new Date().toISOString(),
     }
   })
 
-  if (result.chatSummary) {
+  // Outside the transaction — read-only broadcast summary, not required to
+  // be atomic with the writes above (see getChatSummaryForUser's comment).
+  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId)
+  if (chatSummary) {
     emitChatRealtimeToUser(userId, {
       channel: "chat",
       type: "chat_updated",
       otherUserId,
-      data: result.chatSummary,
+      data: chatSummary,
     })
   }
 
@@ -579,23 +585,21 @@ export async function sendMessage(input: {
       },
     })
 
-    const [senderSummary, receiverSummary] = await Promise.all([
-      getChatSummaryForUser(tx, input.senderId, input.receiverId),
-      getChatSummaryForUser(tx, input.receiverId, input.senderId),
-    ])
-
     return {
       message,
       unlockKind: thread?.icebreakerUnlocked ? "CHAT_CREDIT" as const : "KEY" as const,
       locked,
-      senderSummary,
-      receiverSummary,
     }
   })
 
-  const [senderMessage, receiverMessage] = await Promise.all([
+  // Deliberately computed after the transaction commits — these are
+  // read-only realtime-broadcast summaries, not something that needs to be
+  // atomic with the write above (see getChatSummaryForUser's comment).
+  const [senderMessage, receiverMessage, senderSummary, receiverSummary] = await Promise.all([
     serializeChatMessageForViewer(result.message, input.senderId),
     serializeChatMessageForViewer(result.message, input.receiverId, result.unlockKind),
+    getChatSummaryForUser(prisma, input.senderId, input.receiverId),
+    getChatSummaryForUser(prisma, input.receiverId, input.senderId),
   ])
 
   await createUserNotification({
@@ -624,21 +628,21 @@ export async function sendMessage(input: {
     data: receiverMessage,
   })
 
-  if (result.senderSummary) {
+  if (senderSummary) {
     emitChatRealtimeToUser(input.senderId, {
       channel: "chat",
       type: "chat_updated",
       otherUserId: input.receiverId,
-      data: result.senderSummary,
+      data: senderSummary,
     })
   }
 
-  if (result.receiverSummary) {
+  if (receiverSummary) {
     emitChatRealtimeToUser(input.receiverId, {
       channel: "chat",
       type: "chat_updated",
       otherUserId: input.senderId,
-      data: result.receiverSummary,
+      data: receiverSummary,
     })
   }
 
@@ -840,19 +844,20 @@ export async function markChatViewed(userId: string, otherUserId: string) {
       },
     })
 
-    const chatSummary = await getChatSummaryForUser(tx, userId, otherUserId)
     return {
-      chatSummary,
       readAt: new Date().toISOString(),
     }
   })
 
-  if (result.chatSummary) {
+  // Outside the transaction — read-only broadcast summary, not required to
+  // be atomic with the writes above (see getChatSummaryForUser's comment).
+  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId)
+  if (chatSummary) {
     emitChatRealtimeToUser(userId, {
       channel: "chat",
       type: "chat_updated",
       otherUserId,
-      data: result.chatSummary,
+      data: chatSummary,
     })
   }
 
