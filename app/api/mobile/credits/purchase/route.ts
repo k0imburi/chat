@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { CreditKind } from "@prisma/client"
+import { CreditKind, TipTier } from "@prisma/client"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { initiateCreditPurchase } from "@/lib/mobile-credit-purchase"
 import { prisma } from "@/lib/prisma"
@@ -8,11 +8,12 @@ import { logError } from "@/lib/log-error"
 
 const bodySchema = z.object({
   phone: z.string().min(6),
-  items: z.record(z.nativeEnum(CreditKind), z.number().int().positive()),
+  items: z.record(z.nativeEnum(CreditKind), z.number().int().positive()).optional().default({}),
+  tipItems: z.record(z.nativeEnum(TipTier), z.number().int().positive()).optional(),
 })
 
-// Start a credit purchase (MPESA STK). Credits are allocated by the STK
-// callback once payment is confirmed.
+// Start a credit purchase (MPESA STK). Credits/tip tokens are allocated by
+// the STK callback once payment is confirmed.
 export async function POST(request: Request) {
   const session = await getMobileSessionFromRequest(request)
   if (!session?.userId) {
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
       userId: session.userId,
       phone: body.phone,
       items: body.items,
+      tipItems: body.tipItems,
     })
     return NextResponse.json({ success: result.success, data: result })
   } catch (error) {

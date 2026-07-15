@@ -10,7 +10,7 @@ import { ReportButton } from "@/components/customer/report-button"
 import { VerifiedBadge } from "@/components/customer/verified-badge"
 import { getCurrentCustomerUser, getCustomerProfile, type CustomerFeedEntry } from "@/lib/customer-web"
 import { checkFollowStatus, followUser } from "@/lib/mobile-social"
-import { prisma } from "@/lib/prisma"
+import { reportUserAccount } from "@/lib/mobile-reports"
 
 export default async function ProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -24,7 +24,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
           .catch(() => false)
       : false
 
-  const entries = profile.gallery.map((video) => ({ user: profile, video }) as CustomerFeedEntry)
+  const isOwner = viewer?.userId === id
+  const visibleGallery = isOwner
+    ? profile.gallery
+    : profile.gallery.filter((video) => !video.copyrightStatus && !video.reportStatus)
+  const entries = visibleGallery.map((video) => ({ user: profile, video }) as CustomerFeedEntry)
 
   return (
     <CustomerShell active="" signedIn={Boolean(viewer)}>
@@ -141,8 +145,5 @@ async function reportProfile(reportedUserId: string, formData: FormData) {
   if (!viewer) throw new Error("Sign in required")
   const message = String(formData.get("message") || "").trim()
   if (!message) return
-  await prisma.report.create({
-    data: { message, reportedUserId, reportedById: viewer.userId },
-  })
-  await prisma.user.update({ where: { id: reportedUserId }, data: { status: "REPORTED" } })
+  await reportUserAccount({ reporterId: viewer.userId, reportedUserId, message })
 }

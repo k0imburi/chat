@@ -10,7 +10,7 @@ import { LikeButton, FollowButton } from "@/components/customer/reel-actions"
 import { ReportButton } from "@/components/customer/report-button"
 import { VerifiedBadge } from "@/components/customer/verified-badge"
 import { getCurrentCustomerUser, getCustomerMedia } from "@/lib/customer-web"
-import { prisma } from "@/lib/prisma"
+import { reportMedia } from "@/lib/mobile-reports"
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
@@ -146,7 +146,7 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
             </div>
 
             {!ownPost && viewer ? (
-              <ReportButton action={reportUser.bind(null, media.user.userId)} />
+              <ReportButton action={reportPost.bind(null, post.id)} />
             ) : null}
           </div>
 
@@ -175,14 +175,13 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
   )
 }
 
-async function reportUser(reportedUserId: string, formData: FormData) {
+async function reportPost(mediaId: string, formData: FormData) {
   "use server"
   const viewer = await getCurrentCustomerUser()
   if (!viewer) throw new Error("Sign in required")
   const message = String(formData.get("message") || "").trim()
   if (!message) return
-  await prisma.report.create({
-    data: { message, reportedUserId, reportedById: viewer.userId },
-  })
-  await prisma.user.update({ where: { id: reportedUserId }, data: { status: "REPORTED" } })
+  // Hides this specific post from everyone but its owner pending review —
+  // doesn't flag the whole account for a single reported post.
+  await reportMedia({ reporterId: viewer.userId, mediaId, message })
 }

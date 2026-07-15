@@ -312,28 +312,35 @@ model UserMedia {
   // Copyright moderation: null = visible. UNDER_REVIEW / APPEALED / REMOVED
   // hide the post from everyone except its owner until an admin decides.
   copyrightStatus String?
+  // General content reports (not copyright): null = visible. UNDER_REVIEW
+  // hides the post from everyone except its owner pending admin review.
+  reportStatus   String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   likeRecords    VideoLike[]
   comments       VideoComment[]
   savedBy        SavedVideo[]
+  reports        Report[]
 
   @@index([userId, kind])
 }
 
 model Report {
-  id             String    @id @default(cuid())
+  id             String     @id @default(cuid())
   reportedUserId String
   reportedById   String?
-  message        String    @db.Text
-  createdAt      DateTime  @default(now())
+  mediaId        String?
+  message        String     @db.Text
+  createdAt      DateTime   @default(now())
   resolvedAt     DateTime?
-  target         User      @relation("ReportTarget", fields: [reportedUserId], references: [id], onDelete: Cascade)
-  reporter       User?     @relation("ReportReporter", fields: [reportedById], references: [id], onDelete: SetNull)
+  target         User       @relation("ReportTarget", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  reporter       User?      @relation("ReportReporter", fields: [reportedById], references: [id], onDelete: SetNull)
+  media          UserMedia? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
 
   @@index([reportedUserId])
   @@index([reportedById])
+  @@index([mediaId])
 }
 
 model PaymentPlan {

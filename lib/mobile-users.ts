@@ -89,6 +89,7 @@ function serializeVideo(media?: UserMedia | null) {
       createdAt: null,
       isLiked: false,
       copyrightStatus: null as string | null,
+      reportStatus: null as string | null,
     }
   }
 
@@ -112,6 +113,7 @@ function serializeVideo(media?: UserMedia | null) {
     createdAt: media.createdAt.toISOString(),
     isLiked: false,
     copyrightStatus: media.copyrightStatus ?? null,
+    reportStatus: media.reportStatus ?? null,
   }
 }
 

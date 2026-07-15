@@ -16,8 +16,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!media || !media.user.isActive || ["BLOCKED", "HIDDEN"].includes(media.user.status)) {
     return NextResponse.json({ success: false, message: "This post is no longer available" }, { status: 404 })
   }
-  // Copyright-flagged posts are visible only to their owner.
-  if (media.copyrightStatus && media.userId !== session.userId) {
+  // Copyright-flagged and reported posts are visible only to their owner.
+  if ((media.copyrightStatus || media.reportStatus) && media.userId !== session.userId) {
     return NextResponse.json({ success: false, message: "This post is no longer available" }, { status: 404 })
   }
 

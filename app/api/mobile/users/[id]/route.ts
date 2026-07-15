@@ -13,11 +13,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const session = await getMobileSessionFromRequest(request)
   const serialized = await serializeMobileUserWithCounts(user)
 
-  // Copyright-flagged posts are visible only to their owner.
+  // Copyright-flagged and reported posts are visible only to their owner.
   if (session?.userId !== id && Array.isArray(serialized.gallery)) {
-    serialized.gallery = serialized.gallery.filter(
-      (v) => !(v as { copyrightStatus?: string | null }).copyrightStatus,
-    )
+    serialized.gallery = serialized.gallery.filter((v) => {
+      const item = v as { copyrightStatus?: string | null; reportStatus?: string | null }
+      return !item.copyrightStatus && !item.reportStatus
+    })
   }
 
   return NextResponse.json({ success: true, user: serialized })

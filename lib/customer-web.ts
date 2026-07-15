@@ -38,6 +38,8 @@ export type CustomerFeedEntry = {
     commentCount: number
     createdAt: string | null
     isLiked?: boolean
+    copyrightStatus?: string | null
+    reportStatus?: string | null
   }
 }
 
@@ -65,6 +67,8 @@ export async function getPublicFeed(mode: "recent" | "trending" = "recent"): Pro
     const media = await prisma.userMedia.findMany({
       where: {
         kind: { in: [MediaKind.GALLERY_VIDEO, MediaKind.IMAGE] },
+        copyrightStatus: null,
+        reportStatus: null,
         user: {
           role: UserRole.USER,
           isActive: true,
@@ -119,6 +123,8 @@ export async function getCustomerMedia(mediaId: string, viewerId?: string | null
       include: { user: { include: { media: true } } },
     })
     if (!media || !media.user.isActive || ["BLOCKED", "HIDDEN"].includes(media.user.status)) return null
+    // Copyright-flagged and reported posts are visible only to their owner.
+    if ((media.copyrightStatus || media.reportStatus) && media.userId !== viewerId) return null
     const user = await serializeMobileUserWithCounts(media.user)
     const post = media.kind === MediaKind.PROFILE_VIDEO
       ? user.profileVideo

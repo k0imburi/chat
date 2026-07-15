@@ -67,8 +67,7 @@ export function ReportButton({
               </>
             ) : (
               <form action={handleSubmit} className="space-y-3">
-                <p className="font-black">Report this account</p>
-                <p className="text-sm text-neutral-500">Tell us what&apos;s wrong. Our team reviews every report.</p>
+                <p className="font-black">Report</p>
                 <textarea
                   name="message"
                   required
