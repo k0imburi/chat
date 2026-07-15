@@ -12,7 +12,12 @@ export async function matureEarningLots(now = new Date()) {
 export async function financeSummary(userId: string) {
   await matureEarningLots()
   const [lots, payouts, settings, kyc, profile] = await Promise.all([
-    prisma.earningLot.groupBy({ by: ["status", "currency"], where: { userId }, _sum: { amount: true } }),
+    // Grouped by source too (TIP/KEY/CHAT_CREDIT/VOICE_SESSION/VIDEO_SESSION)
+    // so the wallet can show a per-category breakdown of what a creator has
+    // earned — these lots only ever belong to the earning creator (never the
+    // paying user's own topped-up CreditAccount), so there's no risk of
+    // earned and topped-up balances mixing.
+    prisma.earningLot.groupBy({ by: ["status", "currency", "source"], where: { userId }, _sum: { amount: true } }),
     prisma.creatorPayout.aggregate({ where: { userId, status: "SUCCEEDED" }, _sum: { amount: true } }),
     prisma.appSettings.findUnique({ where: { id: 1 } }),
     prisma.creatorKyc.findUnique({ where: { userId } }),
@@ -21,11 +26,21 @@ export async function financeSummary(userId: string) {
   const rate = Number(settings?.usdToKesRate || 0)
   const toKes = (amount: number, currency: string) => currency === "USD" ? amount * rate : amount
   const sum = (statuses: string[]) => lots.filter((r) => statuses.includes(r.status)).reduce((n, r) => n + toKes(Number(r._sum.amount || 0), r.currency), 0)
+
+  // Still-on-the-books total (not yet paid out) broken down by what earned it.
+  const currentStatuses = ["PENDING", "HELD", "AVAILABLE", "RESERVED"]
+  const bySourceKes: Record<string, number> = {}
+  for (const row of lots) {
+    if (!currentStatuses.includes(row.status)) continue
+    bySourceKes[row.source] = (bySourceKes[row.source] ?? 0) + toKes(Number(row._sum.amount || 0), row.currency)
+  }
+
   return {
     pendingEarningsKes: sum(["PENDING", "HELD"]),
     availableBalanceKes: sum(["AVAILABLE"]),
-    currentBalanceKes: sum(["PENDING", "HELD", "AVAILABLE", "RESERVED"]),
+    currentBalanceKes: sum(currentStatuses),
     totalPaidOutKes: Number(payouts._sum.amount || 0),
+    bySourceKes,
     usdToKesRate: rate,
     kycStatus: kyc?.status || "NOT_SUBMITTED",
     payoutProfile: profile ? { mpesaPhone: profile.mpesaPhone, phoneVerified: Boolean(profile.phoneVerifiedAt), automaticEnabled: profile.automaticEnabled, pausedReason: profile.pausedReason } : null,
