@@ -145,16 +145,66 @@ export async function getUserWithdrawals(userId: string) {
   return withdrawals.map(serializeWithdrawal)
 }
 
+/**
+ * Reserve AVAILABLE earning lots (oldest first) to cover a withdrawal amount
+ * (given in USD), converting each lot's own currency to KES at the current
+ * rate — mirrors the reservation logic in runPayoutBatch() so the manual
+ * withdraw flow and the automatic payout batch never double-spend the same
+ * earnings.
+ */
+async function reserveEarningLotsForWithdrawal(userId: string, amountUsd: number) {
+  const settings = await prisma.appSettings.findUnique({ where: { id: 1 } })
+  const rate = Number(settings?.usdToKesRate || 0)
+  if (rate <= 0) throw new Error("Exchange rate is not configured")
+  const amountKes = amountUsd * rate
+
+  const lots = await prisma.earningLot.findMany({
+    where: { userId, status: "AVAILABLE" },
+    orderBy: { availableAt: "asc" },
+  })
+  const toKes = (amount: number, currency: string) => (currency === "USD" ? amount * rate : amount)
+
+  const selected: typeof lots = []
+  let sumKes = 0
+  for (const lot of lots) {
+    if (sumKes >= amountKes) break
+    selected.push(lot)
+    sumKes += toKes(Number(lot.amount), lot.currency)
+  }
+  if (sumKes < amountKes) {
+    throw new Error("Insufficient available balance for this withdrawal")
+  }
+  return { selected, amountKes }
+}
+
 export async function createWithdrawalRequest(input: CreateWithdrawalInput) {
-  const withdrawal = await prisma.withdrawalRequest.create({
-    data: {
-      userId: input.userId,
-      amount: input.amount,
-      method: input.method,
-      destination: input.destination,
-      status: input.status || "pending",
-      metadata: toJsonValue(input.metadata),
-    },
+  const { selected, amountKes } = await reserveEarningLotsForWithdrawal(input.userId, input.amount)
+
+  const withdrawal = await prisma.$transaction(async (tx) => {
+    const payout = await tx.creatorPayout.create({
+      data: {
+        userId: input.userId,
+        amount: new Prisma.Decimal(amountKes),
+        destination: input.destination,
+        provider: input.method.toUpperCase(),
+        status: "PROCESSING",
+      },
+    })
+    await tx.earningLot.updateMany({
+      where: { id: { in: selected.map((lot) => lot.id) } },
+      data: { status: "RESERVED", payoutId: payout.id },
+    })
+    return tx.withdrawalRequest.create({
+      data: {
+        userId: input.userId,
+        amount: input.amount,
+        method: input.method,
+        destination: input.destination,
+        status: input.status || "pending",
+        metadata: toJsonValue(input.metadata),
+        creatorPayoutId: payout.id,
+      },
+    })
   })
 
   const serialized = serializeWithdrawal(withdrawal)

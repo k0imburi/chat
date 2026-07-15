@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { requireSessionUser } from "@/lib/auth"
 import { getWalletAccounts, getWithdrawalsAdmin, getTipRequestsAdmin } from "@/lib/finance-queries"
 import { createWalletTransaction, serializeWalletTransaction, serializeWithdrawal } from "@/lib/mobile-wallet"
+import { settlePayout } from "@/lib/mobile-finance"
 import { errorResult, getActionFormData, successResult, type ActionResult } from "@/lib/actions/action-result"
 import { createUserNotification } from "@/lib/mobile-notifications"
 import { serializeTipRequest } from "@/lib/mobile-tip-requests"
@@ -217,6 +218,17 @@ export async function updateWithdrawalStatusAdminAction(withdrawalId: string, ne
       }
     }
   })
+
+  // Settle the reserved earning lots that back this withdrawal: paid → lots
+  // move to PAID (spent for good); rejected/cancelled → lots return to
+  // AVAILABLE so the creator isn't left with earnings stuck in limbo.
+  if (withdrawal.creatorPayoutId) {
+    if (parsed.status === "paid") {
+      await settlePayout(withdrawal.creatorPayoutId, true)
+    } else if (parsed.status === "rejected" || parsed.status === "cancelled") {
+      await settlePayout(withdrawal.creatorPayoutId, false)
+    }
+  }
 
   const updatedWithdrawal = await prisma.withdrawalRequest.findUnique({
     where: { id: withdrawal.id },
