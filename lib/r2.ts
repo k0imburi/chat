@@ -34,15 +34,19 @@ const CACHE_TTL = 5 * 60 * 1000
 async function loadR2Settings(): Promise<R2Settings> {
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 } })
 
-  const accountId = settings?.r2AccountId ?? ""
-  const accessKeyId = settings?.r2AccessKeyId ?? ""
-  const secretAccessKey = settings?.r2SecretAccessKey ?? ""
-  const bucketName = settings?.r2BucketName ?? ""
-  const privateBucketName = settings?.r2PrivateBucketName ?? process.env.R2_PRIVATE_BUCKET_NAME ?? bucketName
-  const publicBaseUrl = settings?.r2PublicBaseUrl ?? process.env.R2_PUBLIC_BASE_URL ?? ""
-  const region = settings?.r2Region ?? "auto"
+  // Dashboard-configured values win when set, otherwise fall back to the
+  // deploy-time env vars. Use `||` (not `??`) throughout: several of these
+  // columns default to "" rather than null in the DB, and "" must still
+  // fall through to the env var — `??` only treats null/undefined as unset.
+  const accountId = settings?.r2AccountId || process.env.R2_ACCOUNT_ID || ""
+  const accessKeyId = settings?.r2AccessKeyId || process.env.R2_ACCESS_KEY_ID || ""
+  const secretAccessKey = settings?.r2SecretAccessKey || process.env.R2_SECRET_ACCESS_KEY || ""
+  const bucketName = settings?.r2BucketName || process.env.R2_BUCKET_NAME || ""
+  const privateBucketName = settings?.r2PrivateBucketName || process.env.R2_PRIVATE_BUCKET_NAME || bucketName
+  const publicBaseUrl = settings?.r2PublicBaseUrl || process.env.R2_PUBLIC_BASE_URL || ""
+  const region = settings?.r2Region || process.env.R2_REGION || "auto"
   const endpoint =
-    settings?.r2Endpoint ??
+    settings?.r2Endpoint || process.env.R2_ENDPOINT ||
     (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "")
 
   return {
