@@ -1,7 +1,7 @@
 import "server-only"
 
 import { ChatMessageType, CreditKind, Prisma, PrismaClient, UserRole } from "@prisma/client"
-import { prisma } from "@/lib/prisma"
+import { prisma, withDbRetry } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
 import { createUserNotification } from "@/lib/mobile-notifications"
@@ -461,7 +461,7 @@ export async function sendMessage(input: {
 
   const { me, other } = await ensureUsersCanChat(input.senderId, input.receiverId)
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
     const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
     const messageType = imageUrl || imageObjectKey ? ChatMessageType.IMAGE : ChatMessageType.TEXT
 
@@ -590,7 +590,7 @@ export async function sendMessage(input: {
       unlockKind: thread?.icebreakerUnlocked ? "CHAT_CREDIT" as const : "KEY" as const,
       locked,
     }
-  })
+  }))
 
   // Deliberately computed after the transaction commits — these are
   // read-only realtime-broadcast summaries, not something that needs to be
