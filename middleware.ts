@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 import { jwtVerify } from "jose"
 import { SESSION_COOKIE } from "@/lib/constants"
 
-const publicRoutes = ["/login", "/api/auth/login", "/api/auth/logout", "/checkout", "/tip", "/reels"]
+const publicRoutes = ["/login", "/api/auth/login", "/api/auth/logout", "/checkout", "/tip", "/reels", "/download"]
 
 // These path prefixes bypass the admin session check entirely.
 // Mobile API routes authenticate via their own Bearer token; webhooks

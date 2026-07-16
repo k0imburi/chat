@@ -62,16 +62,26 @@ export async function replaceAvailability(userId: string, input: Array<{
   }, { timeout: 20000, maxWait: 10000 })
 }
 
+// Statuses that hold a slot: a confirmed/live call takes the slot out of
+// circulation entirely, so it never shows as available and can't be re-booked.
+const SLOT_HOLDING_STATUSES = ["APPROVED", "LIVE"] as const
+
 export async function availableSlots(creatorId: string, type: BookingType, days = 14) {
   const creator = await prisma.user.findUnique({ where: { id: creatorId }, select: { earningSuspendedUntil: true } })
   if (creator?.earningSuspendedUntil && creator.earningSuspendedUntil > new Date()) return []
-  const windows = await prisma.creatorAvailability.findMany({ where: {
-    userId: creatorId, isActive: true, ...(type === "VOICE" ? { voiceEnabled: true } : { videoEnabled: true }),
-  } })
   const now = new Date()
-  // Slots are always shown as available — multiple fans can book the same
-  // slot. A slot disappears only when the creator removes the availability
-  // window, not because another fan has already booked it.
+  const [windows, taken] = await Promise.all([
+    prisma.creatorAvailability.findMany({ where: {
+      userId: creatorId, isActive: true, ...(type === "VOICE" ? { voiceEnabled: true } : { videoEnabled: true }),
+    } }),
+    // Already-confirmed bookings for this creator — their start times are
+    // removed from the offered slots so a taken time can't be re-booked.
+    prisma.callBooking.findMany({
+      where: { creatorId, status: { in: [...SLOT_HOLDING_STATUSES] }, scheduledStart: { gte: now } },
+      select: { scheduledStart: true },
+    }),
+  ])
+  const takenStarts = new Set(taken.map((b) => b.scheduledStart.toISOString()))
   const slots: Array<{ start: string; end: string; timezone: string }> = []
   for (let offset = 0; offset < days; offset++) {
     const probe = addDays(now, offset)
@@ -83,11 +93,31 @@ export async function availableSlots(creatorId: string, type: BookingType, days 
         const start = addMinutes(dayStart, minute)
         const end = addMinutes(start, SESSION_MINUTES)
         if (start <= addMinutes(now, 30)) continue
+        if (takenStarts.has(start.toISOString())) continue // confirmed slot — not bookable
         slots.push({ start: start.toISOString(), end: end.toISOString(), timezone: window.timezone })
       }
     }
   }
   return slots.sort((a, b) => a.start.localeCompare(b.start))
+}
+
+/** True if the creator already has a confirmed (APPROVED/LIVE) call at `start`. */
+async function hasConfirmedConflict(
+  db: Prisma.TransactionClient | typeof prisma,
+  creatorId: string,
+  start: Date,
+  excludeBookingId?: string,
+) {
+  const conflict = await db.callBooking.findFirst({
+    where: {
+      creatorId,
+      scheduledStart: start,
+      status: { in: [...SLOT_HOLDING_STATUSES] },
+      ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+    },
+    select: { id: true },
+  })
+  return Boolean(conflict)
 }
 
 export async function proposeBooking(customerId: string, input: { creatorId: string; type: BookingType; start: string; timezone: string }) {
@@ -102,6 +132,20 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
   const field = input.type === "VOICE" ? "voiceSessions" : "videoSessions"
   const reserved = input.type === "VOICE" ? "reservedVoiceSessions" : "reservedVideoSessions"
   const booking = await prisma.$transaction(async (tx) => {
+    // No double bookings: the slot mustn't already be confirmed, and this
+    // customer can't already have an active proposal/booking for it.
+    if (await hasConfirmedConflict(tx, input.creatorId, start)) {
+      throw new Error("This slot is already booked")
+    }
+    const duplicate = await tx.callBooking.findFirst({
+      where: {
+        customerId, creatorId: input.creatorId, scheduledStart: start,
+        status: { in: ["PROPOSED", "COUNTER_PROPOSED", "APPROVED", "LIVE"] },
+      },
+      select: { id: true },
+    })
+    if (duplicate) throw new Error("You already have a booking for this time")
+
     await tx.creditAccount.upsert({ where: { userId: customerId }, create: { userId: customerId }, update: {} })
     const account = await tx.creditAccount.findUnique({ where: { userId: customerId } })
     const available = account ? account[field] - account[reserved] : 0
@@ -159,7 +203,14 @@ export async function bookingAction(userId: string, bookingId: string, action: s
   const isCreator = booking.creatorId === userId
   if (action === "approve") {
     if (!isCreator || booking.status !== "PROPOSED" || booking.proposalExpiresAt <= new Date()) throw new Error("This proposal cannot be approved")
-    const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: { status: "APPROVED", approvedAt: new Date() } })
+    // Confirming takes the slot: block approving a second proposal for a time
+    // that's already confirmed (e.g. competing proposals for the same slot).
+    const updated = await prisma.$transaction(async (tx) => {
+      if (await hasConfirmedConflict(tx, booking.creatorId, booking.scheduledStart, booking.id)) {
+        throw new Error("You already have a confirmed call at this time")
+      }
+      return tx.callBooking.update({ where: { id: booking.id }, data: { status: "APPROVED", approvedAt: new Date() } })
+    }, { timeout: 20000, maxWait: 10000 })
     await notifyBooking(booking.customerId, booking.creatorId, "Call approved", "Your call proposal was approved.", booking.id, booking.customer.email)
     return updated
   }
@@ -194,14 +245,19 @@ export async function bookingAction(userId: string, bookingId: string, action: s
     if (isCreator || booking.status !== "COUNTER_PROPOSED" || !booking.proposedStart || !booking.proposedEnd) throw new Error("There is no time to accept")
     if (booking.proposalExpiresAt <= new Date()) throw new Error("This suggestion has expired")
     const proposedStart = booking.proposedStart
-    const slots = await availableSlots(booking.creatorId, booking.type, 31)
-    if (!slots.some((s) => s.start === proposedStart.toISOString())) throw new Error("That time is no longer available")
+    const proposedEnd = booking.proposedEnd
     try {
-      const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: {
-        status: "APPROVED", approvedAt: new Date(),
-        scheduledStart: booking.proposedStart, scheduledEnd: booking.proposedEnd,
-        proposedStart: null, proposedEnd: null,
-      } })
+      const updated = await prisma.$transaction(async (tx) => {
+        // The suggested time must not already be confirmed by another booking.
+        if (await hasConfirmedConflict(tx, booking.creatorId, proposedStart, booking.id)) {
+          throw new Error("That time is no longer available")
+        }
+        return tx.callBooking.update({ where: { id: booking.id }, data: {
+          status: "APPROVED", approvedAt: new Date(),
+          scheduledStart: proposedStart, scheduledEnd: proposedEnd,
+          proposedStart: null, proposedEnd: null,
+        } })
+      }, { timeout: 20000, maxWait: 10000 })
       await notifyBooking(booking.creatorId, booking.customerId, "Time confirmed", `${booking.customer.fullName} accepted your suggested time.`, booking.id, booking.creator.email)
       return updated
     } catch {
@@ -216,14 +272,13 @@ export async function bookingAction(userId: string, bookingId: string, action: s
     return updated
   }
   if (action === "cancel") {
-    if (!["PROPOSED", "COUNTER_PROPOSED", "APPROVED"].includes(booking.status)) throw new Error("This booking cannot be cancelled")
-    // An unconfirmed booking (still PROPOSED/COUNTER_PROPOSED) never carries a
-    // late-cancel penalty — only a confirmed (APPROVED) one settles to the
-    // creator when the customer cancels inside the 12-hour window.
-    const isConfirmed = booking.status === "APPROVED"
+    // A confirmed (APPROVED) or live call can't be cancelled by either party —
+    // once both sides have committed to a time it's locked in, and no-shows are
+    // settled by reconcileBookings() instead. Only still-pending proposals can
+    // be cancelled, which simply releases the held session credit.
+    if (!["PROPOSED", "COUNTER_PROPOSED"].includes(booking.status)) throw new Error("A confirmed call can't be cancelled")
     return prisma.$transaction(async (tx) => {
-      if (!isConfirmed || isCreator || booking.scheduledStart.getTime() - Date.now() >= 12 * 3600_000) await releaseBookingReservation(tx, booking)
-      else await settleBookedSession(tx, booking)
+      await releaseBookingReservation(tx, booking)
       return tx.callBooking.update({ where: { id: booking.id }, data: { status: "CANCELLED", cancelledAt: new Date(), endReason: reason } })
     }, { timeout: 20000, maxWait: 10000 })
   }

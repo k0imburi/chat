@@ -72,7 +72,7 @@ function BookingCard({ booking, userId }: { booking: Awaited<ReturnType<typeof g
         {booking.status === "APPROVED" || booking.status === "LIVE" ? <Link href={`/sessions/${booking.id}`} className="rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white">Open room</Link> : null}
         {isCreator && booking.status === "PROPOSED" ? <ActionButton id={booking.id} action="approve" label="Approve" /> : null}
         {isCreator && booking.status === "PROPOSED" ? <ActionButton id={booking.id} action="decline" label="Decline" variant="outline" /> : null}
-        {["PROPOSED", "APPROVED"].includes(booking.status) ? <ActionWithReason id={booking.id} action="cancel" label="Cancel" /> : null}
+        {["PROPOSED", "COUNTER_PROPOSED"].includes(booking.status) ? <ActionWithReason id={booking.id} action="cancel" label="Cancel" /> : null}
         {["APPROVED", "LIVE"].includes(booking.status) ? <ActionWithReason id={booking.id} action="end" label="End session" /> : null}
       </div>
     </article>
