@@ -284,10 +284,13 @@ app
           console.warn(`[cron] ${path} failed: ${err?.message ?? err}`);
         }
       };
-      // Every minute: booking reconcile (reminders/no-shows/settlement) + M-PESA.
+      // Every minute: booking reconcile (reminders/no-shows/settlement) + M-PESA
+      // + auto top-up (refill Keys/ChatCredits/Voice/Video once a watched
+      // balance drops below its configured threshold).
       const runMinutely = () => {
         hitJob("/api/jobs/bookings/reconcile");
         hitJob("/api/jobs/payments/reconcile");
+        hitJob("/api/jobs/auto-topup/run");
       };
       cronTimers.push(setInterval(runMinutely, 60_000));
       setTimeout(runMinutely, 15_000); // first run shortly after boot
@@ -295,7 +298,7 @@ app
       cronTimers.push(setInterval(() => hitJob("/api/jobs/broadcasts/deliver"), 60 * 60_000));
       // Daily: process matured creator payouts.
       cronTimers.push(setInterval(() => hitJob("/api/jobs/payouts/daily"), 24 * 60 * 60_000));
-      console.log("> Cron scheduler running (minutely: bookings+payments, hourly: broadcasts, daily: payouts)");
+      console.log("> Cron scheduler running (minutely: bookings+payments+auto-topup, hourly: broadcasts, daily: payouts)");
     } else {
       console.warn("> CRON_SECRET not set — cron scheduler disabled");
     }

@@ -218,6 +218,7 @@ model User {
   walletEntries         WalletTransaction[]
   withdrawals           WithdrawalRequest[]
   creditAccount         CreditAccount?
+  autoTopupConfig       AutoTopupConfig?
   creditEntries         CreditLedger[]         @relation("CreditLedgerUser")
   creditPurchases       CreditPurchase[]
   tipPurchases          TipPurchase[]          @relation("TipPurchaseSender")
@@ -451,6 +452,37 @@ model CreditAccount {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Auto top-up: refill spendable credits when a balance drops below a
+// threshold. CARD uses a stored Paystack authorization to charge silently;
+// MPESA sends a one-tap STK the user approves (M-Pesa can't charge silently).
+model AutoTopupConfig {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  enabled          Boolean  @default(false)
+  method           String   @default("MPESA") // "CARD" | "MPESA"
+  mpesaPhone       String?
+  // Saved Paystack card authorization for off-session (silent) charges.
+  paystackAuthCode String?
+  cardLast4        String?
+  cardBrand        String?
+  // Per-category rules: refill by `refill` units when balance < `threshold`.
+  // 0/0 means "don't watch this category".
+  keyThreshold     Int      @default(0)
+  keyRefill        Int      @default(0)
+  chatThreshold    Int      @default(0)
+  chatRefill       Int      @default(0)
+  voiceThreshold   Int      @default(0)
+  voiceRefill      Int      @default(0)
+  videoThreshold   Int      @default(0)
+  videoRefill      Int      @default(0)
+  lastTriggeredAt  DateTime?
+  lastFailureAt    DateTime?
+  lastFailureText  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Immutable audit trail of every credit movement. `idempotencyKey` prevents

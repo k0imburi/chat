@@ -16,7 +16,14 @@ export async function POST(request: Request) {
   try {
     const event = JSON.parse(rawBody) as {
       event?: string
-      data?: { reference?: string; amount?: number; currency?: string; status?: string }
+      data?: {
+        reference?: string
+        amount?: number
+        currency?: string
+        status?: string
+        channel?: string
+        authorization?: { authorization_code?: string; last4?: string; brand?: string; channel?: string; reusable?: boolean }
+      }
     }
     if (event.event !== "charge.success") return NextResponse.json({ received: true })
 
@@ -34,6 +41,27 @@ export async function POST(request: Request) {
       event.data?.amount !== expected
     ) {
       return NextResponse.json({ received: true })
+    }
+
+    // Opportunistic card capture: any successful card charge leaves a reusable
+    // authorization behind. Stashing it here means CARD auto top-up needs no
+    // dedicated "save card" flow — it just works after a user's next top-up.
+    const authorization = event.data?.authorization
+    if (authorization?.reusable && authorization.authorization_code && authorization.channel === "card") {
+      await prisma.autoTopupConfig.upsert({
+        where: { userId: purchase.userId },
+        create: {
+          userId: purchase.userId,
+          paystackAuthCode: authorization.authorization_code,
+          cardLast4: authorization.last4 || null,
+          cardBrand: authorization.brand || null,
+        },
+        update: {
+          paystackAuthCode: authorization.authorization_code,
+          cardLast4: authorization.last4 || null,
+          cardBrand: authorization.brand || null,
+        },
+      })
     }
 
     if (!purchase.allocated) {
