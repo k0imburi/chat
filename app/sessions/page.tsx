@@ -73,6 +73,15 @@ function BookingCard({ booking, userId }: { booking: Awaited<ReturnType<typeof g
         {isCreator && booking.status === "PROPOSED" ? <ActionButton id={booking.id} action="approve" label="Approve" /> : null}
         {isCreator && booking.status === "PROPOSED" ? <ActionButton id={booking.id} action="decline" label="Decline" variant="outline" /> : null}
         {["PROPOSED", "COUNTER_PROPOSED"].includes(booking.status) ? <ActionWithReason id={booking.id} action="cancel" label="Cancel" /> : null}
+        {/* Only the customer can back out of a confirmed booking, and doing so forfeits the session credit — no refund, no creator payout. */}
+        {!isCreator && booking.status === "APPROVED" ? (
+          <ActionWithReason
+            id={booking.id}
+            action="cancel"
+            label="Cancel call"
+            warning="You won't be refunded — this session credit will not be returned to your balance."
+          />
+        ) : null}
         {["APPROVED", "LIVE"].includes(booking.status) ? <ActionWithReason id={booking.id} action="end" label="End session" /> : null}
       </div>
     </article>
@@ -89,13 +98,16 @@ function ActionButton({ id, action, label, variant = "default" }: { id: string; 
   )
 }
 
-function ActionWithReason({ id, action, label }: { id: string; action: string; label: string }) {
+function ActionWithReason({ id, action, label, warning }: { id: string; action: string; label: string; warning?: string }) {
   return (
-    <form action={updateBooking} className="flex min-w-64 flex-1 gap-2 sm:flex-initial">
-      <input type="hidden" name="bookingId" value={id} />
-      <input type="hidden" name="action" value={action} />
-      <Textarea name="reason" placeholder={`${label} reason`} className="min-h-9 flex-1 rounded-2xl" />
-      <Button type="submit" size="sm" variant="outline">{label}</Button>
+    <form action={updateBooking} className="flex min-w-64 flex-1 flex-col gap-2 sm:flex-initial">
+      {warning ? <p className="text-xs font-bold text-red-600">{warning}</p> : null}
+      <div className="flex gap-2">
+        <input type="hidden" name="bookingId" value={id} />
+        <input type="hidden" name="action" value={action} />
+        <Textarea name="reason" placeholder={`${label} reason`} className="min-h-9 flex-1 rounded-2xl" />
+        <Button type="submit" size="sm" variant="outline">{label}</Button>
+      </div>
     </form>
   )
 }

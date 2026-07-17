@@ -180,6 +180,28 @@ export async function releaseBookingReservation(tx: Prisma.TransactionClient, bo
   await tx.creditAccount.update({ where: { userId: booking.customerId }, data: { [reserveField(booking.type)]: { decrement: 1 } } })
 }
 
+/**
+ * Customer cancels an already-confirmed (APPROVED) booking. Unlike
+ * releaseBookingReservation (used for still-pending proposals), the held
+ * session credit is NOT returned to the customer and the creator earns
+ * nothing either — the value is forfeited to the platform, since the creator
+ * had already committed the slot and the customer backed out of it.
+ */
+export async function forfeitBookingReservation(tx: Prisma.TransactionClient, booking: { id: string; customerId: string; type: BookingType }) {
+  const kind: CreditKind = booking.type === "VOICE" ? "VOICE_SESSION" : "VIDEO_SESSION"
+  const value = new Prisma.Decimal(ON_ACCOUNT_VALUE_KES[kind])
+  const idempotencyKey = `forfeit:booking:${booking.id}`
+  const prior = await tx.creditLedger.findUnique({ where: { idempotencyKey } })
+  if (prior) return
+  await tx.creditAccount.update({ where: { userId: booking.customerId }, data: {
+    [reserveField(booking.type)]: { decrement: 1 }, [balanceField(booking.type)]: { decrement: 1 },
+  } })
+  await tx.creditLedger.create({ data: {
+    userId: booking.customerId, kind, entryType: "CONSUME", quantity: -1, value,
+    idempotencyKey, metadata: { reason: "cancelled_confirmed_booking", bookingId: booking.id },
+  } })
+}
+
 export async function settleBookedSession(tx: Prisma.TransactionClient, booking: { id: string; customerId: string; creatorId: string; type: BookingType }) {
   const kind: CreditKind = booking.type === "VOICE" ? "VOICE_SESSION" : "VIDEO_SESSION"
   const source: EarningSource = kind
@@ -272,15 +294,28 @@ export async function bookingAction(userId: string, bookingId: string, action: s
     return updated
   }
   if (action === "cancel") {
-    // A confirmed (APPROVED) or live call can't be cancelled by either party —
-    // once both sides have committed to a time it's locked in, and no-shows are
-    // settled by reconcileBookings() instead. Only still-pending proposals can
-    // be cancelled, which simply releases the held session credit.
-    if (!["PROPOSED", "COUNTER_PROPOSED"].includes(booking.status)) throw new Error("A confirmed call can't be cancelled")
+    // A still-pending proposal can be cancelled by either side, simply
+    // releasing the held session credit back to the customer. Once a call is
+    // CONFIRMED (APPROVED), only the customer can back out of it — and doing
+    // so forfeits the session credit (no refund, no creator payout) since the
+    // creator already committed the slot. The creator can no longer cancel a
+    // confirmed booking at all; once live, they can only end the call.
+    const isPending = booking.status === "PROPOSED" || booking.status === "COUNTER_PROPOSED"
+    const isConfirmed = booking.status === "APPROVED"
+    if (!isPending && !(isConfirmed && !isCreator)) throw new Error("A confirmed call can't be cancelled")
     return prisma.$transaction(async (tx) => {
-      await releaseBookingReservation(tx, booking)
+      if (isConfirmed) {
+        await forfeitBookingReservation(tx, booking)
+      } else {
+        await releaseBookingReservation(tx, booking)
+      }
       return tx.callBooking.update({ where: { id: booking.id }, data: { status: "CANCELLED", cancelledAt: new Date(), endReason: reason } })
-    }, { timeout: 20000, maxWait: 10000 })
+    }, { timeout: 20000, maxWait: 10000 }).then(async (updated) => {
+      if (isConfirmed) {
+        await notifyBooking(booking.creatorId, booking.customerId, "Call cancelled", `${booking.customer.fullName} cancelled the confirmed ${booking.type.toLowerCase()} call.`, booking.id, booking.creator.email)
+      }
+      return updated
+    })
   }
   if (action === "end") {
     if (!["APPROVED", "LIVE"].includes(booking.status)) throw new Error("This call cannot be ended")
