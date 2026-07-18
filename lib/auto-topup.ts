@@ -134,7 +134,9 @@ export async function runAutoTopupSweep() {
 
 async function priceItemsKes(items: CartItems) {
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } })
-  const rate = Number(settings?.usdToKesRate ?? 130)
+  // `||`, not `??` — a stored 0 (never configured) must fall back too, not
+  // silently price everything at zero.
+  const rate = Number(settings?.usdToKesRate) || 130
   const priceKes = purchasePriceKesFor(rate)
   const totalKes = Object.entries(items).reduce(
     (sum, [kind, qty]) => sum + priceKes[kind as CreditKind] * (qty ?? 0),

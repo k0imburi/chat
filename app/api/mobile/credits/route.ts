@@ -22,7 +22,9 @@ export async function GET(request: Request) {
       getTipWallet(session.userId),
       prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true } }),
     ])
-    const rate = Number(settings?.usdToKesRate ?? 130)
+    // `||`, not `??` — a stored 0 (never configured) must fall back too, not
+    // silently price everything at zero.
+    const rate = Number(settings?.usdToKesRate) || 130
     return NextResponse.json({
       success: true,
       data: {
