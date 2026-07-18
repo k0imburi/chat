@@ -2,14 +2,15 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { CreditKind, TipTier } from "@prisma/client"
 import { getCheckoutActorUserId } from "@/lib/checkout-auth"
-import { initiateCreditPurchase, initiateStripeCreditPurchase, initiatePaystackCreditPurchase } from "@/lib/mobile-credit-purchase"
+import { initiateCreditPurchase, initiateStripeCreditPurchase, initiatePaystackCreditPurchase, initiateFlutterwaveCreditPurchase } from "@/lib/mobile-credit-purchase"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { resolveStripeConfig } from "@/lib/stripe"
 import { resolvePaystackConfig } from "@/lib/paystack"
+import { resolveFlutterwaveConfig } from "@/lib/flutterwave"
 
 const bodySchema = z.object({
-  provider: z.enum(["MPESA", "STRIPE", "PAYSTACK"]).default("MPESA"),
+  provider: z.enum(["MPESA", "STRIPE", "PAYSTACK", "FLUTTERWAVE"]).default("MPESA"),
   phone: z.string().optional().default(""),
   items: z.record(z.nativeEnum(CreditKind), z.number().int().nonnegative()).optional().default({}),
   tipItems: z.record(z.nativeEnum(TipTier), z.number().int().nonnegative()).optional().default({}),
@@ -28,7 +29,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Card payments are not available" }, { status: 404 })
     }
     if (body.provider === "PAYSTACK" && !(await resolvePaystackConfig()).enabled) {
-      return NextResponse.json({ success: false, message: "Google Pay / card payments are not available" }, { status: 404 })
+      return NextResponse.json({ success: false, message: "Card payments are not available" }, { status: 404 })
+    }
+    if (body.provider === "FLUTTERWAVE" && !(await resolveFlutterwaveConfig()).enabled) {
+      return NextResponse.json({ success: false, message: "Google Pay is not available" }, { status: 404 })
     }
     if (body.provider === "MPESA" && body.phone.length < 6) {
       return NextResponse.json({ success: false, message: "Enter a valid M-PESA phone number" }, { status: 400 })
@@ -37,7 +41,9 @@ export async function POST(request: Request) {
       ? await initiateStripeCreditPurchase({ userId, items: body.items, tipItems: body.tipItems })
       : body.provider === "PAYSTACK"
         ? await initiatePaystackCreditPurchase({ userId, items: body.items, tipItems: body.tipItems })
-        : await initiateCreditPurchase({ userId, phone: body.phone, items: body.items, tipItems: body.tipItems })
+        : body.provider === "FLUTTERWAVE"
+          ? await initiateFlutterwaveCreditPurchase({ userId, items: body.items, tipItems: body.tipItems })
+          : await initiateCreditPurchase({ userId, phone: body.phone, items: body.items, tipItems: body.tipItems })
     return NextResponse.json({ success: result.success, data: result })
   } catch (error) {
     if (error instanceof z.ZodError) {

@@ -56,6 +56,12 @@ const envSchema = z.object({
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYSTACK_PUBLIC_KEY: z.string().optional(),
   PAYSTACK_ENABLED: z.string().default("false"),
+  FLUTTERWAVE_CLIENT_ID: z.string().optional(),
+  FLUTTERWAVE_CLIENT_SECRET: z.string().optional(),
+  FLUTTERWAVE_SECRET_HASH: z.string().optional(),
+  FLUTTERWAVE_BASE_URL: z.string().default("https://developersandbox-api.flutterwave.com"),
+  FLUTTERWAVE_CURRENCY: z.string().default("KES"),
+  FLUTTERWAVE_ENABLED: z.string().default("false"),
   FIREBASE_SERVICE_ACCOUNT: z.string().optional(), // JSON string of Firebase service account key
   CRON_SECRET: z.string().optional(),
   NEXT_PUBLIC_APP_NAME: z.string().default("ChatAndTip Admin"),

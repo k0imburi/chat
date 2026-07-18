@@ -12,6 +12,7 @@ import { getTipWallet } from "@/lib/mobile-tip-wallet"
 import { logError } from "@/lib/log-error"
 import { resolveStripeConfig } from "@/lib/stripe"
 import { resolvePaystackConfig } from "@/lib/paystack"
+import { resolveFlutterwaveConfig } from "@/lib/flutterwave"
 import { isMpesaConfigComplete, resolveMpesaConfig } from "@/lib/mpesa"
 import { prisma } from "@/lib/prisma"
 import { TipTier } from "@prisma/client"
@@ -31,7 +32,9 @@ export async function GET(request: Request) {
       resolveMpesaConfig(),
       prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true, transactionFeePercent: true } }),
     ])
-    const rate = Number(settings?.usdToKesRate ?? 130)
+    // `||`, not `??` — a stored 0 (never configured) must fall back too, not
+    // silently price everything at zero.
+    const rate = Number(settings?.usdToKesRate) || 130
     const transactionFeePercent = Number(settings?.transactionFeePercent ?? 0)
     const tipPurchaseKes = Object.fromEntries(
       Object.values(TipTier).map((tier) => [tier, Math.round(TIP_USD[tier] * rate)])
@@ -55,6 +58,7 @@ export async function GET(request: Request) {
           mpesa: isMpesaConfigComplete(mpesaConfig),
           stripe: (await resolveStripeConfig()).enabled,
           paystack: (await resolvePaystackConfig()).enabled,
+          flutterwave: (await resolveFlutterwaveConfig()).enabled,
         },
       },
     })

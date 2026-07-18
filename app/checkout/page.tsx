@@ -17,7 +17,16 @@ type Info = {
     usdToKesRate: number
     transactionFeePercent: number
   }
-  providers: { mpesa: boolean; stripe: boolean; paystack: boolean }
+  providers: { mpesa: boolean; stripe: boolean; paystack: boolean; flutterwave: boolean }
+}
+
+type Provider = "MPESA" | "STRIPE" | "PAYSTACK" | "FLUTTERWAVE"
+
+const PROVIDER_LABEL: Record<Provider, string> = {
+  MPESA: "M-PESA",
+  STRIPE: "Card",
+  PAYSTACK: "Card",
+  FLUTTERWAVE: "Google Pay",
 }
 
 const CREDIT_ITEMS: { kind: CreditKind; label: string; hint: string; icon: string }[] = [
@@ -53,6 +62,7 @@ function CheckoutInner() {
   const returnedPurchaseId = params.get("purchaseId") || ""
   const stripeReturn = params.get("stripe") || ""
   const paystackReturn = params.get("paystack") || ""
+  const flutterwaveReturn = params.get("flutterwave") || ""
 
   const [info, setInfo] = useState<Info | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -68,7 +78,7 @@ function CheckoutInner() {
     DIAMOND: 0,
   })
   const [phone, setPhone] = useState("")
-  const [provider, setProvider] = useState<"MPESA" | "STRIPE" | "PAYSTACK">("MPESA")
+  const [provider, setProvider] = useState<Provider>("MPESA")
   const [stage, setStage] = useState<"build" | "paying" | "success" | "failed">("build")
   const [message, setMessage] = useState<string>("")
 
@@ -98,21 +108,22 @@ function CheckoutInner() {
         }
         setInfo(res.data)
         // Default to M-PESA when available; otherwise prefer Paystack
-        // (Google Pay / card), then Stripe.
+        // (card), then Stripe, then Flutterwave (Google Pay).
         if (!res.data.providers?.mpesa) {
           if (res.data.providers?.paystack) setProvider("PAYSTACK")
           else if (res.data.providers?.stripe) setProvider("STRIPE")
+          else if (res.data.providers?.flutterwave) setProvider("FLUTTERWAVE")
         }
         if (res.data.user?.phoneNumber) setPhone(res.data.user.phoneNumber)
         if (stripeReturn === "cancelled") setMessage("Card payment was cancelled. You can try again.")
-        if ((stripeReturn === "success" || paystackReturn === "return") && returnedPurchaseId) {
+        if ((stripeReturn === "success" || paystackReturn === "return" || flutterwaveReturn === "return") && returnedPurchaseId) {
           setStage("paying")
           setMessage("Confirming your payment…")
           void pollPurchase(returnedPurchaseId)
         }
       })
       .catch(() => setLoadError("Could not load checkout. Please try again."))
-  }, [token, stripeReturn, paystackReturn, returnedPurchaseId, pollPurchase])
+  }, [token, stripeReturn, paystackReturn, flutterwaveReturn, returnedPurchaseId, pollPurchase])
 
   const creditPrices = info?.pricing.purchaseKes
   const tipPrices = info?.pricing.tipPurchaseKes
@@ -136,6 +147,18 @@ function CheckoutInner() {
     (qty.KEY > 0 || qty.CHAT_CREDIT > 0) && (qty.KEY < 1 || qty.CHAT_CREDIT < 5)
       ? "Minimum is 1 Key and 5 ChatCredits."
       : ""
+
+  // Card is Paystack if available, else Stripe — never both at once, they're
+  // alternate rails for the same "Card" option, not distinct payment methods.
+  const providerButtons = useMemo(() => {
+    if (!info) return [] as { provider: Provider; label: string }[]
+    const options: { provider: Provider; label: string }[] = []
+    if (info.providers.mpesa) options.push({ provider: "MPESA", label: PROVIDER_LABEL.MPESA })
+    if (info.providers.paystack) options.push({ provider: "PAYSTACK", label: PROVIDER_LABEL.PAYSTACK })
+    else if (info.providers.stripe) options.push({ provider: "STRIPE", label: PROVIDER_LABEL.STRIPE })
+    if (info.providers.flutterwave) options.push({ provider: "FLUTTERWAVE", label: PROVIDER_LABEL.FLUTTERWAVE })
+    return options
+  }, [info])
 
   const valid = useMemo(() => {
     if (total <= 0) return false
@@ -201,7 +224,7 @@ function CheckoutInner() {
             <>
               <h1 className="text-xl font-bold">Recharge</h1>
               <p className="text-sm text-neutral-500 mt-1">
-                {info.user?.fullName ? `For ${info.user.fullName}. ` : ""}Choose M-PESA or card payment.
+                {info.user?.fullName ? `For ${info.user.fullName}. ` : ""}Choose how you'd like to pay.
               </p>
 
               {/* ── Credits ───────────────────────────────────────── */}
@@ -282,12 +305,22 @@ function CheckoutInner() {
 
               {minHint && <p className="text-xs text-amber-600 mt-3">{minHint}</p>}
 
-              {info.providers.mpesa && (info.providers.paystack || info.providers.stripe) ? <div className="mt-5 grid grid-cols-2 gap-2 rounded-xl bg-neutral-100 p-1">
-                <button type="button" onClick={() => setProvider("MPESA")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${provider === "MPESA" ? "bg-white shadow-sm" : "text-neutral-500"}`}>M-PESA</button>
-                <button type="button" onClick={() => setProvider(info.providers.paystack ? "PAYSTACK" : "STRIPE")} className={`rounded-lg px-3 py-2 text-sm font-semibold ${provider !== "MPESA" ? "bg-white shadow-sm" : "text-neutral-500"}`}>Google Pay / Card</button>
-              </div> : null}
+              {providerButtons.length > 1 ? (
+                <div className="mt-5 flex flex-wrap gap-2 rounded-xl bg-neutral-100 p-1">
+                  {providerButtons.map((opt) => (
+                    <button
+                      key={opt.provider}
+                      type="button"
+                      onClick={() => setProvider(opt.provider)}
+                      className={`flex-1 min-w-[90px] rounded-lg px-3 py-2 text-sm font-semibold ${provider === opt.provider ? "bg-white shadow-sm" : "text-neutral-500"}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
-              {!info.providers.mpesa && !info.providers.paystack && !info.providers.stripe ? <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Payments are temporarily unavailable.</p> : null}
+              {providerButtons.length === 0 ? <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Payments are temporarily unavailable.</p> : null}
 
               {provider === "MPESA" && <><label className="block text-xs font-medium text-neutral-600 mt-5 mb-1">M-PESA phone number</label><input
                 value={phone}
@@ -320,11 +353,11 @@ function CheckoutInner() {
 
               <button
                 onClick={pay}
-                disabled={!valid || stage === "paying" || (!info.providers.mpesa && !info.providers.paystack && !info.providers.stripe)}
+                disabled={!valid || stage === "paying" || providerButtons.length === 0}
                 className="w-full mt-4 rounded-xl py-3 font-semibold text-white disabled:opacity-50 transition"
                 style={{ backgroundColor: BRAND }}
               >
-                {stage === "paying" ? "Starting payment…" : provider === "MPESA" ? "Pay with M-PESA" : "Continue with Google Pay / Card"}
+                {stage === "paying" ? "Starting payment…" : provider === "MPESA" ? "Pay with M-PESA" : `Continue with ${PROVIDER_LABEL[provider]}`}
               </button>
 
               {stage === "paying" && (

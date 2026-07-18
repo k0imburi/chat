@@ -4,6 +4,7 @@ import { initiateStkPush } from "@/lib/mpesa"
 import { ON_ACCOUNT_VALUE_KES, TIP_USD, priceCart, purchasePriceKesFor, type CartItems } from "@/lib/mobile-credits"
 import { createStripeCheckoutSession } from "@/lib/stripe"
 import { initializePaystackTransaction } from "@/lib/paystack"
+import { initializeFlutterwaveGooglePayTransaction } from "@/lib/flutterwave"
 import { env } from "@/lib/env"
 import { newPaymentIdempotencyKey } from "@/lib/payment-attempts"
 import { normalizePhone } from "@/lib/mpesa"
@@ -38,7 +39,9 @@ export async function initiateCreditPurchase(input: {
   tipItems?: TipCartItems
 }) {
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true, transactionFeePercent: true } })
-  const rate = Number(settings?.usdToKesRate ?? 130)
+  // `||`, not `??` — a stored 0 (never configured) must fall back too, not
+  // silently price everything at zero.
+  const rate = Number(settings?.usdToKesRate) || 130
   const feePercent = Number(settings?.transactionFeePercent ?? 0)
 
   const hasCreditItems = Object.values(input.items).some((v) => (v ?? 0) > 0)
@@ -120,7 +123,9 @@ export async function initiateStripeCreditPurchase(input: {
   tipItems?: TipCartItems
 }) {
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true, transactionFeePercent: true } })
-  const rate = Number(settings?.usdToKesRate ?? 130)
+  // `||`, not `??` — a stored 0 (never configured) must fall back too, not
+  // silently price everything at zero.
+  const rate = Number(settings?.usdToKesRate) || 130
   const feePercent = Number(settings?.transactionFeePercent ?? 0)
 
   const hasCreditItems = Object.values(input.items).some((v) => (v ?? 0) > 0)
@@ -175,7 +180,9 @@ export async function initiatePaystackCreditPurchase(input: {
   tipItems?: TipCartItems
 }) {
   const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true, transactionFeePercent: true } })
-  const rate = Number(settings?.usdToKesRate ?? 130)
+  // `||`, not `??` — a stored 0 (never configured) must fall back too, not
+  // silently price everything at zero.
+  const rate = Number(settings?.usdToKesRate) || 130
   const feePercent = Number(settings?.transactionFeePercent ?? 0)
 
   const hasCreditItems = Object.values(input.items).some((v) => (v ?? 0) > 0)
@@ -219,6 +226,68 @@ export async function initiatePaystackCreditPurchase(input: {
       amountKes: totalKes,
       email,
       callbackUrl: `${base}/checkout?paystack=return&purchaseId=${purchase.id}`,
+    })
+    return { success: true, purchaseId: purchase.id, totalKes, redirectUrl: authorizationUrl }
+  } catch (error) {
+    await prisma.creditPurchase.update({ where: { id: purchase.id }, data: { status: "FAILED" } })
+    throw error
+  }
+}
+
+// Google Pay only — Flutterwave doesn't touch card/M-PESA in this app, since
+// Paystack already handles those. Same shape as initiatePaystackCreditPurchase.
+export async function initiateFlutterwaveCreditPurchase(input: {
+  userId: string
+  items: CartItems
+  tipItems?: TipCartItems
+}) {
+  const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { usdToKesRate: true, transactionFeePercent: true } })
+  // `||`, not `??` — a stored 0 (never configured) must fall back too, not
+  // silently price everything at zero.
+  const rate = Number(settings?.usdToKesRate) || 130
+  const feePercent = Number(settings?.transactionFeePercent ?? 0)
+
+  const hasCreditItems = Object.values(input.items).some((v) => (v ?? 0) > 0)
+  let creditTotal = 0
+  let normalizedCredits: CartItems = {}
+  if (hasCreditItems) {
+    const r = priceCart(input.items, rate)
+    creditTotal = r.totalKes
+    normalizedCredits = r.normalized
+  }
+
+  const { totalKes: tipTotal, normalized: normalizedTips } = priceTipCart(input.tipItems ?? {}, rate)
+  const subtotal = creditTotal + tipTotal
+  if (subtotal <= 0) throw new Error("Cart is empty")
+  const feeKes = feePercent > 0 ? Math.round(subtotal * feePercent / 100) : 0
+  const totalKes = subtotal + feeKes
+
+  const tipPriceKes = Object.fromEntries(
+    Object.values(TipTier).map((t) => [t, Math.round(TIP_USD[t] * rate)])
+  ) as Record<TipTier, number>
+
+  const user = await prisma.user.findUnique({ where: { id: input.userId }, select: { email: true } })
+  // Flutterwave requires an email; fall back to a deterministic placeholder.
+  const email = user?.email && user.email.includes("@") ? user.email : `user-${input.userId}@chatandtip.app`
+
+  const purchase = await prisma.creditPurchase.create({ data: {
+    userId: input.userId, phone: "", items: normalizedCredits as Prisma.InputJsonValue,
+    totalKes: new Prisma.Decimal(totalKes), provider: "FLUTTERWAVE", status: "PENDING",
+    exchangeRate: settings?.usdToKesRate || null,
+    pricingSnapshot: {
+      purchaseKes: purchasePriceKesFor(rate), creatorValueKes: ON_ACCOUNT_VALUE_KES,
+      tipItems: normalizedTips, tipPriceKes, usdToKesRate: rate,
+      feePercent, feeKes,
+    } as Prisma.InputJsonValue,
+  } })
+  try {
+    const base = (env.APP_URL || "").replace(/\/$/, "")
+    if (!base) throw new Error("APP_URL is required for Flutterwave return URLs")
+    const { authorizationUrl } = await initializeFlutterwaveGooglePayTransaction({
+      reference: purchase.id,
+      amountKes: totalKes,
+      email,
+      redirectUrl: `${base}/checkout?flutterwave=return&purchaseId=${purchase.id}`,
     })
     return { success: true, purchaseId: purchase.id, totalKes, redirectUrl: authorizationUrl }
   } catch (error) {

@@ -63,6 +63,12 @@ export default async function SettingsPage() {
                 <input type="hidden" name="paystackEnabled" value={settings?.paystackEnabled ? "on" : ""} />
                 <input type="hidden" name="paystackSecretKey" value={settings?.paystackSecretKey ?? ""} />
                 <input type="hidden" name="paystackPublicKey" value={settings?.paystackPublicKey ?? ""} />
+                <input type="hidden" name="flutterwaveEnabled" value={settings?.flutterwaveEnabled ? "on" : ""} />
+                <input type="hidden" name="flutterwaveClientId" value={settings?.flutterwaveClientId ?? ""} />
+                <input type="hidden" name="flutterwaveClientSecret" value={settings?.flutterwaveClientSecret ?? ""} />
+                <input type="hidden" name="flutterwaveSecretHash" value={settings?.flutterwaveSecretHash ?? ""} />
+                <input type="hidden" name="flutterwaveBaseUrl" value={settings?.flutterwaveBaseUrl ?? ""} />
+                <input type="hidden" name="flutterwaveCurrency" value={settings?.flutterwaveCurrency ?? ""} />
                 <input type="hidden" name="paypalClientId" value={settings?.paypalClientId ?? ""} />
                 <input type="hidden" name="paypalClientSecret" value={settings?.paypalClientSecret ?? ""} />
                 <input type="hidden" name="allowVideoModeration" value={String(settings?.allowVideoModeration ?? false)} />
@@ -112,6 +118,12 @@ export default async function SettingsPage() {
                 <input type="hidden" name="paystackEnabled" value={settings?.paystackEnabled ? "on" : ""} />
                 <input type="hidden" name="paystackSecretKey" defaultValue={settings?.paystackSecretKey ?? ""} />
                 <input type="hidden" name="paystackPublicKey" defaultValue={settings?.paystackPublicKey ?? ""} />
+                <input type="hidden" name="flutterwaveEnabled" value={settings?.flutterwaveEnabled ? "on" : ""} />
+                <input type="hidden" name="flutterwaveClientId" defaultValue={settings?.flutterwaveClientId ?? ""} />
+                <input type="hidden" name="flutterwaveClientSecret" defaultValue={settings?.flutterwaveClientSecret ?? ""} />
+                <input type="hidden" name="flutterwaveSecretHash" defaultValue={settings?.flutterwaveSecretHash ?? ""} />
+                <input type="hidden" name="flutterwaveBaseUrl" defaultValue={settings?.flutterwaveBaseUrl ?? ""} />
+                <input type="hidden" name="flutterwaveCurrency" defaultValue={settings?.flutterwaveCurrency ?? ""} />
                 <input type="hidden" name="paypalClientId" defaultValue={settings?.paypalClientId ?? ""} />
                 <input type="hidden" name="paypalClientSecret" defaultValue={settings?.paypalClientSecret ?? ""} />
 
@@ -196,18 +208,50 @@ export default async function SettingsPage() {
 
             <Card className="rounded-lg">
               <CardHeader>
-                <CardTitle>Paystack (Google Pay, M-PESA &amp; cards)</CardTitle>
+                <CardTitle>Paystack (card &amp; M-PESA)</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
                 <div className="md:col-span-2">
-                  <CheckboxField label="Enable Paystack (primary Google Pay / card / M-PESA checkout)" name="paystackEnabled" checked={settings?.paystackEnabled ?? false} />
+                  <CheckboxField label="Enable Paystack (primary card / M-PESA checkout)" name="paystackEnabled" checked={settings?.paystackEnabled ?? false} />
                 </div>
                 <Field label="Secret key (sk_live_… / sk_test_…)" name="paystackSecretKey" defaultValue={settings?.paystackSecretKey ?? ""} />
                 <Field label="Public key (pk_live_… / pk_test_…)" name="paystackPublicKey" defaultValue={settings?.paystackPublicKey ?? ""} />
                 <p className="md:col-span-2 text-xs text-white/50">
                   Add a Paystack webhook pointing to <code>/api/paystack/webhook</code>. Enable
-                  {" "}Google Pay, M-PESA and cards in your Paystack dashboard; they then appear in
-                  {" "}the checkout on both web and app. Settles in KES.
+                  {" "}M-PESA and cards in your Paystack dashboard; they then appear in the checkout
+                  {" "}on both web and app. Settles in KES. Paystack has no Google Pay support —
+                  {" "}that&apos;s the Flutterwave card below.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-lg">
+              <CardHeader>
+                <CardTitle>Flutterwave (Google Pay only)</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <CheckboxField label="Enable Flutterwave (Google Pay checkout)" name="flutterwaveEnabled" checked={settings?.flutterwaveEnabled ?? false} />
+                </div>
+                <Field label="Client ID" name="flutterwaveClientId" defaultValue={settings?.flutterwaveClientId ?? ""} />
+                <Field label="Client secret" name="flutterwaveClientSecret" defaultValue={settings?.flutterwaveClientSecret ?? ""} />
+                <Field label="Webhook secret hash" name="flutterwaveSecretHash" defaultValue={settings?.flutterwaveSecretHash ?? ""} />
+                <Field label="Currency" name="flutterwaveCurrency" defaultValue={settings?.flutterwaveCurrency ?? "KES"} />
+                <div className="md:col-span-2">
+                  <Field
+                    label="API base URL (sandbox by default — confirm the production URL with Flutterwave before going live)"
+                    name="flutterwaveBaseUrl"
+                    defaultValue={settings?.flutterwaveBaseUrl ?? "https://developersandbox-api.flutterwave.com"}
+                  />
+                </div>
+                <p className="md:col-span-2 text-xs text-white/50">
+                  Get the Client ID/Secret from your Flutterwave dashboard (v4 uses OAuth2, not a
+                  {" "}single secret key). Set a webhook secret hash on the Flutterwave dashboard
+                  {" "}and paste the same value here, pointing the webhook at
+                  {" "}<code>/api/flutterwave/webhook</code>. You also need to register the business
+                  {" "}on the Google Pay &amp; Wallet Console and opt in to Google Pay on the
+                  {" "}Flutterwave dashboard before this works. Used only for Google Pay — card and
+                  {" "}M-PESA stay on Paystack above.
                 </p>
               </CardContent>
             </Card>

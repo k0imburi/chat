@@ -1062,6 +1062,17 @@ model AppSettings {
   paystackEnabled            Boolean  @default(false)
   paystackSecretKey          String?
   paystackPublicKey          String?
+  // Flutterwave (Google Pay only — Paystack has no Google Pay support at
+  // all). v4 API: OAuth2 client-credentials auth, so we store a client
+  // id/secret pair rather than a single secret key. Base URL is dashboard-
+  // editable because v4 is a new API and Flutterwave's sandbox/production
+  // hosts have moved between docs revisions — safer than hardcoding it.
+  flutterwaveEnabled         Boolean  @default(false)
+  flutterwaveClientId        String?
+  flutterwaveClientSecret    String?
+  flutterwaveSecretHash      String?
+  flutterwaveBaseUrl         String   @default("https://developersandbox-api.flutterwave.com")
+  flutterwaveCurrency        String   @default("KES")
   paypalClientId             String?
   paypalClientSecret         String?
   r2AccountId                String?
