@@ -397,23 +397,25 @@ export async function getMessages(userId: string, otherUserId: string) {
       tx.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } }),
     ])
 
-    // The viewer's next reply will charge the other party (paid reply) when
-    // the viewer is the non-initiator, is not earning-suspended, and the
-    // thread isn't broadcast-only — true from their very first reply onward.
-    // The app uses this to enforce the 100-char minimum in the composer.
+    // The viewer's next reply needs a fresh Key unlock (and so enforces the
+    // 100-char minimum in the composer) when the viewer is the
+    // non-initiator, is not earning-suspended, the thread isn't
+    // broadcast-only, and the unlock window is currently invalid (never
+    // opened, or expired). Once a window is open, replies flow normally with
+    // no length requirement — whether actively auto-deducting or paused for
+    // a ChatCredit top-up.
     const earningSuspended = Boolean(viewer?.earningSuspendedUntil && viewer.earningSuspendedUntil > new Date())
     const willChargeReply = Boolean(
       !threadState.broadcastOnly &&
       !earningSuspended &&
       threadState.initiatorId != null &&
-      threadState.initiatorId !== userId,
+      threadState.initiatorId !== userId &&
+      !isUnlockWindowValid(threadState.unlockedAt),
     )
 
-    let unlockKind: "KEY" | "CHAT_CREDIT" = "KEY"
-    if (isUnlockWindowValid(threadState.unlockedAt) && threadState.initiatorId) {
-      const initiatorAcct = await tx.creditAccount.findUnique({ where: { userId: threadState.initiatorId } })
-      unlockKind = (initiatorAcct?.chatCredits ?? 0) > 0 ? "CHAT_CREDIT" : "KEY"
-    }
+    // Only one Key per conversation per 24h window — within a valid window,
+    // unlocking always spends a ChatCredit, regardless of current balance.
+    const unlockKind: "KEY" | "CHAT_CREDIT" = isUnlockWindowValid(threadState.unlockedAt) ? "CHAT_CREDIT" : "KEY"
 
     return {
       messages,
@@ -490,12 +492,13 @@ export async function sendMessage(input: {
     const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
     let locked = false
     let autoDeductCredit = false
+    // Only true when this reply needs a fresh Key (the window was never
+    // opened, or has expired) — never for a reply that's merely paused
+    // mid-window because ChatCredits ran out. Only one Key may be spent per
+    // conversation per 24h window; a mid-window credit shortfall is resolved
+    // by buying more ChatCredits, not by spending a second Key.
+    let needsKeyUnlock = false
     if (!earningSuspended && isNonInitiator) {
-      // The icebreaker is the initiator's own opening message (always free,
-      // handled above by isNonInitiator being false for them) — the
-      // creator's replies, including their very first one, are gated the
-      // same way as any other: within a valid unlock grant with chatCredits
-      // available, or locked (needing a Key) otherwise.
       if (isUnlockWindowValid(thread.unlockedAt)) {
         // Within the fixed 24h grant — unlock if initiator has chatCredits
         const initiatorAcct = thread.initiatorId
@@ -505,11 +508,12 @@ export async function sendMessage(input: {
           locked = false
           autoDeductCredit = true
         } else {
-          locked = true // credits exhausted → lock until a Key reopens it
+          locked = true // credits exhausted mid-window → needs a ChatCredit top-up, not a new Key
         }
       } else {
-        // Never unlocked yet, or grant expired → locked, needs a Key
+        // Never unlocked yet, or grant expired → needs a fresh Key
         locked = true
+        needsKeyUnlock = true
       }
     }
     if (locked && imageUrl && !imageObjectKey) {
@@ -518,11 +522,11 @@ export async function sendMessage(input: {
     // For encrypted text, the client reports the true plaintext length —
     // textMsg.length would measure ciphertext, which is always inflated.
     const effectiveLength = textMsg.startsWith("enc:") ? (input.textLength ?? 0) : textMsg.length
-    // A creator being paid for the reply (whether it will be locked, or
-    // auto-charged to the initiator within the 24h window) must write a real
-    // message — no charging someone then replying one letter at a time.
-    const isPaidReply = locked || autoDeductCredit
-    if (isPaidReply && !imageUrl && !imageObjectKey && effectiveLength < 100) {
+    // Only the reply that actually needs a fresh Key enforces the 100-char
+    // minimum — no charging a whole Key for a one-word message. Once a
+    // window is open, conversation flows normally with no length requirement,
+    // whether actively auto-deducting or paused for a ChatCredit top-up.
+    if (needsKeyUnlock && !imageUrl && !imageObjectKey && effectiveLength < 100) {
       throw new Error("Paid replies must be at least 100 characters")
     }
 
@@ -587,10 +591,7 @@ export async function sendMessage(input: {
 
     return {
       message,
-      // A message that arrives locked is, by construction, exactly the case
-      // unlockReply() charges a Key for (window expired, or window valid but
-      // credits are 0) — so the hint is always KEY whenever locked is true.
-      unlockKind: "KEY" as const,
+      unlockKind: needsKeyUnlock ? "KEY" as const : "CHAT_CREDIT" as const,
       locked,
     }
   }))
@@ -654,14 +655,14 @@ export async function sendMessage(input: {
 
 /**
  * Unlock a locked reply. Only the thread initiator (the paying user) may
- * unlock. A message only ever arrives locked when the conversation's fixed
- * 24h unlock grant has expired (or never started) or the initiator's
- * ChatCredits are 0 — so unlocking always spends a Key and refreshes the
- * grant to a fresh 24h window starting now, unless credits were topped up
- * in the meantime while the window is still otherwise valid, in which case
- * it spends a ChatCredit instead and leaves the window untouched. Throws
+ * unlock. Only one Key may be spent per conversation per 24h window: if the
+ * window has expired (or never started), unlocking spends a Key and opens a
+ * fresh 24h grant starting now. If the window is still valid — meaning
+ * credits simply ran out mid-window — unlocking always spends a ChatCredit,
+ * never a second Key; the window itself is left untouched. Throws
  * InsufficientCreditsError ("You have insufficient Balance") when the
- * initiator has no matching credit.
+ * initiator has no matching credit — the client should prompt to buy more
+ * ChatCredits in that case, not offer a Key.
  */
 export async function unlockReply(input: { userId: string; messageId: string }) {
   const result = await prisma.$transaction(async (tx) => {
@@ -685,13 +686,10 @@ export async function unlockReply(input: { userId: string; messageId: string }) 
       return { message: current, creatorId: message.senderId }
     }
 
-    let kind: CreditKind
-    if (isUnlockWindowValid(message.thread.unlockedAt)) {
-      const initiatorAcct = await tx.creditAccount.findUnique({ where: { userId: input.userId } })
-      kind = (initiatorAcct?.chatCredits ?? 0) > 0 ? "CHAT_CREDIT" : "KEY"
-    } else {
-      kind = "KEY"
-    }
+    // Only one Key per conversation per 24h window — a mid-window credit
+    // shortfall always resolves with a ChatCredit (or throws for the client
+    // to prompt a top-up), never a second Key.
+    const kind: CreditKind = isUnlockWindowValid(message.thread.unlockedAt) ? "CHAT_CREDIT" : "KEY"
 
     if (kind === "KEY") {
       // Spending a Key (re-)opens the conversation: a fresh fixed 24h grant
