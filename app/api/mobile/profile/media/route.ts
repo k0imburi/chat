@@ -40,9 +40,10 @@ export async function POST(request: Request) {
     // Only persist images when there is more than one (a true carousel post).
     const images = parsed.images && parsed.images.length > 1 ? parsed.images : undefined
 
-    const existingProfile = parsed.kind === MediaKind.PROFILE_VIDEO
+    const isMainProfileKind = parsed.kind === MediaKind.PROFILE_VIDEO || parsed.kind === MediaKind.PROFILE_IMAGE
+    const existingProfile = isMainProfileKind
       ? await prisma.userMedia.findFirst({
-          where: { userId: session.userId, kind: MediaKind.PROFILE_VIDEO },
+          where: { userId: session.userId, kind: { in: [MediaKind.PROFILE_VIDEO, MediaKind.PROFILE_IMAGE] } },
         })
       : null
 
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
       ? await prisma.userMedia.update({
         where: { id: existingProfile.id },
         data: {
+          kind: parsed.kind,
           url,
           thumbnailUrl: parsed.thumbnailUrl || url,
           title: parsed.title,

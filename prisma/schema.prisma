@@ -30,6 +30,7 @@ enum LoginProvider {
 
 enum MediaKind {
   PROFILE_VIDEO
+  PROFILE_IMAGE
   GALLERY_VIDEO
   AVATAR_IMAGE
   IMAGE

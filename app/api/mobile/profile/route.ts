@@ -31,9 +31,11 @@ const schema = z.object({
   avatarUrl: z.string().url().optional(),
   profileVideo: z
     .object({
-      videoUrl: z.string().url(),
+      videoUrl: z.string().url().optional(),
+      imageUrl: z.string().url().optional(),
       thumbnailUrl: z.string().url(),
     })
+    .refine((data) => data.videoUrl || data.imageUrl, "Either videoUrl or imageUrl is required")
     .optional(),
 })
 

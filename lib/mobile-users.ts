@@ -28,10 +28,18 @@ type RegisterMobileUserInput = {
   links?: string[]
   filter?: Record<string, unknown>
   loginProvider?: LoginProvider
+  // Signup's profile media can be a video OR a static image — exactly one
+  // of videoUrl/imageUrl is set; kind is derived from which one.
   profileVideo?: {
-    videoUrl: string
+    videoUrl?: string
+    imageUrl?: string
     thumbnailUrl: string
   }
+}
+
+function profileMediaKindAndUrl(profileVideo: { videoUrl?: string; imageUrl?: string }) {
+  if (profileVideo.imageUrl) return { kind: MediaKind.PROFILE_IMAGE, url: profileVideo.imageUrl }
+  return { kind: MediaKind.PROFILE_VIDEO, url: profileVideo.videoUrl ?? "" }
 }
 
 function fallbackFullName(input: RegisterMobileUserInput) {
@@ -94,7 +102,7 @@ function serializeVideo(media?: UserMedia | null) {
     }
   }
 
-  const isImage = media.kind === MediaKind.IMAGE
+  const isImage = media.kind === MediaKind.IMAGE || media.kind === MediaKind.PROFILE_IMAGE
   const images = Array.isArray(media.images) ? (media.images as string[]) : []
 
   return {
@@ -119,7 +127,9 @@ function serializeVideo(media?: UserMedia | null) {
 }
 
 export function serializeMobileUser(user: UserWithMedia) {
-  const profileVideo = user.media.find((item) => item.kind === MediaKind.PROFILE_VIDEO)
+  const profileVideo = user.media.find(
+    (item) => item.kind === MediaKind.PROFILE_VIDEO || item.kind === MediaKind.PROFILE_IMAGE,
+  )
   const gallery = user.media
     .filter((item) => item.kind === MediaKind.GALLERY_VIDEO || item.kind === MediaKind.IMAGE)
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -306,8 +316,7 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
       media: input.profileVideo
         ? {
             create: {
-              kind: MediaKind.PROFILE_VIDEO,
-              url: input.profileVideo.videoUrl,
+              ...profileMediaKindAndUrl(input.profileVideo),
               thumbnailUrl: input.profileVideo.thumbnailUrl,
             },
           }
@@ -461,8 +470,7 @@ export async function upsertMobileProviderUser(
         media: input.profileVideo
           ? {
               create: {
-                kind: MediaKind.PROFILE_VIDEO,
-                url: input.profileVideo.videoUrl,
+                ...profileMediaKindAndUrl(input.profileVideo),
                 thumbnailUrl: input.profileVideo.thumbnailUrl,
               },
             }
@@ -534,13 +542,17 @@ export async function updateMobileUserProfile(
     })
 
     if (input.profileVideo) {
-      const currentProfileVideo = existing.media.find((item) => item.kind === MediaKind.PROFILE_VIDEO)
+      const currentProfileVideo = existing.media.find(
+        (item) => item.kind === MediaKind.PROFILE_VIDEO || item.kind === MediaKind.PROFILE_IMAGE,
+      )
+      const { kind, url } = profileMediaKindAndUrl(input.profileVideo)
 
       if (currentProfileVideo) {
         await tx.userMedia.update({
           where: { id: currentProfileVideo.id },
           data: {
-            url: input.profileVideo.videoUrl,
+            kind,
+            url,
             thumbnailUrl: input.profileVideo.thumbnailUrl,
           },
         })
@@ -548,8 +560,8 @@ export async function updateMobileUserProfile(
         await tx.userMedia.create({
           data: {
             userId,
-            kind: MediaKind.PROFILE_VIDEO,
-            url: input.profileVideo.videoUrl,
+            kind,
+            url,
             thumbnailUrl: input.profileVideo.thumbnailUrl,
           },
         })
