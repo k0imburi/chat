@@ -382,7 +382,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       })
     }
 
-    const [messages, threadState, myPriorCount, viewer] = await Promise.all([
+    const [messages, threadState, viewer] = await Promise.all([
       tx.chatMessage.findMany({
         where: {
           threadId: participant.threadId,
@@ -394,21 +394,19 @@ export async function getMessages(userId: string, otherUserId: string) {
         where: { id: participant.threadId },
         select: { unlockedAt: true, initiatorId: true, broadcastOnly: true },
       }),
-      tx.chatMessage.count({ where: { threadId: participant.threadId, senderId: userId } }),
       tx.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } }),
     ])
 
-    // The viewer's next reply will charge the other party (paid reply) when the
-    // viewer is the non-initiator, has already sent their free icebreaker reply,
-    // is not earning-suspended, and the thread isn't broadcast-only. The app
-    // uses this to enforce the 100-char minimum in the composer.
+    // The viewer's next reply will charge the other party (paid reply) when
+    // the viewer is the non-initiator, is not earning-suspended, and the
+    // thread isn't broadcast-only — true from their very first reply onward.
+    // The app uses this to enforce the 100-char minimum in the composer.
     const earningSuspended = Boolean(viewer?.earningSuspendedUntil && viewer.earningSuspendedUntil > new Date())
     const willChargeReply = Boolean(
       !threadState.broadcastOnly &&
       !earningSuspended &&
       threadState.initiatorId != null &&
-      threadState.initiatorId !== userId &&
-      myPriorCount > 0,
+      threadState.initiatorId !== userId,
     )
 
     let unlockKind: "KEY" | "CHAT_CREDIT" = "KEY"
@@ -493,12 +491,12 @@ export async function sendMessage(input: {
     let locked = false
     let autoDeductCredit = false
     if (!earningSuspended && isNonInitiator) {
-      // Ice breaker: count prior messages from this sender in this thread
-      const priorCount = await tx.chatMessage.count({ where: { threadId, senderId: input.senderId } })
-      if (priorCount === 0) {
-        // First-ever message from non-initiator is free
-        locked = false
-      } else if (isUnlockWindowValid(thread.unlockedAt)) {
+      // The icebreaker is the initiator's own opening message (always free,
+      // handled above by isNonInitiator being false for them) — the
+      // creator's replies, including their very first one, are gated the
+      // same way as any other: within a valid unlock grant with chatCredits
+      // available, or locked (needing a Key) otherwise.
+      if (isUnlockWindowValid(thread.unlockedAt)) {
         // Within the fixed 24h grant — unlock if initiator has chatCredits
         const initiatorAcct = thread.initiatorId
           ? await tx.creditAccount.findUnique({ where: { userId: thread.initiatorId } })
@@ -510,7 +508,7 @@ export async function sendMessage(input: {
           locked = true // credits exhausted → lock until a Key reopens it
         }
       } else {
-        // Grant expired (or never opened) → locked immediately, no free grace reply
+        // Never unlocked yet, or grant expired → locked, needs a Key
         locked = true
       }
     }
