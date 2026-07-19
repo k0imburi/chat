@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ActionForm } from "@/components/action-form"
@@ -69,6 +70,9 @@ export default async function SettingsPage() {
                 <input type="hidden" name="flutterwaveSecretHash" value={settings?.flutterwaveSecretHash ?? ""} />
                 <input type="hidden" name="flutterwaveBaseUrl" value={settings?.flutterwaveBaseUrl ?? ""} />
                 <input type="hidden" name="flutterwaveCurrency" value={settings?.flutterwaveCurrency ?? ""} />
+                <input type="hidden" name="googlePlayEnabled" value={settings?.googlePlayEnabled ? "on" : ""} />
+                <input type="hidden" name="googlePlayPackageName" value={settings?.googlePlayPackageName ?? ""} />
+                <input type="hidden" name="googlePlayServiceAccountJson" value={settings?.googlePlayServiceAccountJson ?? ""} />
                 <input type="hidden" name="paypalClientId" value={settings?.paypalClientId ?? ""} />
                 <input type="hidden" name="paypalClientSecret" value={settings?.paypalClientSecret ?? ""} />
                 <input type="hidden" name="allowVideoModeration" value={String(settings?.allowVideoModeration ?? false)} />
@@ -124,6 +128,9 @@ export default async function SettingsPage() {
                 <input type="hidden" name="flutterwaveSecretHash" defaultValue={settings?.flutterwaveSecretHash ?? ""} />
                 <input type="hidden" name="flutterwaveBaseUrl" defaultValue={settings?.flutterwaveBaseUrl ?? ""} />
                 <input type="hidden" name="flutterwaveCurrency" defaultValue={settings?.flutterwaveCurrency ?? ""} />
+                <input type="hidden" name="googlePlayEnabled" value={settings?.googlePlayEnabled ? "on" : ""} />
+                <input type="hidden" name="googlePlayPackageName" defaultValue={settings?.googlePlayPackageName ?? ""} />
+                <input type="hidden" name="googlePlayServiceAccountJson" defaultValue={settings?.googlePlayServiceAccountJson ?? ""} />
                 <input type="hidden" name="paypalClientId" defaultValue={settings?.paypalClientId ?? ""} />
                 <input type="hidden" name="paypalClientSecret" defaultValue={settings?.paypalClientSecret ?? ""} />
 
@@ -252,6 +259,42 @@ export default async function SettingsPage() {
                   {" "}on the Google Pay &amp; Wallet Console and opt in to Google Pay on the
                   {" "}Flutterwave dashboard before this works. Used only for Google Pay — card and
                   {" "}M-PESA stay on Paystack above.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-lg">
+              <CardHeader>
+                <CardTitle>Google Play Billing (Android digital-goods compliance)</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <CheckboxField label="Enable Google Play Billing (Android app only)" name="googlePlayEnabled" checked={settings?.googlePlayEnabled ?? false} />
+                </div>
+                <Field label="Package name" name="googlePlayPackageName" defaultValue={settings?.googlePlayPackageName ?? "com.chatandtip.app"} />
+                <div className="md:col-span-2">
+                  <Label htmlFor="googlePlayServiceAccountJson">Service account JSON key</Label>
+                  <Textarea
+                    id="googlePlayServiceAccountJson"
+                    name="googlePlayServiceAccountJson"
+                    rows={6}
+                    className="mt-2 font-mono text-xs"
+                    defaultValue={settings?.googlePlayServiceAccountJson ?? ""}
+                    placeholder={'{"type": "service_account", "client_email": "...", "private_key": "...", ...}'}
+                  />
+                </div>
+                <p className="md:col-span-2 text-xs text-white/50">
+                  This is what makes purchases on Android actually go through Google Play’s own
+                  {" "}billing system instead of Paystack/Flutterwave/M-PESA — the compliance path
+                  {" "}Google Play requires for virtual currency, distinct from Google Pay (a payment
+                  {" "}method, not a store policy). Requires: the app listed in Play Console (at least
+                  {" "}Internal Testing), a Google Cloud service account with “View financial data”
+                  {" "}access linked under Play Console → Setup → API access, and these in-app
+                  {" "}products created with these exact IDs: <code>key</code>, <code>chat_credit</code>,
+                  {" "}<code>voice_session</code>, <code>video_session</code>, <code>tip_pebble</code>,
+                  {" "}<code>tip_gem</code>, <code>tip_diamond</code> (all consumable, priced to match
+                  {" "}your existing per-unit USD prices — Play handles currency localization itself).
+                  {" "}Only affects the Android app; web and iOS are unchanged.
                 </p>
               </CardContent>
             </Card>

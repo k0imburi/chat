@@ -513,6 +513,7 @@ model CreditPurchase {
   userId            String
   checkoutRequestId String?         @unique
   stripeSessionId   String?         @unique
+  googlePlayPurchaseToken String?   @unique
   phone             String
   items             Json
   totalKes          Decimal         @db.Decimal(12, 2)
@@ -1073,6 +1074,14 @@ model AppSettings {
   flutterwaveSecretHash      String?
   flutterwaveBaseUrl         String   @default("https://developersandbox-api.flutterwave.com")
   flutterwaveCurrency        String   @default("KES")
+  // Google Play Billing (Android only) — the actual Play Store compliance
+  // path for digital goods, distinct from Google Pay (a payment method, not
+  // a store policy). Service account JSON is how the server verifies/
+  // consumes purchases via the Android Publisher API; it's large, hence Text
+  // rather than the VARCHAR(191) used for other secrets here.
+  googlePlayEnabled              Boolean @default(false)
+  googlePlayPackageName          String  @default("com.chatandtip.app")
+  googlePlayServiceAccountJson   String? @db.Text
   paypalClientId             String?
   paypalClientSecret         String?
   r2AccountId                String?
