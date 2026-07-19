@@ -1,11 +1,29 @@
 import "server-only"
 
+import fs from "node:fs"
+import path from "node:path"
 import { Prisma, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { serializeMobileUser } from "@/lib/mobile-users"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
 import { env } from "@/lib/env"
 import { sendFcmPush } from "@/lib/fcm"
+
+// Cache-busted so replacing the logo file actually shows up — browsers, CDNs,
+// and the mobile app's image cache all key on the URL, and the file gets
+// overwritten in place under the same filename, so without a version query
+// param an already-cached client keeps showing the old logo forever.
+function systemUserAvatarUrl(): string {
+  const base = (env.APP_URL || "https://chatandtip.com").replace(/\/$/, "")
+  let version = ""
+  try {
+    const stat = fs.statSync(path.join(process.cwd(), "public", "chatandtip-logo.jpg"))
+    version = `?v=${Math.round(stat.mtimeMs)}`
+  } catch {
+    // Missing at runtime shouldn't happen — fall back to no cache-busting.
+  }
+  return `${base}/chatandtip-logo.jpg${version}`
+}
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true }
@@ -235,9 +253,9 @@ export async function broadcastCampaignNotifications(input: {
       email: "broadcast@chatandtip.system",
       role: UserRole.USER,
       verified: true,
-      avatarUrl: `${(env.APP_URL || "https://chatandtip.com").replace(/\/$/, "")}/chatandtip-logo.jpg`,
+      avatarUrl: systemUserAvatarUrl(),
     },
-    update: { fullName: "ChatAndTip", verified: true },
+    update: { fullName: "ChatAndTip", verified: true, avatarUrl: systemUserAvatarUrl() },
     include: { media: true },
   })
 
