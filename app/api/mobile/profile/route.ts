@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { findMobileUserById, serializeMobileUserWithCounts, updateMobileUserProfile } from "@/lib/mobile-users"
+import { InvalidUsernameError, UsernameTakenError } from "@/lib/username-rules"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
@@ -80,6 +81,9 @@ export async function PATCH(request: Request) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
+    }
+    if (error instanceof InvalidUsernameError || error instanceof UsernameTakenError) {
+      return NextResponse.json({ success: false, message: error.message }, { status: 400 })
     }
 
     logError("/api/mobile/profile", error)

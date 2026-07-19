@@ -3,6 +3,7 @@ import "server-only"
 import bcrypt from "bcryptjs"
 import { LoginProvider, MediaKind, Prisma, UserRole, UserStatus, type User, type UserMedia } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { resolveUsernameUpdate } from "@/lib/username-rules"
 
 type UserWithMedia = User & {
   media: UserMedia[]
@@ -278,11 +279,12 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
   }
 
   const passwordHash = input.password ? await bcrypt.hash(input.password, 12) : null
+  const resolvedUsername = await resolveUsernameUpdate(null, input.username)
 
   const created = (await prisma.user.create({
     data: {
       fullName: fallbackFullName(input),
-      username: input.username,
+      username: resolvedUsername,
       gender: input.gender || "",
       birthday: normalizeDate(input.birthday),
       email: input.email,
@@ -346,12 +348,17 @@ export async function upsertMobileProviderUser(
 
   if (existingAccount) {
     assertMobileUserCanAuthenticate(existingAccount.user)
+    const resolvedUsername = await resolveUsernameUpdate(
+      existingAccount.user.username,
+      input.username,
+      existingAccount.userId,
+    )
 
     return (await prisma.user.update({
       where: { id: existingAccount.userId },
       data: {
         fullName: input.fullName?.trim() ? input.fullName : existingAccount.user.fullName,
-        username: input.username ?? existingAccount.user.username,
+        username: resolvedUsername,
         email: input.verifiedEmail ?? input.email ?? existingAccount.user.email,
         phoneNumber: input.phoneNumber ?? existingAccount.user.phoneNumber,
         bio: input.bio ?? existingAccount.user.bio,
@@ -383,6 +390,7 @@ export async function upsertMobileProviderUser(
 
   if (linkedUser) {
     assertMobileUserCanAuthenticate(linkedUser)
+    const resolvedLinkedUsername = await resolveUsernameUpdate(linkedUser.username, input.username, linkedUser.id)
 
     return (await prisma.$transaction(async (tx) => {
       await tx.providerAccount.create({
@@ -398,7 +406,7 @@ export async function upsertMobileProviderUser(
         where: { id: linkedUser!.id },
         data: {
           fullName: input.fullName?.trim() ? input.fullName : linkedUser!.fullName,
-          username: input.username ?? linkedUser!.username,
+          username: resolvedLinkedUsername,
           email: normalizedEmail ?? linkedUser!.email,
           phoneNumber: input.phoneNumber ?? linkedUser!.phoneNumber,
           bio: input.bio ?? linkedUser!.bio,
@@ -422,6 +430,7 @@ export async function upsertMobileProviderUser(
     })) as UserWithMedia
   }
 
+  const resolvedNewUsername = await resolveUsernameUpdate(null, input.username)
   return (await prisma.$transaction(async (tx) => {
     const created = (await tx.user.create({
       data: {
@@ -429,7 +438,7 @@ export async function upsertMobileProviderUser(
           ...input,
           email: normalizedEmail,
         }),
-        username: input.username,
+        username: resolvedNewUsername,
         gender: input.gender || "",
         birthday: normalizeDate(input.birthday),
         email: normalizedEmail,
@@ -493,12 +502,14 @@ export async function updateMobileUserProfile(
     throw new Error("User not found")
   }
 
+  const resolvedUsername = await resolveUsernameUpdate(existing.username, input.username, userId)
+
   return (await prisma.$transaction(async (tx) => {
     const updated = await tx.user.update({
       where: { id: userId },
       data: {
         fullName: input.fullName?.trim() ? input.fullName : undefined,
-        username: input.username,
+        username: resolvedUsername,
         gender: input.gender,
         birthday: input.birthday !== undefined ? normalizeDate(input.birthday) : undefined,
         email: input.email,

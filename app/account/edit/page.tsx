@@ -17,7 +17,13 @@ export default async function EditAccountPage() {
         <form action={saveProfile} className="mt-6 space-y-4">
           <input type="hidden" name="userId" value={user.userId} />
           <Field label="Full name" name="fullName" defaultValue={user.fullname || ""} />
-          <Field label="Username" name="username" defaultValue={user.username || ""} />
+          <Field
+            label="Username"
+            name="username"
+            defaultValue={user.username || ""}
+            disabled={Boolean(user.username)}
+            hint={user.username ? "Username can't be changed once set." : undefined}
+          />
           <Field label="Email" name="email" defaultValue={user.email || ""} type="email" />
           <Field label="Phone" name="phoneNumber" defaultValue={user.phoneNumber || ""} />
           <div className="grid gap-4 sm:grid-cols-2">
@@ -35,11 +41,32 @@ export default async function EditAccountPage() {
   )
 }
 
-function Field({ label, name, defaultValue, type = "text" }: { label: string; name: string; defaultValue: string; type?: string }) {
+function Field({
+  label,
+  name,
+  defaultValue,
+  type = "text",
+  disabled,
+  hint,
+}: {
+  label: string
+  name: string
+  defaultValue: string
+  type?: string
+  disabled?: boolean
+  hint?: string
+}) {
   return (
     <label className="block">
       <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-white/50">{label}</span>
-      <Input name={name} defaultValue={defaultValue} type={type} className="h-11 rounded-2xl" />
+      <Input
+        name={name}
+        defaultValue={defaultValue}
+        type={type}
+        disabled={disabled}
+        className="h-11 rounded-2xl disabled:opacity-60"
+      />
+      {hint && <span className="mt-1 block text-xs text-white/40">{hint}</span>}
     </label>
   )
 }

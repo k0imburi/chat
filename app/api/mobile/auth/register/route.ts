@@ -3,6 +3,7 @@ import { LoginProvider } from "@prisma/client"
 import { z } from "zod"
 import { signMobileSessionToken } from "@/lib/mobile-session"
 import { mapMobileLoginProvider, registerMobileUser, serializeMobileUser } from "@/lib/mobile-users"
+import { InvalidUsernameError, UsernameTakenError } from "@/lib/username-rules"
 import { logError } from "@/lib/log-error"
 
 const schema = z.object({
@@ -51,6 +52,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
+    }
+    if (error instanceof InvalidUsernameError || error instanceof UsernameTakenError) {
+      return NextResponse.json({ success: false, message: error.message }, { status: 400 })
     }
 
     logError("/api/mobile/auth/register", error)
