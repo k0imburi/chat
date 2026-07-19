@@ -679,12 +679,20 @@ export async function unlockReply(input: { userId: string; messageId: string }) 
     }
 
     // Exactly one concurrent unlock can transition the thread from its Key
-    // phase; all later replies atomically use ChatCredits.
+    // phase; all later replies atomically use ChatCredits — unless the
+    // initiator has run out, in which case fall back to a Key rather than
+    // leaving the message stuck locked with no way to pay for it.
     const firstUnlock = await tx.chatThread.updateMany({
       where: { id: message.thread.id, icebreakerUnlocked: false },
       data: { icebreakerUnlocked: true },
     })
-    const kind = firstUnlock.count === 1 ? "KEY" : "CHAT_CREDIT"
+    let kind: CreditKind
+    if (firstUnlock.count === 1) {
+      kind = "KEY"
+    } else {
+      const initiatorAcct = await tx.creditAccount.findUnique({ where: { userId: input.userId } })
+      kind = (initiatorAcct?.chatCredits ?? 0) > 0 ? "CHAT_CREDIT" : "KEY"
+    }
 
     await consumeCreditInTransaction(tx, {
       userId: input.userId,
