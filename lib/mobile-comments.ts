@@ -158,6 +158,31 @@ export async function createComment(
     }
   }
 
+  // Notify the parent comment's author on a reply (skip self-replies and
+  // don't double-notify the video owner — they already got the notice above).
+  if (parentId) {
+    const parent = await prisma.videoComment.findUnique({
+      where: { id: parentId },
+      select: { authorId: true },
+    })
+    if (parent && parent.authorId !== authorId && parent.authorId !== media.userId) {
+      const alreadyNotified = await prisma.userNotification.findFirst({
+        where: { userId: parent.authorId, type: "comment_reply", metadata: { path: "$.commentId", equals: comment.id } },
+        select: { id: true },
+      })
+      if (!alreadyNotified) {
+        await createUserNotification({
+          userId: parent.authorId,
+          senderId: authorId,
+          type: "comment_reply",
+          title: `${comment.author.fullName} replied to your comment`,
+          message: text,
+          metadata: { videoId: mediaId, commentId: comment.id, parentId },
+        })
+      }
+    }
+  }
+
   return serializeComment(comment, authorId, new Set())
 }
 
@@ -212,10 +237,26 @@ export async function toggleCommentLike(commentId: string, userId: string) {
   }
 
   await prisma.commentLike.create({ data: { commentId, userId } })
-  await prisma.videoComment.update({
+  const liked = await prisma.videoComment.update({
     where: { id: commentId },
     data: { likes: { increment: 1 } },
+    select: { likes: true, authorId: true, mediaId: true },
   })
-  const updated = await prisma.videoComment.findUnique({ where: { id: commentId }, select: { likes: true } })
-  return { liked: true, likes: updated?.likes ?? 0 }
+
+  if (liked.authorId !== userId) {
+    const liker = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true },
+    })
+    await createUserNotification({
+      userId: liked.authorId,
+      senderId: userId,
+      type: "comment_like",
+      title: liker?.fullName?.split(" ").at(0) || "Someone",
+      message: "liked your comment",
+      metadata: { videoId: liked.mediaId, commentId },
+    })
+  }
+
+  return { liked: true, likes: liked.likes }
 }
