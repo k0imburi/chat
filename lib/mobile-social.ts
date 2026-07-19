@@ -107,7 +107,6 @@ export async function toggleVideoLike(input: {
 
       return {
         liked: false,
-        isMatch: false,
       }
     }
 
@@ -125,41 +124,8 @@ export async function toggleVideoLike(input: {
       data: { likes: { increment: 1 } },
     })
 
-    const reciprocalLike = await tx.videoLike.findFirst({
-      where: {
-        senderId: input.ownerId,
-        receiverId: input.currentUserId,
-      },
-    })
-
-    let isMatch = false
-
-    if (reciprocalLike) {
-      const normalized = normalizeMatchPair(input.currentUserId, input.ownerId)
-      const existingMatch = await tx.userMatch.findFirst({
-        where: {
-          userAId: normalized.userAId,
-          userBId: normalized.userBId,
-        },
-      })
-
-      if (!existingMatch) {
-        await tx.userMatch.create({
-          data: {
-            userAId: normalized.userAId,
-            userBId: normalized.userBId,
-            isNewForA: true,
-            isNewForB: true,
-          },
-        })
-      }
-
-      isMatch = true
-    }
-
     return {
       liked: true,
-      isMatch,
     }
   })
 
@@ -177,37 +143,6 @@ export async function toggleVideoLike(input: {
       type: "like",
       metadata: { videoId: input.videoId },
     })
-
-    if (result.isMatch) {
-      const senderName = sender?.fullName?.split(" ").at(0) || "Someone"
-      const owner = await prisma.user.findUnique({
-        where: { id: input.ownerId },
-        select: { fullName: true },
-      })
-
-      await Promise.all([
-        createUserNotification({
-          userId: input.currentUserId,
-          senderId: input.ownerId,
-          title: owner?.fullName?.split(" ").at(0) || "Someone",
-          message: "You liked each other's posts — you can chat now!",
-          type: "mutual_like",
-        }),
-        createUserNotification({
-          userId: input.ownerId,
-          senderId: input.currentUserId,
-          title: senderName,
-          message: "You liked each other's posts — you can chat now!",
-          type: "mutual_like",
-        }),
-      ])
-
-      emitChatRealtimeToUsers([input.currentUserId, input.ownerId], {
-        channel: "matches",
-        type: "matches_refresh",
-        refreshedAt,
-      })
-    }
   }
 
   emitChatRealtimeToUser(input.ownerId, {
