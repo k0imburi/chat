@@ -22,6 +22,21 @@ export function isMpesaConfigComplete(config: MpesaConfig) {
   return Boolean(config.consumerKey && config.consumerSecret && config.shortcode && config.passkey)
 }
 
+// Whether native M-PESA (our own STK-push integration) should actually be
+// offered — config completeness plus the admin's independent on/off toggle
+// (falls back to the legacy MPESA_ENABLED env var when unset in the DB).
+export async function isMpesaAvailable(config: MpesaConfig) {
+  if (!isMpesaConfigComplete(config)) return false
+  let settings: { mpesaEnabled: boolean } | null = null
+  try {
+    settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { mpesaEnabled: true } })
+  } catch {
+    settings = null
+  }
+  const flag = settings?.mpesaEnabled ?? (env.MPESA_ENABLED === "true")
+  return Boolean(flag)
+}
+
 type StkRequestInput = {
   phone: string
   amount: number
@@ -132,8 +147,8 @@ export async function fetchMpesaAccessToken(config: MpesaConfig) {
 
 export async function initiateStkPush(input: StkRequestInput) {
   const config = await resolveMpesaConfig()
-  if (!isMpesaConfigComplete(config)) {
-    throw new Error("M-PESA settings are incomplete")
+  if (!(await isMpesaAvailable(config))) {
+    throw new Error("M-PESA is not currently available")
   }
 
   const token = await fetchMpesaAccessToken(config)

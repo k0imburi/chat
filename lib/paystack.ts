@@ -17,7 +17,15 @@ export async function resolvePaystackConfig() {
   const secretKey = (settings?.paystackSecretKey as string | undefined) || env.PAYSTACK_SECRET_KEY || ""
   const publicKey = (settings?.paystackPublicKey as string | undefined) || env.PAYSTACK_PUBLIC_KEY || ""
   const flag = (settings?.paystackEnabled as boolean | undefined) ?? (env.PAYSTACK_ENABLED === "true")
-  return { enabled: Boolean(flag) && Boolean(secretKey), secretKey, publicKey }
+  const cardEnabled = (settings?.paystackCardEnabled as boolean | undefined) ?? true
+  const mpesaEnabled = (settings?.paystackMpesaEnabled as boolean | undefined) ?? true
+  return {
+    enabled: Boolean(flag) && Boolean(secretKey) && (cardEnabled || mpesaEnabled),
+    secretKey,
+    publicKey,
+    cardEnabled,
+    mpesaEnabled,
+  }
 }
 
 // Initialize a Paystack transaction; returns the hosted-checkout URL (which
@@ -28,8 +36,13 @@ export async function initializePaystackTransaction(input: {
   email: string
   callbackUrl: string
 }): Promise<{ authorizationUrl: string }> {
-  const { secretKey } = await resolvePaystackConfig()
+  const { secretKey, cardEnabled, mpesaEnabled } = await resolvePaystackConfig()
   if (!secretKey) throw new Error("Paystack is not configured")
+
+  const channels: string[] = []
+  if (cardEnabled) channels.push("card", "apple_pay", "bank")
+  if (mpesaEnabled) channels.push("mobile_money")
+  if (channels.length === 0) throw new Error("No Paystack payment channels are enabled")
 
   const response = await fetch("https://api.paystack.co/transaction/initialize", {
     method: "POST",
@@ -44,7 +57,7 @@ export async function initializePaystackTransaction(input: {
       email: input.email,
       reference: input.reference,
       callback_url: input.callbackUrl,
-      channels: ["card", "mobile_money", "bank", "apple_pay"],
+      channels,
     }),
     cache: "no-store",
   })

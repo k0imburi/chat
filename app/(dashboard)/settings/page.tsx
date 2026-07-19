@@ -58,12 +58,15 @@ export default async function SettingsPage() {
                 <input type="hidden" name="mpesaStoreNumber" value={settings?.mpesaStoreNumber ?? ""} />
                 <input type="hidden" name="mpesaShortcodeType" value={settings?.mpesaShortcodeType ?? "CustomerPayBillOnline"} />
                 <input type="hidden" name="mpesaEnvironment" value={settings?.mpesaEnvironment ?? "sandbox"} />
+                <input type="hidden" name="mpesaEnabled" value={settings?.mpesaEnabled ? "on" : ""} />
                 <input type="hidden" name="stripeEnabled" value={settings?.stripeEnabled ? "on" : ""} />
                 <input type="hidden" name="stripeSecretKey" value={settings?.stripeSecretKey ?? ""} />
                 <input type="hidden" name="stripeWebhookSecret" value={settings?.stripeWebhookSecret ?? ""} />
                 <input type="hidden" name="paystackEnabled" value={settings?.paystackEnabled ? "on" : ""} />
                 <input type="hidden" name="paystackSecretKey" value={settings?.paystackSecretKey ?? ""} />
                 <input type="hidden" name="paystackPublicKey" value={settings?.paystackPublicKey ?? ""} />
+                <input type="hidden" name="paystackCardEnabled" value={settings?.paystackCardEnabled ?? true ? "on" : ""} />
+                <input type="hidden" name="paystackMpesaEnabled" value={settings?.paystackMpesaEnabled ?? true ? "on" : ""} />
                 <input type="hidden" name="flutterwaveEnabled" value={settings?.flutterwaveEnabled ? "on" : ""} />
                 <input type="hidden" name="flutterwaveClientId" value={settings?.flutterwaveClientId ?? ""} />
                 <input type="hidden" name="flutterwaveClientSecret" value={settings?.flutterwaveClientSecret ?? ""} />
@@ -116,12 +119,15 @@ export default async function SettingsPage() {
                 <input type="hidden" name="mpesaStoreNumber" defaultValue={settings?.mpesaStoreNumber ?? ""} />
                 <input type="hidden" name="mpesaShortcodeType" defaultValue={settings?.mpesaShortcodeType ?? "CustomerPayBillOnline"} />
                 <input type="hidden" name="mpesaEnvironment" defaultValue={settings?.mpesaEnvironment ?? "sandbox"} />
+                <input type="hidden" name="mpesaEnabled" value={settings?.mpesaEnabled ? "on" : ""} />
                 <input type="hidden" name="stripeEnabled" value={settings?.stripeEnabled ? "on" : ""} />
                 <input type="hidden" name="stripeSecretKey" defaultValue={settings?.stripeSecretKey ?? ""} />
                 <input type="hidden" name="stripeWebhookSecret" defaultValue={settings?.stripeWebhookSecret ?? ""} />
                 <input type="hidden" name="paystackEnabled" value={settings?.paystackEnabled ? "on" : ""} />
                 <input type="hidden" name="paystackSecretKey" defaultValue={settings?.paystackSecretKey ?? ""} />
                 <input type="hidden" name="paystackPublicKey" defaultValue={settings?.paystackPublicKey ?? ""} />
+                <input type="hidden" name="paystackCardEnabled" value={settings?.paystackCardEnabled ?? true ? "on" : ""} />
+                <input type="hidden" name="paystackMpesaEnabled" value={settings?.paystackMpesaEnabled ?? true ? "on" : ""} />
                 <input type="hidden" name="flutterwaveEnabled" value={settings?.flutterwaveEnabled ? "on" : ""} />
                 <input type="hidden" name="flutterwaveClientId" defaultValue={settings?.flutterwaveClientId ?? ""} />
                 <input type="hidden" name="flutterwaveClientSecret" defaultValue={settings?.flutterwaveClientSecret ?? ""} />
@@ -184,6 +190,9 @@ export default async function SettingsPage() {
                   <CardTitle>M-PESA</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <CheckboxField label="Enable M-PESA (native STK push)" name="mpesaEnabled" checked={settings?.mpesaEnabled ?? false} />
+                  </div>
                   <Field label="Consumer key" name="mpesaConsumerKey" defaultValue={settings?.mpesaConsumerKey ?? ""} />
                   <Field label="Consumer secret" name="mpesaConsumerSecret" defaultValue={settings?.mpesaConsumerSecret ?? ""} />
                   <Field label="Passkey" name="mpesaPasskey" defaultValue={settings?.mpesaPasskey ?? ""} />
@@ -220,6 +229,12 @@ export default async function SettingsPage() {
               <CardContent className="grid gap-4 md:grid-cols-2">
                 <div className="md:col-span-2">
                   <CheckboxField label="Enable Paystack (primary card / M-PESA checkout)" name="paystackEnabled" checked={settings?.paystackEnabled ?? false} />
+                </div>
+                <div>
+                  <CheckboxField label="Enable card payments (via Paystack)" name="paystackCardEnabled" checked={settings?.paystackCardEnabled ?? true} />
+                </div>
+                <div>
+                  <CheckboxField label="Enable M-PESA (via Paystack)" name="paystackMpesaEnabled" checked={settings?.paystackMpesaEnabled ?? true} />
                 </div>
                 <Field label="Secret key (sk_live_… / sk_test_…)" name="paystackSecretKey" defaultValue={settings?.paystackSecretKey ?? ""} />
                 <Field label="Public key (pk_live_… / pk_test_…)" name="paystackPublicKey" defaultValue={settings?.paystackPublicKey ?? ""} />

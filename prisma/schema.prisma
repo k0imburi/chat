@@ -1054,6 +1054,10 @@ model AppSettings {
   mpesaStoreNumber           String?
   mpesaShortcodeType         String   @default("CustomerPayBillOnline")
   mpesaEnvironment           String   @default("sandbox")
+  // Native M-PESA (our own STK-push integration, distinct from M-PESA-via-
+  // Paystack below). Previously gated only by credential completeness with
+  // no explicit on/off switch — this makes it independently toggleable.
+  mpesaEnabled               Boolean  @default(false)
   // Stripe (delivers Google Pay + cards in the hosted checkout). Managed here
   // so payments can be turned on from the dashboard without a redeploy.
   stripeEnabled              Boolean  @default(false)
@@ -1064,6 +1068,11 @@ model AppSettings {
   paystackEnabled            Boolean  @default(false)
   paystackSecretKey          String?
   paystackPublicKey          String?
+  // Independently toggleable Paystack channels — lets card and M-PESA-via-
+  // Paystack be turned on/off separately from each other and from the
+  // overall paystackEnabled switch above.
+  paystackCardEnabled        Boolean  @default(true)
+  paystackMpesaEnabled       Boolean  @default(true)
   // Flutterwave (Google Pay only — Paystack has no Google Pay support at
   // all). v4 API: OAuth2 client-credentials auth, so we store a client
   // id/secret pair rather than a single secret key. Base URL is dashboard-

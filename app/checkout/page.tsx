@@ -227,6 +227,10 @@ function CheckoutInner() {
                 {info.user?.fullName ? `For ${info.user.fullName}. ` : ""}Choose how you'd like to pay.
               </p>
 
+              {providerButtons.length === 0 ? (
+                <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Payments are temporarily unavailable.</p>
+              ) : (
+              <>
               {/* ── Credits ───────────────────────────────────────── */}
               <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wide mt-5 mb-2">Chat Credits</p>
               <div className="space-y-3">
@@ -320,8 +324,6 @@ function CheckoutInner() {
                 </div>
               ) : null}
 
-              {providerButtons.length === 0 ? <p className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Payments are temporarily unavailable.</p> : null}
-
               {provider === "MPESA" && <><label className="block text-xs font-medium text-neutral-600 mt-5 mb-1">M-PESA phone number</label><input
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
@@ -362,6 +364,8 @@ function CheckoutInner() {
 
               {stage === "paying" && (
                 <p className="text-xs text-neutral-500 text-center mt-3">{message}</p>
+              )}
+              </>
               )}
 
               <p className="text-[11px] text-neutral-400 text-center mt-4">

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { env } from "@/lib/env"
-import { isMpesaConfigComplete, resolveMpesaConfig } from "@/lib/mpesa"
+import { isMpesaAvailable, resolveMpesaConfig } from "@/lib/mpesa"
 import { resolveStripeConfig } from "@/lib/stripe"
 
 const STORE_CHANNELS = new Set(["play", "appstore"])
@@ -11,7 +10,7 @@ export async function GET(request: Request) {
   const channel = (url.searchParams.get("channel") || (platform === "web" ? "web" : "store")).toLowerCase()
   const storeBuild = STORE_CHANNELS.has(channel)
   const webPayments = platform === "web" || channel === "direct"
-  const mpesa = env.MPESA_ENABLED === "true" && isMpesaConfigComplete(await resolveMpesaConfig())
+  const mpesa = await isMpesaAvailable(await resolveMpesaConfig())
   const stripeEnabled = (await resolveStripeConfig()).enabled
 
   return NextResponse.json({

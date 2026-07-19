@@ -13,7 +13,7 @@ import { logError } from "@/lib/log-error"
 import { resolveStripeConfig } from "@/lib/stripe"
 import { resolvePaystackConfig } from "@/lib/paystack"
 import { resolveFlutterwaveConfig } from "@/lib/flutterwave"
-import { isMpesaConfigComplete, resolveMpesaConfig } from "@/lib/mpesa"
+import { isMpesaAvailable, resolveMpesaConfig } from "@/lib/mpesa"
 import { prisma } from "@/lib/prisma"
 import { TipTier } from "@prisma/client"
 
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
           transactionFeePercent,
         },
         providers: {
-          mpesa: isMpesaConfigComplete(mpesaConfig),
+          mpesa: await isMpesaAvailable(mpesaConfig),
           stripe: (await resolveStripeConfig()).enabled,
           paystack: (await resolvePaystackConfig()).enabled,
           flutterwave: (await resolveFlutterwaveConfig()).enabled,
