@@ -745,11 +745,16 @@ model ChatThread {
   lastMessageType    ChatMessageType?
   lastMessageAt      DateTime?
   // Credits gating: the participant who sent the first message (the paying
-  // "user"); the other party's replies are charged to them. Once the first
-  // reply is unlocked with a Key, `icebreakerUnlocked` flips and subsequent
-  // replies consume ChatCredits.
+  // "user"); the other party's replies are charged to them.
+  // `unlockedAt` is the start of the current fixed 24h access grant — set
+  // (and refreshed) every time a Key is spent. While now() - unlockedAt < 24h
+  // AND the initiator has ChatCredits, replies auto-deduct and arrive
+  // unlocked; otherwise a reply is locked and needs a Key to open, which
+  // refreshes this window. `icebreakerUnlocked` is kept only as a legacy
+  // "has this thread ever been unlocked at least once" marker.
   initiatorId        String?
   icebreakerUnlocked Boolean           @default(false)
+  unlockedAt         DateTime?
   participants       ChatParticipant[]
   messages           ChatMessage[]
 }

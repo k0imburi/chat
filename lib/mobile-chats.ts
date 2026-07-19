@@ -60,6 +60,15 @@ function serializeChatSummary(participant: ChatParticipantWithThread, receiver: 
   }
 }
 
+const UNLOCK_WINDOW_MS = 24 * 60 * 60 * 1000
+
+// A conversation's unlock is a fixed 24h grant from the moment a Key was
+// last spent — not a rolling window — so it expires exactly 24h after
+// `unlockedAt` regardless of how much chatting happened in between.
+function isUnlockWindowValid(unlockedAt: Date | null): boolean {
+  return unlockedAt != null && Date.now() - unlockedAt.getTime() < UNLOCK_WINDOW_MS
+}
+
 function buildLockedPreview(text: string, contentType: string): string {
   if (contentType === "image") return ""
   if (text.startsWith("enc:")) return ""
@@ -383,7 +392,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       }),
       tx.chatThread.findUniqueOrThrow({
         where: { id: participant.threadId },
-        select: { icebreakerUnlocked: true, initiatorId: true, broadcastOnly: true },
+        select: { unlockedAt: true, initiatorId: true, broadcastOnly: true },
       }),
       tx.chatMessage.count({ where: { threadId: participant.threadId, senderId: userId } }),
       tx.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } }),
@@ -402,9 +411,15 @@ export async function getMessages(userId: string, otherUserId: string) {
       myPriorCount > 0,
     )
 
+    let unlockKind: "KEY" | "CHAT_CREDIT" = "KEY"
+    if (isUnlockWindowValid(threadState.unlockedAt) && threadState.initiatorId) {
+      const initiatorAcct = await tx.creditAccount.findUnique({ where: { userId: threadState.initiatorId } })
+      unlockKind = (initiatorAcct?.chatCredits ?? 0) > 0 ? "CHAT_CREDIT" : "KEY"
+    }
+
     return {
       messages,
-      unlockKind: threadState.icebreakerUnlocked ? "CHAT_CREDIT" as const : "KEY" as const,
+      unlockKind,
       willChargeReply,
       readAt: new Date().toISOString(),
     }
@@ -470,43 +485,32 @@ export async function sendMessage(input: {
     // The initiator's own messages are always free/unlocked.
     const thread = await tx.chatThread.findUnique({
       where: { id: threadId },
-      select: { initiatorId: true, icebreakerUnlocked: true, broadcastOnly: true, lastMessageAt: true },
+      select: { initiatorId: true, unlockedAt: true, broadcastOnly: true },
     })
     if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
     const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
     const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
     let locked = false
     let autoDeductCredit = false
-    // When 24h of inactivity has passed the conversation resets to the
-    // icebreaker state: this first reply is free again, and the cycle restarts
-    // (the next reply needs a Key). We flip icebreakerUnlocked back to false
-    // after saving the message.
-    let resetIcebreaker = false
     if (!earningSuspended && isNonInitiator) {
       // Ice breaker: count prior messages from this sender in this thread
       const priorCount = await tx.chatMessage.count({ where: { threadId, senderId: input.senderId } })
       if (priorCount === 0) {
         // First-ever message from non-initiator is free
         locked = false
-      } else if (thread.icebreakerUnlocked) {
-        const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
-        if (!thread.lastMessageAt || thread.lastMessageAt < recentCutoff) {
-          // 24h elapsed → treat the first reply as a fresh, free icebreaker.
+      } else if (isUnlockWindowValid(thread.unlockedAt)) {
+        // Within the fixed 24h grant — unlock if initiator has chatCredits
+        const initiatorAcct = thread.initiatorId
+          ? await tx.creditAccount.findUnique({ where: { userId: thread.initiatorId } })
+          : null
+        if (initiatorAcct && initiatorAcct.chatCredits > 0) {
           locked = false
-          resetIcebreaker = true
+          autoDeductCredit = true
         } else {
-          // Within the 24h active window — unlock if initiator has chatCredits
-          const initiatorAcct = thread.initiatorId
-            ? await tx.creditAccount.findUnique({ where: { userId: thread.initiatorId } })
-            : null
-          if (initiatorAcct && initiatorAcct.chatCredits > 0) {
-            locked = false
-            autoDeductCredit = true
-          } else {
-            locked = true // credits exhausted → lock until topped up
-          }
+          locked = true // credits exhausted → lock until a Key reopens it
         }
       } else {
+        // Grant expired (or never opened) → locked immediately, no free grace reply
         locked = true
       }
     }
@@ -559,8 +563,6 @@ export async function sendMessage(input: {
         lastMessageText: textMsg || null,
         lastMessageType: messageType,
         lastMessageAt: message.sentAt,
-        // Post-24h icebreaker: restart the Key/ChatCredit cycle.
-        ...(resetIcebreaker ? { icebreakerUnlocked: false } : {}),
       },
     })
 
@@ -587,7 +589,10 @@ export async function sendMessage(input: {
 
     return {
       message,
-      unlockKind: thread?.icebreakerUnlocked ? "CHAT_CREDIT" as const : "KEY" as const,
+      // A message that arrives locked is, by construction, exactly the case
+      // unlockReply() charges a Key for (window expired, or window valid but
+      // credits are 0) — so the hint is always KEY whenever locked is true.
+      unlockKind: "KEY" as const,
       locked,
     }
   }))
@@ -651,16 +656,20 @@ export async function sendMessage(input: {
 
 /**
  * Unlock a locked reply. Only the thread initiator (the paying user) may
- * unlock: the first unlock in a thread spends a Key, subsequent ones spend a
- * ChatCredit, and the value is credited to the reply's sender (the creator).
- * Throws InsufficientCreditsError ("You have insufficient Balance") when the
+ * unlock. A message only ever arrives locked when the conversation's fixed
+ * 24h unlock grant has expired (or never started) or the initiator's
+ * ChatCredits are 0 — so unlocking always spends a Key and refreshes the
+ * grant to a fresh 24h window starting now, unless credits were topped up
+ * in the meantime while the window is still otherwise valid, in which case
+ * it spends a ChatCredit instead and leaves the window untouched. Throws
+ * InsufficientCreditsError ("You have insufficient Balance") when the
  * initiator has no matching credit.
  */
 export async function unlockReply(input: { userId: string; messageId: string }) {
   const result = await prisma.$transaction(async (tx) => {
     const message = await tx.chatMessage.findUnique({
       where: { id: input.messageId },
-      include: { thread: { select: { id: true, initiatorId: true } } },
+      include: { thread: { select: { id: true, initiatorId: true, unlockedAt: true } } },
     })
     if (!message) throw new Error("Message not found")
     if (message.thread.initiatorId !== input.userId) {
@@ -678,20 +687,21 @@ export async function unlockReply(input: { userId: string; messageId: string }) 
       return { message: current, creatorId: message.senderId }
     }
 
-    // Exactly one concurrent unlock can transition the thread from its Key
-    // phase; all later replies atomically use ChatCredits — unless the
-    // initiator has run out, in which case fall back to a Key rather than
-    // leaving the message stuck locked with no way to pay for it.
-    const firstUnlock = await tx.chatThread.updateMany({
-      where: { id: message.thread.id, icebreakerUnlocked: false },
-      data: { icebreakerUnlocked: true },
-    })
     let kind: CreditKind
-    if (firstUnlock.count === 1) {
-      kind = "KEY"
-    } else {
+    if (isUnlockWindowValid(message.thread.unlockedAt)) {
       const initiatorAcct = await tx.creditAccount.findUnique({ where: { userId: input.userId } })
       kind = (initiatorAcct?.chatCredits ?? 0) > 0 ? "CHAT_CREDIT" : "KEY"
+    } else {
+      kind = "KEY"
+    }
+
+    if (kind === "KEY") {
+      // Spending a Key (re-)opens the conversation: a fresh fixed 24h grant
+      // starting now, regardless of why the previous one lapsed.
+      await tx.chatThread.update({
+        where: { id: message.thread.id },
+        data: { unlockedAt: new Date(), icebreakerUnlocked: true },
+      })
     }
 
     await consumeCreditInTransaction(tx, {
