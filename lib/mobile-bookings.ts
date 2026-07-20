@@ -8,6 +8,11 @@ import { ON_ACCOUNT_VALUE_KES } from "@/lib/mobile-credits"
 
 const SESSION_MINUTES = 15
 const BUFFER_MINUTES = 10
+// A proposal needs enough lead time for the creator to actually approve it
+// before the call starts — must match the cutoff availableSlots() uses to
+// decide what's even offered, or slots that look bookable in the list would
+// immediately fail with "can no longer be proposed" the moment they're picked.
+const MIN_PROPOSAL_LEAD_MINUTES = 120
 // COUNTER_PROPOSED keeps its original scheduledStart held (the customer still
 // has a pending booking on that slot) until they accept the new time or reject.
 const ACTIVE: BookingStatus[] = ["PROPOSED", "COUNTER_PROPOSED", "APPROVED", "LIVE"]
@@ -92,7 +97,7 @@ export async function availableSlots(creatorId: string, type: BookingType, days 
       for (let minute = window.startMinute; minute + SESSION_MINUTES <= window.endMinute; minute += SESSION_MINUTES + BUFFER_MINUTES) {
         const start = addMinutes(dayStart, minute)
         const end = addMinutes(start, SESSION_MINUTES)
-        if (start <= addMinutes(now, 30)) continue
+        if (start <= addMinutes(now, MIN_PROPOSAL_LEAD_MINUTES)) continue
         if (takenStarts.has(start.toISOString())) continue // confirmed slot — not bookable
         slots.push({ start: start.toISOString(), end: end.toISOString(), timezone: window.timezone })
       }
@@ -127,7 +132,7 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
   const slots = await availableSlots(input.creatorId, input.type, 31)
   if (!slots.some((s) => s.start === start.toISOString())) throw new Error("This slot is no longer available")
   const end = addMinutes(start, SESSION_MINUTES)
-  const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(start, -120).getTime()))
+  const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(start, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
   if (expires <= new Date()) throw new Error("This slot can no longer be proposed")
   const field = input.type === "VOICE" ? "voiceSessions" : "videoSessions"
   const reserved = input.type === "VOICE" ? "reservedVoiceSessions" : "reservedVideoSessions"
@@ -253,7 +258,7 @@ export async function bookingAction(userId: string, bookingId: string, action: s
     const slots = await availableSlots(booking.creatorId, booking.type, 31)
     if (!slots.some((s) => s.start === proposedStart.toISOString())) throw new Error("That time is not available")
     const proposedEnd = addMinutes(proposedStart, SESSION_MINUTES)
-    const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(proposedStart, -120).getTime()))
+    const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(proposedStart, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
     if (expires <= new Date()) throw new Error("That time is too soon to propose")
     const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: {
       status: "COUNTER_PROPOSED", proposedStart, proposedEnd, counterProposedAt: new Date(), proposalExpiresAt: expires,
