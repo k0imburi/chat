@@ -539,7 +539,7 @@ export async function sendMessage(input: {
     // window is open, conversation flows normally with no length requirement,
     // whether actively auto-deducting or paused for a ChatCredit top-up.
     if (needsKeyUnlock && !imageUrl && !imageObjectKey && effectiveLength < 100) {
-      throw new Error("Paid replies must be at least 100 characters")
+      throw new Error("CANARY_V7_Paid replies must be at least 100 characters")
     }
 
     const message = await tx.chatMessage.create({
