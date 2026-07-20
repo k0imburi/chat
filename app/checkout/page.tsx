@@ -31,7 +31,7 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 
 const CREDIT_ITEMS: { kind: CreditKind; label: string; hint: string; icon: string }[] = [
   { kind: "KEY", label: "Keys", hint: "Unlock a creator's first reply", icon: "/icons/economy/key.svg" },
-  { kind: "CHAT_CREDIT", label: "ChatCredits", hint: "Each subsequent reply", icon: "/icons/economy/chat_credit.svg" },
+  { kind: "CHAT_CREDIT", label: "ChatCredits", hint: "Chat credits", icon: "/icons/economy/chat_credit.svg" },
   { kind: "VOICE_SESSION", label: "Voice Sessions", hint: "15-min voice call", icon: "/icons/economy/voice_session.svg" },
   { kind: "VIDEO_SESSION", label: "Video Sessions", hint: "15-min video call", icon: "/icons/economy/video_session.svg" },
 ]
