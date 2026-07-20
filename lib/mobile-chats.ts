@@ -488,6 +488,18 @@ export async function sendMessage(input: {
       select: { initiatorId: true, unlockedAt: true, broadcastOnly: true },
     })
     if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
+
+    // Turn-taking: a conversation alternates sender/receiver — nobody can
+    // send twice in a row without the other party replying in between.
+    const lastMessage = await tx.chatMessage.findFirst({
+      where: { threadId },
+      orderBy: { sentAt: "desc" },
+      select: { senderId: true },
+    })
+    if (lastMessage && lastMessage.senderId === input.senderId) {
+      throw new Error("Wait for a reply before sending another message")
+    }
+
     const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
     const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
     let locked = false
