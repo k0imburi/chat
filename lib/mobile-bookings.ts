@@ -8,11 +8,10 @@ import { ON_ACCOUNT_VALUE_KES } from "@/lib/mobile-credits"
 
 const SESSION_MINUTES = 15
 const BUFFER_MINUTES = 10
-// A proposal needs enough lead time for the creator to actually approve it
-// before the call starts — must match the cutoff availableSlots() uses to
-// decide what's even offered, or slots that look bookable in the list would
-// immediately fail with "can no longer be proposed" the moment they're picked.
-const MIN_PROPOSAL_LEAD_MINUTES = 120
+// Must match the cutoff availableSlots() uses to decide what's even offered,
+// or slots that look bookable in the list would immediately fail with "can
+// no longer be proposed" the moment they're picked.
+const MIN_PROPOSAL_LEAD_MINUTES = 5
 // COUNTER_PROPOSED keeps its original scheduledStart held (the customer still
 // has a pending booking on that slot) until they accept the new time or reject.
 const ACTIVE: BookingStatus[] = ["PROPOSED", "COUNTER_PROPOSED", "APPROVED", "LIVE"]
