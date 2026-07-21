@@ -502,11 +502,6 @@ export async function sendMessage(input: {
 
     const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
     const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
-    if (process.env.CHAT_DIAG === "1") {
-      const diagInitiatorId: string | null | undefined = thread?.initiatorId
-      const diagUnlockedAt: Date | null | undefined = thread?.unlockedAt
-      throw new Error(`DIAG threadId=${threadId} threadInitiatorId=${String(diagInitiatorId)} senderId=${input.senderId} isNonInitiator=${String(isNonInitiator)} earningSuspended=${String(earningSuspended)} unlockedAt=${String(diagUnlockedAt)}`)
-    }
     let locked = false
     let autoDeductCredit = false
     // Only true when this reply needs a fresh Key (the window was never
@@ -544,7 +539,7 @@ export async function sendMessage(input: {
     // window is open, conversation flows normally with no length requirement,
     // whether actively auto-deducting or paused for a ChatCredit top-up.
     if (needsKeyUnlock && !imageUrl && !imageObjectKey && effectiveLength < 100) {
-      throw new Error("CANARY_V7_Paid replies must be at least 100 characters")
+      throw new Error("Paid replies must be at least 100 characters")
     }
 
     const message = await tx.chatMessage.create({
