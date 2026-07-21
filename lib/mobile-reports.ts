@@ -1,6 +1,7 @@
 import "server-only"
 
 import { prisma } from "@/lib/prisma"
+import { createUserNotification } from "@/lib/mobile-notifications"
 
 /**
  * Report a specific post. Unlike reporting an account, this doesn't touch
@@ -30,6 +31,14 @@ export async function reportMedia(input: { reporterId: string; mediaId: string; 
       data: { reportStatus: "UNDER_REVIEW" },
     }),
   ])
+
+  await createUserNotification({
+    userId: media.userId,
+    title: "Your post was reported",
+    message: "One of your posts was reported and is under review.",
+    type: "report",
+    metadata: { videoId: input.mediaId },
+  })
 }
 
 /** Report an account (not tied to a specific post) — flags it for admin review. */

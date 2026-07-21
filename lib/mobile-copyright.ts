@@ -32,7 +32,7 @@ export async function reportCopyright(reporterId: string, mediaId: string) {
       title: "Post under review",
       message:
         "Your post was reported for copyright and is hidden while under review. Open it to appeal.",
-      type: "alert",
+      type: "report",
       metadata: { videoId: mediaId, copyright: "UNDER_REVIEW" },
     })
   }
@@ -77,7 +77,7 @@ export async function resolveCopyright(
     message: decision === "restore"
       ? "Your appealed post passed review and is visible again."
       : "Your post was removed after a copyright review.",
-    type: "alert",
+    type: "report",
     metadata: { videoId: mediaId, copyright: decision === "restore" ? "RESTORED" : "REMOVED" },
   })
   return { status: decision === "restore" ? "RESTORED" : "REMOVED" }
