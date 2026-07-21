@@ -1,6 +1,6 @@
 import "server-only"
 
-import { CreatorPayout, Prisma } from "@prisma/client"
+import { CreatorPayout, EarningLotStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { env } from "@/lib/env"
 import { fetchMpesaAccessToken, normalizePhone, resolveMpesaConfig } from "@/lib/mpesa"
@@ -28,11 +28,39 @@ export async function financeSummary(userId: string) {
   const sum = (statuses: string[]) => lots.filter((r) => statuses.includes(r.status)).reduce((n, r) => n + toKes(Number(r._sum.amount || 0), r.currency), 0)
 
   // Still-on-the-books total (not yet paid out) broken down by what earned it.
-  const currentStatuses = ["PENDING", "HELD", "AVAILABLE", "RESERVED"]
+  const currentStatuses: EarningLotStatus[] = ["PENDING", "HELD", "AVAILABLE", "RESERVED"]
   const bySourceKes: Record<string, number> = {}
   for (const row of lots) {
     if (!currentStatuses.includes(row.status)) continue
     bySourceKes[row.source] = (bySourceKes[row.source] ?? 0) + toKes(Number(row._sum.amount || 0), row.currency)
+  }
+
+  // Split the TIP bucket by tier (Pebble/Gem/Diamond) — EarningLot only
+  // stores a generic "TIP" source, so join each lot's sourceId back to the
+  // Tip row it came from to find out which tier actually earned it.
+  if (bySourceKes.TIP) {
+    const tipLots = await prisma.earningLot.findMany({
+      where: { userId, source: "TIP", status: { in: currentStatuses } },
+      select: { sourceId: true, amount: true, currency: true },
+    })
+    const tips = await prisma.tip.findMany({
+      where: { id: { in: tipLots.map((l) => l.sourceId) } },
+      select: { id: true, tier: true },
+    })
+    const tierByTipId = new Map(tips.map((t) => [t.id, t.tier]))
+    let unmatched = 0
+    for (const lot of tipLots) {
+      const tier = tierByTipId.get(lot.sourceId)
+      const kes = toKes(Number(lot.amount), lot.currency)
+      if (!tier) {
+        unmatched += kes
+        continue
+      }
+      const key = `TIP_${tier}`
+      bySourceKes[key] = (bySourceKes[key] ?? 0) + kes
+    }
+    delete bySourceKes.TIP
+    if (unmatched) bySourceKes.TIP = unmatched
   }
 
   return {
