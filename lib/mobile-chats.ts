@@ -502,6 +502,11 @@ export async function sendMessage(input: {
 
     const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
     const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
+    if (process.env.CHAT_DIAG === "1") {
+      const diagInitiatorId: string | null | undefined = thread?.initiatorId
+      const diagUnlockedAt: Date | null | undefined = thread?.unlockedAt
+      throw new Error(`DIAG threadId=${threadId} threadInitiatorId=${String(diagInitiatorId)} senderId=${input.senderId} isNonInitiator=${String(isNonInitiator)} earningSuspended=${String(earningSuspended)} unlockedAt=${String(diagUnlockedAt)}`)
+    }
     let locked = false
     let autoDeductCredit = false
     // Only true when this reply needs a fresh Key (the window was never
