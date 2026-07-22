@@ -168,7 +168,7 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
       throw error
     }
   }, { timeout: 20000, maxWait: 10000 })
-  await notifyBooking(booking.creatorId, booking.customerId, "New call proposal", `A ${input.type.toLowerCase()} call has been proposed.`, booking.id, booking.creator.email)
+  await notifyBooking(booking.creatorId, booking.customerId, "New call proposal", `A ${input.type.toLowerCase()} call has been proposed. Go to my calls in the my calls section to view. `, booking.id, booking.creator.email)
   return booking
 }
 
