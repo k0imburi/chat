@@ -470,6 +470,14 @@ export async function sendMessage(input: {
   const imageUrl = input.imageUrl?.trim() || ""
   const imageObjectKey = input.imageObjectKey?.trim() || ""
 
+  console.info("[chat:send] received", {
+    senderId: input.senderId,
+    receiverId: input.receiverId,
+    hasText: Boolean(textMsg),
+    textLength: input.textLength ?? textMsg.length,
+    hasImage: Boolean(imageUrl || imageObjectKey),
+  })
+
   if (!textMsg && !imageUrl && !imageObjectKey) {
     throw new Error("Message content is required")
   }
@@ -492,11 +500,27 @@ export async function sendMessage(input: {
     // Turn-taking: a conversation alternates sender/receiver — nobody can
     // send twice in a row without the other party replying in between.
     const lastMessage = await tx.chatMessage.findFirst({
-      where: { threadId },
+      where: {
+        threadId,
+        type: { not: ChatMessageType.TIP },
+      },
       orderBy: { sentAt: "desc" },
-      select: { senderId: true },
+      select: { senderId: true, type: true, sentAt: true },
+    })
+    console.info("[chat:send] turn-check", {
+      threadId,
+      senderId: input.senderId,
+      lastConversationalSenderId: lastMessage?.senderId ?? null,
+      lastConversationalType: lastMessage?.type ?? null,
+      lastConversationalSentAt: lastMessage?.sentAt.toISOString() ?? null,
+      tipsIgnored: true,
     })
     if (lastMessage && lastMessage.senderId === input.senderId) {
+      console.warn("[chat:send] blocked by turn-taking", {
+        threadId,
+        senderId: input.senderId,
+        lastConversationalSenderId: lastMessage.senderId,
+      })
       throw new Error("Wait for a reply before sending another message")
     }
 
@@ -544,8 +568,25 @@ export async function sendMessage(input: {
     // 100-character minimum. Once the window is open, normal messages have
     // no length requirement.
     if (needsKeyUnlock && !imageUrl && !imageObjectKey && effectiveLength < 100) {
+      console.warn("[chat:send] blocked by locked-reply minimum", {
+        threadId,
+        senderId: input.senderId,
+        effectiveLength,
+      })
       throw new Error("Paid replies must be at least 100 characters")
     }
+
+    console.info("[chat:send] policy", {
+      threadId,
+      senderId: input.senderId,
+      isInitiator,
+      isNonInitiator,
+      unlockWindowValid,
+      needsKeyUnlock,
+      locked,
+      autoDeductCredit,
+      messageType,
+    })
 
     const message = await tx.chatMessage.create({
       data: {
@@ -573,6 +614,11 @@ export async function sendMessage(input: {
         kind: "CHAT_CREDIT" as CreditKind,
         idempotencyKey: `autochat:${message.id}`,
         metadata: { threadId, messageId: message.id, autoDeducted: true },
+      })
+      console.info("[chat:send] chat credit deducted", {
+        threadId,
+        messageId: message.id,
+        senderId: input.senderId,
       })
     }
 
@@ -612,6 +658,14 @@ export async function sendMessage(input: {
       locked,
     }
   }))
+
+  console.info("[chat:send] committed", {
+    messageId: result.message.id,
+    threadId: result.message.threadId,
+    senderId: input.senderId,
+    receiverId: input.receiverId,
+    locked: result.locked,
+  })
 
   // Deliberately computed after the transaction commits — these are
   // read-only realtime-broadcast summaries, not something that needs to be

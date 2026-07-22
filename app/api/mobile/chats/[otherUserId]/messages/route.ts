@@ -108,8 +108,17 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       "Message content is required",
       "Messaging is unavailable",
       "You cannot message",
+      "Wait for a reply",
+      "Unlock the conversation",
+      "insufficient Balance",
     ]
     const isUserError = USER_ERRORS.some((e) => msg.includes(e))
+    console.warn("[chat:messages] send rejected", {
+      senderId: session.userId,
+      receiverId: (await context.params).otherUserId,
+      status: isUserError ? 400 : 500,
+      message: msg,
+    })
     return NextResponse.json({ success: false, message: msg }, { status: isUserError ? 400 : 500 })
   }
 }
