@@ -404,23 +404,25 @@ export async function getMessages(userId: string, otherUserId: string) {
     // opened, or expired). Once a window is open, replies flow normally with
     // no length requirement — whether actively auto-deducting or paused for
     // a ChatCredit top-up.
+    const unlockWindowValid = isUnlockWindowValid(threadState.unlockedAt)
     const earningSuspended = Boolean(viewer?.earningSuspendedUntil && viewer.earningSuspendedUntil > new Date())
     const willChargeReply = Boolean(
       !threadState.broadcastOnly &&
       !earningSuspended &&
       threadState.initiatorId != null &&
       threadState.initiatorId !== userId &&
-      !isUnlockWindowValid(threadState.unlockedAt),
+      !unlockWindowValid,
     )
 
     // Only one Key per conversation per 24h window — within a valid window,
     // unlocking always spends a ChatCredit, regardless of current balance.
-    const unlockKind: "KEY" | "CHAT_CREDIT" = isUnlockWindowValid(threadState.unlockedAt) ? "CHAT_CREDIT" : "KEY"
+    const unlockKind: "KEY" | "CHAT_CREDIT" = unlockWindowValid ? "CHAT_CREDIT" : "KEY"
 
     return {
       messages,
       unlockKind,
       willChargeReply,
+      turnTakingRequired: !unlockWindowValid,
       readAt: new Date().toISOString(),
     }
   })
@@ -449,7 +451,11 @@ export async function getMessages(userId: string, otherUserId: string) {
       serializeChatMessageForViewer(message, userId, result.unlockKind),
     ),
   )
-  return { messages: serializedMessages, willChargeReply: result.willChargeReply }
+  return {
+    messages: serializedMessages,
+    willChargeReply: result.willChargeReply,
+    turnTakingRequired: result.turnTakingRequired,
+  }
 }
 
 export async function sendMessage(input: {
@@ -496,10 +502,12 @@ export async function sendMessage(input: {
       select: { initiatorId: true, unlockedAt: true, broadcastOnly: true },
     })
     if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
+    const unlockWindowValid = isUnlockWindowValid(thread?.unlockedAt ?? null)
 
-    // Turn-taking: a conversation alternates sender/receiver — nobody can
-    // send twice in a row without the other party replying in between.
-    const lastMessage = await tx.chatMessage.findFirst({
+    // Before the conversation is unlocked (or after the fixed 24-hour grant
+    // expires), messages alternate. A valid unlock window lets the chat flow
+    // naturally; the initiator still pays a ChatCredit for each own send.
+    const lastMessage = unlockWindowValid ? null : await tx.chatMessage.findFirst({
       where: {
         threadId,
         type: { not: ChatMessageType.TIP },
@@ -510,12 +518,13 @@ export async function sendMessage(input: {
     console.info("[chat:send] turn-check", {
       threadId,
       senderId: input.senderId,
+      turnTakingEnforced: !unlockWindowValid,
       lastConversationalSenderId: lastMessage?.senderId ?? null,
       lastConversationalType: lastMessage?.type ?? null,
       lastConversationalSentAt: lastMessage?.sentAt.toISOString() ?? null,
       tipsIgnored: true,
     })
-    if (lastMessage && lastMessage.senderId === input.senderId) {
+    if (!unlockWindowValid && lastMessage && lastMessage.senderId === input.senderId) {
       console.warn("[chat:send] blocked by turn-taking", {
         threadId,
         senderId: input.senderId,
@@ -532,7 +541,6 @@ export async function sendMessage(input: {
     // been unlocked or its 24-hour window has expired.
     let needsKeyUnlock = false
     const isInitiator = thread?.initiatorId === input.senderId
-    const unlockWindowValid = isUnlockWindowValid(thread?.unlockedAt ?? null)
     if (isInitiator && !unlockWindowValid) {
       const lockedReply = await tx.chatMessage.findFirst({
         where: {

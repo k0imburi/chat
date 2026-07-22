@@ -28,8 +28,13 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
 
   try {
     const params = paramsSchema.parse(await context.params)
-    const { messages, willChargeReply } = await getMessages(session.userId, params.otherUserId)
-    return NextResponse.json({ success: true, data: messages, willChargeReply })
+    const { messages, willChargeReply, turnTakingRequired } = await getMessages(session.userId, params.otherUserId)
+    return NextResponse.json({
+      success: true,
+      data: messages,
+      willChargeReply,
+      turnTakingRequired,
+    })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 })
