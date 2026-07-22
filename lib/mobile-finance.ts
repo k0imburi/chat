@@ -30,6 +30,16 @@ export async function financeSummary(userId: string) {
   // Still-on-the-books total (not yet paid out) broken down by what earned it.
   const currentStatuses: EarningLotStatus[] = ["PENDING", "HELD", "AVAILABLE", "RESERVED"]
   const bySourceKes: Record<string, number> = {}
+  const tipCounts: Record<"PEBBLE" | "GEM" | "DIAMOND", number> = {
+    PEBBLE: 0,
+    GEM: 0,
+    DIAMOND: 0,
+  }
+  const tipMaturity = {
+    PEBBLE: { maturing: 0, available: 0, held: 0, processing: 0 },
+    GEM: { maturing: 0, available: 0, held: 0, processing: 0 },
+    DIAMOND: { maturing: 0, available: 0, held: 0, processing: 0 },
+  }
   for (const row of lots) {
     if (!currentStatuses.includes(row.status)) continue
     bySourceKes[row.source] = (bySourceKes[row.source] ?? 0) + toKes(Number(row._sum.amount || 0), row.currency)
@@ -41,7 +51,7 @@ export async function financeSummary(userId: string) {
   if (bySourceKes.TIP) {
     const tipLots = await prisma.earningLot.findMany({
       where: { userId, source: "TIP", status: { in: currentStatuses } },
-      select: { sourceId: true, amount: true, currency: true },
+      select: { sourceId: true, amount: true, currency: true, status: true },
     })
     const tips = await prisma.tip.findMany({
       where: { id: { in: tipLots.map((l) => l.sourceId) } },
@@ -58,6 +68,23 @@ export async function financeSummary(userId: string) {
       }
       const key = `TIP_${tier}`
       bySourceKes[key] = (bySourceKes[key] ?? 0) + kes
+      if (tier in tipCounts) {
+        const typedTier = tier as keyof typeof tipCounts
+        tipCounts[typedTier] += 1
+        switch (lot.status) {
+          case "AVAILABLE":
+            tipMaturity[typedTier].available += 1
+            break
+          case "HELD":
+            tipMaturity[typedTier].held += 1
+            break
+          case "RESERVED":
+            tipMaturity[typedTier].processing += 1
+            break
+          default:
+            tipMaturity[typedTier].maturing += 1
+        }
+      }
     }
     delete bySourceKes.TIP
     if (unmatched) bySourceKes.TIP = unmatched
@@ -68,7 +95,10 @@ export async function financeSummary(userId: string) {
     availableBalanceKes: sum(["AVAILABLE"]),
     currentBalanceKes: sum(currentStatuses),
     totalPaidOutKes: Number(payouts._sum.amount || 0),
+    totalEarnedKes: sum(currentStatuses) + Number(payouts._sum.amount || 0),
     bySourceKes,
+    tipCounts,
+    tipMaturity,
     usdToKesRate: rate,
     kycStatus: kyc?.status || "NOT_SUBMITTED",
     payoutProfile: profile ? { mpesaPhone: profile.mpesaPhone, phoneVerified: Boolean(profile.phoneVerifiedAt), automaticEnabled: profile.automaticEnabled, pausedReason: profile.pausedReason } : null,

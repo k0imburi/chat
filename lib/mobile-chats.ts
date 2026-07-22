@@ -480,9 +480,9 @@ export async function sendMessage(input: {
     const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
     const messageType = imageUrl || imageObjectKey ? ChatMessageType.IMAGE : ChatMessageType.TEXT
 
-    // Credits gating: a reply from the non-initiator starts locked — the
-    // thread initiator unlocks it with a Key (first) or ChatCredit (after).
-    // The initiator's own messages are always free/unlocked.
+    // A creator's first reply stays locked until the initiator opens the
+    // conversation. Once unlocked, the chat behaves like SMS: the initiator
+    // pays one ChatCredit when sending; creator replies are free.
     const thread = await tx.chatThread.findUnique({
       where: { id: threadId },
       select: { initiatorId: true, unlockedAt: true, broadcastOnly: true },
@@ -504,29 +504,35 @@ export async function sendMessage(input: {
     const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
     let locked = false
     let autoDeductCredit = false
-    // Only true when this reply needs a fresh Key (the window was never
-    // opened, or has expired) — never for a reply that's merely paused
-    // mid-window because ChatCredits ran out. Only one Key may be spent per
-    // conversation per 24h window; a mid-window credit shortfall is resolved
-    // by buying more ChatCredits, not by spending a second Key.
+    // Only true for a creator's first reply after a conversation has never
+    // been unlocked or its 24-hour window has expired.
     let needsKeyUnlock = false
-    if (!earningSuspended && isNonInitiator) {
-      if (isUnlockWindowValid(thread.unlockedAt)) {
-        // Within the fixed 24h grant — unlock if initiator has chatCredits
-        const initiatorAcct = thread.initiatorId
-          ? await tx.creditAccount.findUnique({ where: { userId: thread.initiatorId } })
-          : null
-        if (initiatorAcct && initiatorAcct.chatCredits > 0) {
-          locked = false
-          autoDeductCredit = true
-        } else {
-          locked = true // credits exhausted mid-window → needs a ChatCredit top-up, not a new Key
-        }
-      } else {
-        // Never unlocked yet, or grant expired → needs a fresh Key
-        locked = true
-        needsKeyUnlock = true
+    const isInitiator = thread?.initiatorId === input.senderId
+    const unlockWindowValid = isUnlockWindowValid(thread?.unlockedAt ?? null)
+    if (isInitiator && !unlockWindowValid) {
+      const lockedReply = await tx.chatMessage.findFirst({
+        where: {
+          threadId,
+          locked: true,
+          senderId: { not: input.senderId },
+        },
+        select: { id: true },
+      })
+      if (lockedReply) {
+        throw new Error("Unlock the conversation before sending a message")
       }
+    }
+    if (!earningSuspended && isNonInitiator && !unlockWindowValid) {
+      // Never unlocked yet, or grant expired: this creator reply starts the
+      // locked conversation the initiator must open with a Key.
+      locked = true
+      needsKeyUnlock = true
+    }
+    if (isInitiator && unlockWindowValid) {
+      // The initiator pays when they send, never when the creator replies.
+      // consumeCreditInTransaction makes this atomic and rolls back the
+      // message if the initiator has no ChatCredits left.
+      autoDeductCredit = true
     }
     if (locked && imageUrl && !imageObjectKey) {
       throw new Error("Paid image replies must use private upload storage")
@@ -534,10 +540,9 @@ export async function sendMessage(input: {
     // For encrypted text, the client reports the true plaintext length —
     // textMsg.length would measure ciphertext, which is always inflated.
     const effectiveLength = textMsg.startsWith("enc:") ? (input.textLength ?? 0) : textMsg.length
-    // Only the reply that actually needs a fresh Key enforces the 100-char
-    // minimum — no charging a whole Key for a one-word message. Once a
-    // window is open, conversation flows normally with no length requirement,
-    // whether actively auto-deducting or paused for a ChatCredit top-up.
+    // Only the creator reply that starts a locked conversation enforces the
+    // 100-character minimum. Once the window is open, normal messages have
+    // no length requirement.
     if (needsKeyUnlock && !imageUrl && !imageObjectKey && effectiveLength < 100) {
       throw new Error("Paid replies must be at least 100 characters")
     }
@@ -560,11 +565,11 @@ export async function sendMessage(input: {
       },
     })
 
-    // Auto-deduct one chatCredit from the initiator for messages within the 24h window
-    if (autoDeductCredit && thread?.initiatorId) {
+    // Deduct one ChatCredit only when the initiator sends in an open window.
+    if (autoDeductCredit) {
       await consumeCreditInTransaction(tx, {
-        userId: thread.initiatorId,
-        creatorId: input.senderId,
+        userId: input.senderId,
+        creatorId: input.receiverId,
         kind: "CHAT_CREDIT" as CreditKind,
         idempotencyKey: `autochat:${message.id}`,
         metadata: { threadId, messageId: message.id, autoDeducted: true },
@@ -719,41 +724,6 @@ export async function unlockReply(input: { userId: string; messageId: string }) 
       idempotencyKey: `unlock:${message.id}`,
       metadata: { threadId: message.thread.id, messageId: message.id },
     })
-
-    // On first KEY unlock: bulk-unlock all other locked creator messages (spending chatCredits)
-    if (kind === "KEY") {
-      const otherLocked = await tx.chatMessage.findMany({
-        where: {
-          threadId: message.thread.id,
-          locked: true,
-          id: { not: message.id },
-          senderId: message.senderId,
-        },
-        orderBy: { sentAt: "asc" },
-        take: 20,
-        select: { id: true },
-      })
-      for (const other of otherLocked) {
-        const flipped = await tx.chatMessage.updateMany({
-          where: { id: other.id, locked: true },
-          data: { locked: false },
-        })
-        if (flipped.count === 0) continue // already unlocked by concurrent request
-        try {
-          await consumeCreditInTransaction(tx, {
-            userId: input.userId,
-            creatorId: message.senderId,
-            kind: "CHAT_CREDIT" as CreditKind,
-            idempotencyKey: `unlock:${other.id}`,
-            metadata: { threadId: message.thread.id, messageId: other.id, bulkUnlock: true },
-          })
-        } catch {
-          // Credits exhausted — re-lock this message and stop
-          await tx.chatMessage.update({ where: { id: other.id }, data: { locked: true } })
-          break
-        }
-      }
-    }
 
     const updated = await tx.chatMessage.findUniqueOrThrow({ where: { id: message.id } })
     return { message: updated, creatorId: message.senderId }
