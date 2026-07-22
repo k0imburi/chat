@@ -153,13 +153,6 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       data: { [field]: { decrement: 1 } },
     })
 
-    // Credit the receiver's token balance
-    await tx.creditAccount.upsert({
-      where: { userId: input.receiverId },
-      create: { userId: input.receiverId, [field]: 1 },
-      update: { [field]: { increment: 1 } },
-    })
-
     const priorCount = await tx.tip.count({ where: { senderId: input.senderId } })
     const flaggedForReview = priorCount >= TIP_REVIEW_THRESHOLD
 
@@ -172,6 +165,35 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
         creatorAmountUsd: new Prisma.Decimal(creatorAmountUsd),
         exchangeRate: new Prisma.Decimal(rate),
         flaggedForReview,
+        reviewStatus: flaggedForReview ? "HELD" : "CLEAR",
+      },
+    })
+
+    await tx.creditLedger.create({
+      data: {
+        userId: input.receiverId,
+        entryType: "CREATOR_EARN",
+        quantity: 0,
+        value: new Prisma.Decimal(creatorAmountUsd),
+        currency: "USD",
+        counterpartyId: input.senderId,
+        idempotencyKey: `tip:${tip.id}`,
+        metadata: { tier: input.tier, tipId: tip.id },
+      },
+    })
+
+    await tx.earningLot.create({
+      data: {
+        userId: input.receiverId,
+        source: "TIP",
+        sourceId: tip.id,
+        amount: new Prisma.Decimal(creatorAmountUsd),
+        currency: "USD",
+        status: flaggedForReview ? "HELD" : "PENDING",
+        heldReason: flaggedForReview
+          ? "Tip held for review"
+          : null,
+        availableAt: new Date(Date.now() + 30 * 86_400_000),
       },
     })
 
