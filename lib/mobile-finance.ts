@@ -17,7 +17,7 @@ export async function financeSummary(userId: string) {
     // earned — these lots only ever belong to the earning creator (never the
     // paying user's own topped-up CreditAccount), so there's no risk of
     // earned and topped-up balances mixing.
-    prisma.earningLot.groupBy({ by: ["status", "currency", "source"], where: { userId }, _sum: { amount: true } }),
+    prisma.earningLot.groupBy({ by: ["status", "currency", "source"], where: { userId }, _sum: { amount: true }, _count: { _all: true } }),
     prisma.creatorPayout.aggregate({ where: { userId, status: "SUCCEEDED" }, _sum: { amount: true } }),
     prisma.appSettings.findUnique({ where: { id: 1 } }),
     prisma.creatorKyc.findUnique({ where: { userId } }),
@@ -30,27 +30,38 @@ export async function financeSummary(userId: string) {
   // Still-on-the-books total (not yet paid out) broken down by what earned it.
   const currentStatuses: EarningLotStatus[] = ["PENDING", "HELD", "AVAILABLE", "RESERVED"]
   const bySourceKes: Record<string, number> = {}
-  const tipCounts: Record<"PEBBLE" | "GEM" | "DIAMOND", number> = {
-    PEBBLE: 0,
-    GEM: 0,
-    DIAMOND: 0,
-  }
-  const tipMaturity = {
-    PEBBLE: { maturing: 0, available: 0, held: 0, processing: 0 },
-    GEM: { maturing: 0, available: 0, held: 0, processing: 0 },
-    DIAMOND: { maturing: 0, available: 0, held: 0, processing: 0 },
+  const itemSources = ["TIP_PEBBLE", "TIP_GEM", "TIP_DIAMOND", "KEY", "CHAT_CREDIT", "VOICE_SESSION", "VIDEO_SESSION"] as const
+  type EarningItemSource = (typeof itemSources)[number]
+  type ItemMaturity = { maturing: number; available: number; held: number; processing: number; paidOut: number }
+  const emptyMaturity = (): ItemMaturity => ({ maturing: 0, available: 0, held: 0, processing: 0, paidOut: 0 })
+  const earningItemCounts: Record<string, number> = Object.fromEntries(itemSources.map((source) => [source, 0]))
+  const earningItemMaturity: Record<string, ItemMaturity> = Object.fromEntries(itemSources.map((source) => [source, emptyMaturity()]))
+  const recordItem = (source: EarningItemSource, status: EarningLotStatus, count: number) => {
+    earningItemCounts[source] += count
+    const maturity = earningItemMaturity[source]
+    switch (status) {
+      case "AVAILABLE": maturity.available += count; break
+      case "HELD": maturity.held += count; break
+      case "RESERVED": maturity.processing += count; break
+      case "PAID": maturity.paidOut += count; break
+      default: maturity.maturing += count
+    }
   }
   for (const row of lots) {
-    if (!currentStatuses.includes(row.status)) continue
-    bySourceKes[row.source] = (bySourceKes[row.source] ?? 0) + toKes(Number(row._sum.amount || 0), row.currency)
+    if (row.source !== "TIP" && itemSources.includes(row.source as EarningItemSource)) {
+      recordItem(row.source as EarningItemSource, row.status, row._count._all)
+    }
+    if (currentStatuses.includes(row.status)) {
+      bySourceKes[row.source] = (bySourceKes[row.source] ?? 0) + toKes(Number(row._sum.amount || 0), row.currency)
+    }
   }
 
   // Split the TIP bucket by tier (Pebble/Gem/Diamond) — EarningLot only
   // stores a generic "TIP" source, so join each lot's sourceId back to the
   // Tip row it came from to find out which tier actually earned it.
-  if (bySourceKes.TIP) {
+  if (lots.some((lot) => lot.source === "TIP")) {
     const tipLots = await prisma.earningLot.findMany({
-      where: { userId, source: "TIP", status: { in: currentStatuses } },
+      where: { userId, source: "TIP" },
       select: { sourceId: true, amount: true, currency: true, status: true },
     })
     const tips = await prisma.tip.findMany({
@@ -63,27 +74,15 @@ export async function financeSummary(userId: string) {
       const tier = tierByTipId.get(lot.sourceId)
       const kes = toKes(Number(lot.amount), lot.currency)
       if (!tier) {
-        unmatched += kes
+        if (currentStatuses.includes(lot.status)) unmatched += kes
         continue
       }
       const key = `TIP_${tier}`
-      bySourceKes[key] = (bySourceKes[key] ?? 0) + kes
-      if (tier in tipCounts) {
-        const typedTier = tier as keyof typeof tipCounts
-        tipCounts[typedTier] += 1
-        switch (lot.status) {
-          case "AVAILABLE":
-            tipMaturity[typedTier].available += 1
-            break
-          case "HELD":
-            tipMaturity[typedTier].held += 1
-            break
-          case "RESERVED":
-            tipMaturity[typedTier].processing += 1
-            break
-          default:
-            tipMaturity[typedTier].maturing += 1
-        }
+      if (currentStatuses.includes(lot.status)) {
+        bySourceKes[key] = (bySourceKes[key] ?? 0) + kes
+      }
+      if (itemSources.includes(key as EarningItemSource)) {
+        recordItem(key as EarningItemSource, lot.status, 1)
       }
     }
     delete bySourceKes.TIP
@@ -97,8 +96,8 @@ export async function financeSummary(userId: string) {
     totalPaidOutKes: Number(payouts._sum.amount || 0),
     totalEarnedKes: sum(currentStatuses) + Number(payouts._sum.amount || 0),
     bySourceKes,
-    tipCounts,
-    tipMaturity,
+    earningItemCounts,
+    earningItemMaturity,
     usdToKesRate: rate,
     kycStatus: kyc?.status || "NOT_SUBMITTED",
     payoutProfile: profile ? { mpesaPhone: profile.mpesaPhone, phoneVerified: Boolean(profile.phoneVerifiedAt), automaticEnabled: profile.automaticEnabled, pausedReason: profile.pausedReason } : null,
