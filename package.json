@@ -16,7 +16,8 @@
     "i18n:check": "node packages/product-contracts/scripts/generate-locales.mjs && git diff --exit-code -- lib/i18n/generated.ts && git -C ../chatandtip diff --exit-code -- lib/languages/generated/shared_product_locales.dart",
     "test:readiness": "node scripts/check-test-readiness.mjs",
     "test:local": "npm run lint && npx tsc --noEmit --pretty false && npm run test:payments",
-    "test:payments": "tsx --test tests/payment-security.test.ts"
+    "test:payments": "tsx --test tests/payment-security.test.ts",
+    "ops:clear-test-chats": "node scripts/clear-test-chats.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
