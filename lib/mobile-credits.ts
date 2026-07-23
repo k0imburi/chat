@@ -79,11 +79,17 @@ export async function getOrCreateCreditAccount(userId: string) {
 
 export async function getCreditBalances(userId: string): Promise<CreditBalances> {
   const acct = await prisma.creditAccount.findUnique({ where: { userId } })
+  // Session credits reserved for a scheduled call are held in escrow by the
+  // platform until the call completes (then they convert to the creator's
+  // earnings) or the booking is cancelled/refunded. Report only the *available*
+  // balance so scheduling a call visibly deducts the held credit.
+  const voiceAvailable = (acct?.voiceSessions ?? 0) - (acct?.reservedVoiceSessions ?? 0)
+  const videoAvailable = (acct?.videoSessions ?? 0) - (acct?.reservedVideoSessions ?? 0)
   return {
     keys: acct?.keys ?? 0,
     chatCredits: acct?.chatCredits ?? 0,
-    voiceSessions: acct?.voiceSessions ?? 0,
-    videoSessions: acct?.videoSessions ?? 0,
+    voiceSessions: Math.max(0, voiceAvailable),
+    videoSessions: Math.max(0, videoAvailable),
   }
 }
 

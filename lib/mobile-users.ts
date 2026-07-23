@@ -18,6 +18,7 @@ type RegisterMobileUserInput = {
   birthday?: string
   username?: string
   bio?: string
+  language?: string
   deviceToken?: string
   deviceSystem?: string
   country?: string
@@ -142,6 +143,7 @@ export function serializeMobileUser(user: UserWithMedia) {
     fullname: user.fullName,
     username: user.username || "",
     gender: user.gender,
+    language: user.language || "en",
     birthday: user.birthday?.toISOString() || "",
     gallery,
     interests: Array.isArray(user.interests) ? user.interests : [],
@@ -296,6 +298,7 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
       fullName: fallbackFullName(input),
       username: resolvedUsername,
       gender: input.gender || "",
+      language: input.language || "en",
       birthday: normalizeDate(input.birthday),
       email: input.email,
       passwordHash,
@@ -449,6 +452,7 @@ export async function upsertMobileProviderUser(
         }),
         username: resolvedNewUsername,
         gender: input.gender || "",
+        language: input.language || "en",
         birthday: normalizeDate(input.birthday),
         email: normalizedEmail,
         phoneNumber: input.phoneNumber,
@@ -519,6 +523,7 @@ export async function updateMobileUserProfile(
         fullName: input.fullName?.trim() ? input.fullName : undefined,
         username: resolvedUsername,
         gender: input.gender,
+        language: input.language,
         birthday: input.birthday !== undefined ? normalizeDate(input.birthday) : undefined,
         email: input.email,
         phoneNumber: input.phoneNumber,

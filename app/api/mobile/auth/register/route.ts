@@ -12,6 +12,7 @@ const schema = z.object({
   password: z.string().min(6).optional(),
   phoneNumber: z.string().optional(),
   gender: z.string().optional(),
+  language: z.string().max(10).optional(),
   birthday: z.string().optional(),
   username: z.string().optional(),
   bio: z.string().optional(),

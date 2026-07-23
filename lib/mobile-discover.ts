@@ -92,6 +92,7 @@ export async function getDiscoverFeed(currentUserId: string) {
       // not the full post list. Keeps the response payload small.
       const { gallery: _g, ...userProfile } = serialized
       const followed = followedSet.has(user.id)
+      const sameLang = (user.language || "en") === (currentUser.language || "en")
       return videos.map((video) => {
         const id = String(video.id || "")
         const createdAt = new Date(String(video.createdAt || now))
@@ -99,6 +100,7 @@ export async function getDiscoverFeed(currentUserId: string) {
           user: userProfile,
           video,
           _followed: followed,
+          _sameLang: sameLang,
           _seen: id ? seenMediaIds.has(id) : false,
           _createdAt: createdAt.getTime(),
           _rand: Math.random(),
@@ -114,6 +116,9 @@ export async function getDiscoverFeed(currentUserId: string) {
   // algorithm) — no engagement/hotScore sorting here.
   entries.sort((a, b) => {
     if (a._followed !== b._followed) return a._followed ? -1 : 1
+    // Prefer creators who share the viewer's language (soft bias, not a hard
+    // filter — a thin same-language pool must never empty the feed).
+    if (a._sameLang !== b._sameLang) return a._sameLang ? -1 : 1
     if (a._seen !== b._seen) return a._seen ? 1 : -1
     if (a._followed) return b._createdAt - a._createdAt
     return a._rand - b._rand

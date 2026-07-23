@@ -13,6 +13,7 @@ const schema = z.object({
   email: z.string().email().optional(),
   phoneNumber: z.string().optional(),
   gender: z.string().optional(),
+  language: z.string().max(10).optional(),
   birthday: z.string().optional(),
   username: z.string().optional(),
   bio: z.string().optional(),

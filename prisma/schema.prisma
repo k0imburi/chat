@@ -200,6 +200,9 @@ model User {
   loginProvider         LoginProvider          @default(EMAIL)
   country               String?
   city                  String?
+  // Preferred content language (ISO code, e.g. "en"/"sw") set at signup and
+  // editable in profile. Used to bias which creators are suggested in Discover.
+  language              String                 @default("en")
   latitude              Decimal?               @db.Decimal(10, 7)
   longitude             Decimal?               @db.Decimal(10, 7)
   interests             Json?
