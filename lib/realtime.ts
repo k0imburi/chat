@@ -168,7 +168,9 @@ export type ChatRealtimeEvent =
   | {
       channel: "call"
       type: "call_ended"
-      channelId: string
+      inviteId: string
+      bookingId: string
+      status: string
     }
 
 export type ChatRealtimeHub = {

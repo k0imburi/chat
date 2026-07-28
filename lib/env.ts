@@ -63,6 +63,11 @@ const envSchema = z.object({
   FLUTTERWAVE_CURRENCY: z.string().default("KES"),
   FLUTTERWAVE_ENABLED: z.string().default("false"),
   FIREBASE_SERVICE_ACCOUNT: z.string().optional(), // JSON string of Firebase service account key
+  APNS_KEY_ID: z.string().optional(),
+  APNS_TEAM_ID: z.string().optional(),
+  APNS_PRIVATE_KEY: z.string().optional(),
+  APNS_BUNDLE_ID: z.string().optional(),
+  APNS_PRODUCTION: z.string().default("true"),
   CRON_SECRET: z.string().optional(),
   NEXT_PUBLIC_APP_NAME: z.string().default("ChatAndTip Admin"),
   AWS_ACCESS_KEY_ID: z.string().optional(),

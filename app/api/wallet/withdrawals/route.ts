@@ -3,40 +3,31 @@ import { z } from "zod"
 import { createWithdrawalRequest, getUserWithdrawals } from "@/lib/mobile-wallet"
 import { logError } from "@/lib/log-error"
 import { prisma } from "@/lib/prisma"
-
-const MIN_WITHDRAWAL_USD = 40
-
-const getSchema = z.object({
-  userId: z.string().min(1),
-})
+import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 
 const postSchema = z.object({
-  userId: z.string().min(1),
-  amount: z.coerce.number().min(MIN_WITHDRAWAL_USD, `Minimum withdrawal is $${MIN_WITHDRAWAL_USD}`),
+  amount: z.coerce.number().positive(),
   method: z.string().min(1),
   destination: z.string().min(1),
-  status: z.string().optional(),
+  expectedRate: z.coerce.number().positive(),
+  expectedFeePercent: z.coerce.number().min(0).max(100),
+  quoteToken: z.string().min(1),
 })
 
 export async function GET(request: Request) {
-  const url = new URL(request.url)
-  const parsed = getSchema.safeParse({
-    userId: url.searchParams.get("userId") || "",
-  })
-
-  if (!parsed.success) {
-    return NextResponse.json({ success: false, message: "userId is required" }, { status: 400 })
-  }
-
-  const withdrawals = await getUserWithdrawals(parsed.data.userId)
+  const session = await getMobileSessionFromRequest(request)
+  if (!session?.userId) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
+  const withdrawals = await getUserWithdrawals(session.userId)
   return NextResponse.json({ success: true, data: withdrawals })
 }
 
 export async function POST(request: Request) {
   try {
+    const session = await getMobileSessionFromRequest(request)
+    if (!session?.userId) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
     const parsed = postSchema.parse(await request.json())
 
-    const kyc = await prisma.creatorKyc.findUnique({ where: { userId: parsed.userId }, select: { status: true } })
+    const kyc = await prisma.creatorKyc.findUnique({ where: { userId: session.userId }, select: { status: true } })
     if (kyc?.status !== "APPROVED") {
       return NextResponse.json(
         { success: false, message: "Verify your identity before withdrawing." },
@@ -44,7 +35,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const withdrawal = await createWithdrawalRequest(parsed)
+    const withdrawal = await createWithdrawalRequest({ userId: session.userId, ...parsed })
     return NextResponse.json({
       success: true,
       message: "Withdrawal request sent successfully",

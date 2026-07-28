@@ -38,6 +38,27 @@ type RegisterMobileUserInput = {
   }
 }
 
+// "languages spoken" is stored as a free-text field (e.g. "English, Swahili"),
+// but legacy/signup values may be ISO codes — normalise both to display names.
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English", es: "Spanish", fr: "French", pt: "Portuguese",
+  sw: "Swahili", ar: "Arabic", hi: "Hindi", zh: "Chinese",
+}
+
+/** Split a free-text languages value into display names (codes → names). */
+export function languageDisplayList(raw?: string | null): string[] {
+  return (raw || "")
+    .split(/[,/]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => LANGUAGE_NAMES[t.toLowerCase()] ?? t)
+}
+
+/** Normalised lowercase token set for language-overlap matching in Discover. */
+export function languageTokens(raw?: string | null): Set<string> {
+  return new Set(languageDisplayList(raw).map((s) => s.toLowerCase()))
+}
+
 function profileMediaKindAndUrl(profileVideo: { videoUrl?: string; imageUrl?: string }) {
   if (profileVideo.imageUrl) return { kind: MediaKind.PROFILE_IMAGE, url: profileVideo.imageUrl }
   return { kind: MediaKind.PROFILE_VIDEO, url: profileVideo.videoUrl ?? "" }
@@ -143,7 +164,9 @@ export function serializeMobileUser(user: UserWithMedia) {
     fullname: user.fullName,
     username: user.username || "",
     gender: user.gender,
-    language: user.language || "en",
+    // Display names, plus the list the profile shows under "Languages spoken".
+    language: languageDisplayList(user.language).join(", "),
+    spokenLanguages: languageDisplayList(user.language),
     birthday: user.birthday?.toISOString() || "",
     gallery,
     interests: Array.isArray(user.interests) ? user.interests : [],
@@ -235,6 +258,27 @@ export async function findMobileUsersByIds(userIds: string[]) {
       role: UserRole.USER,
     },
     include: { media: true },
+  })) as UserWithMedia[]
+}
+
+// Search active users by username or full name (case-insensitive prefix/contains).
+// Excludes the searcher and non-USER accounts; caps results for a snappy list.
+export async function searchMobileUsers(query: string, excludeUserId?: string, take = 30) {
+  const q = query.trim()
+  if (q.length < 2) return [] as UserWithMedia[]
+  return (await prisma.user.findMany({
+    where: {
+      role: UserRole.USER,
+      status: { notIn: [UserStatus.BLOCKED, UserStatus.HIDDEN] },
+      ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+      OR: [
+        { username: { contains: q } },
+        { fullName: { contains: q } },
+      ],
+    },
+    include: { media: true },
+    take,
+    orderBy: { fullName: "asc" },
   })) as UserWithMedia[]
 }
 

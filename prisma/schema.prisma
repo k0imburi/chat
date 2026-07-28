@@ -126,6 +126,26 @@ enum CreatorPayoutStatus {
   FAILED
 }
 
+enum CreatorFineStatus {
+  OUTSTANDING
+  SETTLED
+  REVERSED
+}
+
+enum PayoutAllocationStatus {
+  RESERVED
+  PAID
+  RELEASED
+}
+
+enum CallInviteStatus {
+  RINGING
+  ANSWERED
+  DECLINED
+  CANCELLED
+  MISSED
+}
+
 enum PaymentProvider {
   MPESA
   STRIPE
@@ -212,6 +232,7 @@ model User {
   updatedAt             DateTime               @updatedAt
   lastActiveAt          DateTime?
   earningSuspendedUntil DateTime?
+  callsRestrictedUntil  DateTime?
   activeStrikeCount     Int                    @default(0)
   media                 UserMedia[]
   reportsMade           Report[]               @relation("ReportReporter")
@@ -252,6 +273,7 @@ model User {
   customerBookings      CallBooking[]          @relation("BookingCustomer")
   creatorBookings       CallBooking[]          @relation("BookingCreator")
   creatorStrikes        CreatorStrike[]
+  creatorFines          CreatorFine[]
   earningLots           EarningLot[]
   kycProfile            CreatorKyc?
   payoutProfile         PayoutProfile?
@@ -260,6 +282,9 @@ model User {
   livenessVerification  LivenessVerification?
   savedVideos           SavedVideo[]
   e2eKey                UserKey?
+  deviceInstallations   DeviceInstallation[]
+  outgoingCallInvites   CallInvite[]           @relation("CallInviteCaller")
+  incomingCallInvites   CallInvite[]           @relation("CallInviteCallee")
 
   @@map("users")
 }
@@ -758,6 +783,9 @@ model ChatThread {
   initiatorId        String?
   icebreakerUnlocked Boolean           @default(false)
   unlockedAt         DateTime?
+  cycleStartedAt     DateTime?
+  cycleIcebreakerId  String?
+  cycleLockedReplyId String?
   participants       ChatParticipant[]
   messages           ChatMessage[]
 }
@@ -834,6 +862,8 @@ model CallBooking {
   timezone             String
   scheduledStart       DateTime
   scheduledEnd         DateTime
+  originalStart        DateTime?
+  originalEnd          DateTime?
   proposalExpiresAt    DateTime
   proposedStart        DateTime?
   proposedEnd          DateTime?
@@ -854,6 +884,8 @@ model CallBooking {
   updatedAt            DateTime      @updatedAt
   customer             User          @relation("BookingCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   creator              User          @relation("BookingCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  creatorFine          CreatorFine?
+  callInvites          CallInvite[]
 
   @@index([creatorId, scheduledStart])
   @@index([creatorId, scheduledStart, status])
@@ -868,9 +900,30 @@ model CreatorStrike {
   reason    String
   createdAt DateTime  @default(now())
   expiresAt DateTime?
+  consumedAt DateTime?
   creator   User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
 
   @@index([creatorId, createdAt])
+}
+
+model CreatorFine {
+  id          String            @id @default(cuid())
+  creatorId   String
+  bookingId   String            @unique
+  baseAmount  Decimal           @db.Decimal(12, 2)
+  ratePercent Decimal           @db.Decimal(5, 2)
+  amount      Decimal           @db.Decimal(12, 2)
+  currency    String            @default("KES")
+  reason      String
+  status      CreatorFineStatus @default(OUTSTANDING)
+  settledAt   DateTime?
+  reversedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  creator     User              @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  booking     CallBooking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, status, createdAt])
 }
 
 model EarningLot {
@@ -889,6 +942,7 @@ model EarningLot {
   updatedAt   DateTime         @updatedAt
   user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   payout      CreatorPayout?   @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  allocations PayoutAllocation[]
 
   @@unique([source, sourceId, userId])
   @@index([userId, status, availableAt])
@@ -955,6 +1009,10 @@ model CreatorPayout {
   id                String              @id @default(cuid())
   userId            String
   amount            Decimal             @db.Decimal(12, 2)
+  grossAmountUsd    Decimal?            @db.Decimal(12, 2)
+  feeAmountUsd      Decimal?            @db.Decimal(12, 2)
+  netAmountUsd      Decimal?            @db.Decimal(12, 2)
+  exchangeRate      Decimal?            @db.Decimal(12, 4)
   currency          String              @default("KES")
   status            CreatorPayoutStatus @default(PENDING)
   destination       String
@@ -968,9 +1026,27 @@ model CreatorPayout {
   user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   earningLots       EarningLot[]
   withdrawalRequest WithdrawalRequest?
+  allocations       PayoutAllocation[]
 
   @@index([status, createdAt])
   @@index([userId, createdAt])
+}
+
+model PayoutAllocation {
+  id           String                 @id @default(cuid())
+  payoutId     String
+  earningLotId String
+  amount       Decimal                @db.Decimal(14, 4)
+  amountKes    Decimal                @db.Decimal(12, 2)
+  currency     String                 @default("KES")
+  status       PayoutAllocationStatus @default(RESERVED)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  payout       CreatorPayout          @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  earningLot   EarningLot             @relation(fields: [earningLotId], references: [id], onDelete: Cascade)
+
+  @@unique([payoutId, earningLotId])
+  @@index([earningLotId, status])
 }
 
 model TipRequest {
@@ -1009,6 +1085,12 @@ model WithdrawalRequest {
   id              String        @id @default(cuid())
   userId          String
   amount          Decimal       @db.Decimal(10, 2)
+  grossAmountUsd  Decimal?      @db.Decimal(12, 2)
+  feeAmountUsd    Decimal?      @db.Decimal(12, 2)
+  netAmountUsd    Decimal?      @db.Decimal(12, 2)
+  exchangeRate    Decimal?      @db.Decimal(12, 4)
+  netAmountKes    Decimal?      @db.Decimal(12, 2)
+  quoteExpiresAt  DateTime?
   method          String
   destination     String
   status          String        @default("pending")
@@ -1018,6 +1100,55 @@ model WithdrawalRequest {
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   creatorPayoutId String?       @unique
   creatorPayout   CreatorPayout? @relation(fields: [creatorPayoutId], references: [id], onDelete: SetNull)
+}
+
+model NotificationSound {
+  id          String   @id @default(cuid())
+  assetKey    String   @unique
+  displayName String
+  description String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model DeviceInstallation {
+  id        String   @id @default(cuid())
+  userId    String
+  platform  String
+  fcmToken  String?  @unique
+  voipToken String?  @unique
+  deviceId  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId, isActive])
+}
+
+model CallInvite {
+  id         String           @id @default(uuid())
+  bookingId  String
+  callerId   String
+  calleeId   String
+  status     CallInviteStatus @default(RINGING)
+  expiresAt  DateTime
+  answeredAt DateTime?
+  endedAt    DateTime?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  booking    CallBooking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  caller     User             @relation("CallInviteCaller", fields: [callerId], references: [id], onDelete: Cascade)
+  callee     User             @relation("CallInviteCallee", fields: [calleeId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, status])
+  @@index([calleeId, status, expiresAt])
 }
 
 model Asset {
@@ -1044,6 +1175,7 @@ model AppSettings {
   currency                   String   @default("USD")
   minimumTip                 Decimal  @default(0) @db.Decimal(10, 2)
   transactionFeePercent      Decimal  @default(0) @db.Decimal(5, 2)
+  withdrawalFeePercent       Decimal  @default(0) @db.Decimal(5, 2)
   usdToKesRate               Decimal  @default(0) @db.Decimal(10, 2)
   freeMemberSwipeLimit       Int      @default(20)
   showDiscoverAdAfterSwipes  Int      @default(5)

@@ -81,3 +81,38 @@ export async function sendFcmMulticast(tokens: string[], payload: FcmPayload): P
   }
   return sent
 }
+
+export async function sendIncomingCallFcm(tokens: string[], data: Record<string, string>): Promise<number> {
+  const messaging = getMessaging()
+  if (!messaging || !tokens.length) return 0
+  const result = await messaging.sendEachForMulticast({
+    tokens: [...new Set(tokens)].slice(0, 500),
+    data,
+    android: {
+      priority: "high",
+      ttl: 45_000,
+      notification: {
+        channelId: "chatandtip_calls",
+        priority: "max",
+        visibility: "public",
+        sound: "incoming_call",
+      },
+    },
+  })
+  return result.successCount
+}
+
+export async function sendCallStateFcm(tokens: string[], data: Record<string, string>): Promise<number> {
+  const messaging = getMessaging()
+  if (!messaging || !tokens.length) return 0
+  const result = await messaging.sendEachForMulticast({
+    tokens: [...new Set(tokens)].slice(0, 500),
+    data,
+    android: { priority: "high", ttl: 45_000 },
+    apns: {
+      headers: { "apns-priority": "10" },
+      payload: { aps: { "content-available": 1 } },
+    },
+  })
+  return result.successCount
+}

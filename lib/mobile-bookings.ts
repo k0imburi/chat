@@ -48,8 +48,6 @@ export async function replaceAvailability(userId: string, input: Array<{
   weekday: number; startMinute: number; endMinute: number; timezone: string;
   voiceEnabled?: boolean; videoEnabled?: boolean; maxSessionsDay?: number
 }>) {
-  const owner = await prisma.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } })
-  if (owner?.earningSuspendedUntil && owner.earningSuspendedUntil > new Date() && input.length) throw new Error("Availability is disabled during an earning suspension")
   for (const row of input) {
     if (row.weekday < 0 || row.weekday > 6 || row.startMinute < 0 || row.endMinute > 1440 || row.endMinute <= row.startMinute) {
       throw new Error("Invalid availability window")
@@ -71,8 +69,8 @@ export async function replaceAvailability(userId: string, input: Array<{
 const SLOT_HOLDING_STATUSES = ["APPROVED", "LIVE"] as const
 
 export async function availableSlots(creatorId: string, type: BookingType, days = 14) {
-  const creator = await prisma.user.findUnique({ where: { id: creatorId }, select: { earningSuspendedUntil: true } })
-  if (creator?.earningSuspendedUntil && creator.earningSuspendedUntil > new Date()) return []
+  const creator = await prisma.user.findUnique({ where: { id: creatorId }, select: { callsRestrictedUntil: true } })
+  if (creator?.callsRestrictedUntil && creator.callsRestrictedUntil > new Date()) return []
   const now = new Date()
   const [windows, taken] = await Promise.all([
     prisma.creatorAvailability.findMany({ where: {
@@ -136,6 +134,13 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
   const field = input.type === "VOICE" ? "voiceSessions" : "videoSessions"
   const reserved = input.type === "VOICE" ? "reservedVoiceSessions" : "reservedVideoSessions"
   const booking = await prisma.$transaction(async (tx) => {
+    const creator = await tx.user.findUnique({
+      where: { id: input.creatorId },
+      select: { callsRestrictedUntil: true },
+    })
+    if (creator?.callsRestrictedUntil && creator.callsRestrictedUntil > new Date()) {
+      throw new Error("This creator is temporarily unavailable for calls")
+    }
     // No double bookings: the slot mustn't already be confirmed, and this
     // customer can't already have an active proposal/booking for it.
     if (await hasConfirmedConflict(tx, input.creatorId, start)) {
@@ -227,6 +232,16 @@ export async function bookingAction(userId: string, bookingId: string, action: s
   const booking = await prisma.callBooking.findUnique({ where: { id: bookingId }, include: { customer: true, creator: true } })
   if (!booking || (booking.customerId !== userId && booking.creatorId !== userId)) throw new Error("Booking not found")
   const isCreator = booking.creatorId === userId
+  const restrictionActive = Boolean(
+    booking.creator.callsRestrictedUntil
+      && booking.creator.callsRestrictedUntil > new Date(),
+  )
+  if (
+    restrictionActive
+    && ["approve", "propose_alternative", "accept_alternative", "choose_alternative"].includes(action)
+  ) {
+    throw new Error("This creator is temporarily unavailable for calls")
+  }
   if (action === "approve") {
     if (!isCreator || booking.status !== "PROPOSED" || booking.proposalExpiresAt <= new Date()) throw new Error("This proposal cannot be approved")
     // Confirming takes the slot: block approving a second proposal for a time
@@ -260,7 +275,15 @@ export async function bookingAction(userId: string, bookingId: string, action: s
     const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(proposedStart, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
     if (expires <= new Date()) throw new Error("That time is too soon to propose")
     const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: {
-      status: "COUNTER_PROPOSED", proposedStart, proposedEnd, counterProposedAt: new Date(), proposalExpiresAt: expires,
+      status: "COUNTER_PROPOSED",
+      originalStart: booking.originalStart ?? booking.scheduledStart,
+      originalEnd: booking.originalEnd ?? booking.scheduledEnd,
+      scheduledStart: proposedStart,
+      scheduledEnd: proposedEnd,
+      proposedStart,
+      proposedEnd,
+      counterProposedAt: new Date(),
+      proposalExpiresAt: expires,
     } })
     await notifyBooking(booking.customerId, booking.creatorId, "New time suggested", `${booking.creator.fullName} suggested a different time for your ${booking.type.toLowerCase()} call.`, booking.id, booking.customer.email)
     return updated
@@ -270,8 +293,8 @@ export async function bookingAction(userId: string, bookingId: string, action: s
   if (action === "accept_alternative") {
     if (isCreator || booking.status !== "COUNTER_PROPOSED" || !booking.proposedStart || !booking.proposedEnd) throw new Error("There is no time to accept")
     if (booking.proposalExpiresAt <= new Date()) throw new Error("This suggestion has expired")
-    const proposedStart = booking.proposedStart
-    const proposedEnd = booking.proposedEnd
+    const proposedStart = booking.scheduledStart
+    const proposedEnd = booking.scheduledEnd
     try {
       const updated = await prisma.$transaction(async (tx) => {
         // The suggested time must not already be confirmed by another booking.
@@ -290,11 +313,23 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       throw new Error("That time is no longer available")
     }
   }
-  // Customer rejects the creator's suggested time: refund the reservation.
-  if (action === "reject_alternative") {
-    if (isCreator || booking.status !== "COUNTER_PROPOSED") throw new Error("There is no time to reject")
-    const updated = await prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, booking); return tx.callBooking.update({ where: { id: booking.id }, data: { status: "DECLINED", declinedAt: new Date(), proposedStart: null, proposedEnd: null } }) }, { timeout: 20000, maxWait: 10000 })
-    await notifyBooking(booking.creatorId, booking.customerId, "Suggested time declined", `${booking.customer.fullName} declined your suggested time.`, booking.id, booking.creator.email)
+  // The customer can move the same reservation to another slot. It returns
+  // to the creator for approval; no second booking is created and no credit
+  // is released.
+  if (action === "choose_alternative") {
+    if (isCreator || booking.status !== "COUNTER_PROPOSED") throw new Error("There is no time to change")
+    if (!opts?.start) throw new Error("Choose another time")
+    const chosenStart = new Date(opts.start)
+    if (!Number.isFinite(chosenStart.getTime())) throw new Error("Invalid time")
+    const slots = await availableSlots(booking.creatorId, booking.type, 31)
+    if (!slots.some((s) => s.start === chosenStart.toISOString())) throw new Error("That time is not available")
+    const chosenEnd = addMinutes(chosenStart, SESSION_MINUTES)
+    const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(chosenStart, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
+    const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: {
+      status: "PROPOSED", scheduledStart: chosenStart, scheduledEnd: chosenEnd,
+      proposedStart: null, proposedEnd: null, proposalExpiresAt: expires,
+    } })
+    await notifyBooking(booking.creatorId, booking.customerId, "Another time selected", `${booking.customer.fullName} selected another time for your approval.`, booking.id, booking.creator.email)
     return updated
   }
   if (action === "cancel") {
@@ -302,8 +337,8 @@ export async function bookingAction(userId: string, bookingId: string, action: s
     // releasing the held session credit back to the customer. Once a call is
     // CONFIRMED (APPROVED), only the customer can back out of it — and doing
     // so forfeits the session credit (no refund, no creator payout) since the
-    // creator already committed the slot. The creator can no longer cancel a
-    // confirmed booking at all; once live, they can only end the call.
+    // creator already committed the slot. The creator cannot cancel a
+    // confirmed booking through booking management.
     const isPending = booking.status === "PROPOSED" || booking.status === "COUNTER_PROPOSED"
     const isConfirmed = booking.status === "APPROVED"
     if (!isPending && !(isConfirmed && !isCreator)) throw new Error("A confirmed call can't be cancelled")
@@ -321,20 +356,22 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       return updated
     })
   }
+  if (action === "report_policy_violation") {
+    if (!["APPROVED", "LIVE"].includes(booking.status) || !reason?.trim()) throw new Error("A policy violation reason is required")
+    return prisma.callBooking.update({ where: { id: booking.id }, data: {
+      status: "UNDER_REVIEW", completedAt: new Date(), endReason: reason.trim(),
+    } })
+  }
   if (action === "end") {
-    if (!["APPROVED", "LIVE"].includes(booking.status)) throw new Error("This call cannot be ended")
-    return prisma.$transaction(async (tx) => {
-      if (isCreator && new Date() < booking.scheduledEnd) return tx.callBooking.update({ where: { id: booking.id }, data: { status: "UNDER_REVIEW", completedAt: new Date(), endReason: reason || "Creator ended early" } })
-      await settleBookedSession(tx, booking)
-      return tx.callBooking.update({ where: { id: booking.id }, data: { status: "COMPLETED", completedAt: new Date(), endReason: reason } })
-    }, { timeout: 20000, maxWait: 10000 })
+    throw new Error("Calls remain available for the full 15-minute booking")
   }
   throw new Error("Unknown booking action")
 }
 
 export async function joinBooking(userId: string, bookingId: string) {
-  const booking = await prisma.callBooking.findUnique({ where: { id: bookingId } })
+  const booking = await prisma.callBooking.findUnique({ where: { id: bookingId }, include: { creator: { select: { callsRestrictedUntil: true } } } })
   if (!booking || (booking.customerId !== userId && booking.creatorId !== userId) || !["APPROVED", "LIVE"].includes(booking.status)) throw new Error("Booking is not available")
+  if (booking.creator.callsRestrictedUntil && booking.creator.callsRestrictedUntil > new Date()) throw new Error("This creator is temporarily unavailable for calls")
   const now = new Date()
   if (now < addMinutes(booking.scheduledStart, -10) || now > addMinutes(booking.scheduledEnd, 5)) throw new Error("The call room is not open")
   return prisma.callBooking.update({ where: { id: booking.id }, data: {
@@ -354,37 +391,84 @@ export async function reconcileBookings() {
     ])
     await prisma.callBooking.update({ where: { id: b.id }, data: { reminderSentAt: now } })
   }
-  const late = await prisma.callBooking.findMany({ where: {
-    status: { in: ["APPROVED", "LIVE"] }, creatorJoinedAt: null, creatorFineAppliedAt: null,
-    scheduledStart: { lte: addMinutes(now, -2) }, scheduledEnd: { gt: now },
-  } })
-  for (const b of late) await prisma.$transaction(async (tx) => {
-    const kind: CreditKind = b.type === "VOICE" ? "VOICE_SESSION" : "VIDEO_SESSION"
-    await tx.earningLot.create({ data: {
-      userId: b.creatorId, source: kind, sourceId: `late-fine:${b.id}`,
-      amount: new Prisma.Decimal(-ON_ACCOUNT_VALUE_KES[kind] * 0.25), status: "AVAILABLE",
-      heldReason: "25% creator lateness fine", availableAt: now,
-    } })
-    await tx.callBooking.update({ where: { id: b.id }, data: { creatorFineAppliedAt: now } })
-  }, { timeout: 20000, maxWait: 10000 })
   const creatorNoShows = await prisma.callBooking.findMany({ where: {
     status: { in: ["APPROVED", "LIVE"] }, creatorJoinedAt: null,
-    scheduledStart: { lte: addMinutes(now, -3) }, scheduledEnd: { gt: now },
+    scheduledStart: { lte: addMinutes(now, -3) },
   }, include: { creator: true } })
   for (const b of creatorNoShows) {
-    const strikeTotal = await prisma.$transaction(async (tx) => {
-      await releaseBookingReservation(tx, b)
-      await tx.callBooking.update({ where: { id: b.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
-      const count = await tx.creatorStrike.count({ where: { creatorId: b.creatorId, expiresAt: { gt: now } } })
-      await tx.creatorStrike.create({ data: { creatorId: b.creatorId, bookingId: b.id, reason: "Creator did not join within three minutes", expiresAt: addDays(now, 3) } })
-      if (count + 1 >= 3) await tx.user.update({ where: { id: b.creatorId }, data: { activeStrikeCount: count + 1, earningSuspendedUntil: addDays(now, 3) } })
-      return count + 1
+    const outcome = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
+      const current = await tx.callBooking.findUnique({ where: { id: b.id } })
+      if (
+        !current
+        || !["APPROVED", "LIVE"].includes(current.status)
+        || current.creatorJoinedAt
+        || current.creatorFineAppliedAt
+      ) return null
+      await releaseBookingReservation(tx, current)
+      await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
+      const kind: CreditKind = current.type === "VOICE" ? "VOICE_SESSION" : "VIDEO_SESSION"
+      const baseAmount = new Prisma.Decimal(ON_ACCOUNT_VALUE_KES[kind])
+      await tx.creatorFine.create({ data: {
+        creatorId: current.creatorId,
+        bookingId: current.id,
+        baseAmount,
+        ratePercent: new Prisma.Decimal(25),
+        amount: baseAmount.mul(new Prisma.Decimal("0.25")),
+        reason: "Confirmed creator no-show",
+      } })
+      await tx.callBooking.update({ where: { id: current.id }, data: { creatorFineAppliedAt: now } })
+      await tx.creatorStrike.create({ data: {
+        creatorId: current.creatorId,
+        bookingId: current.id,
+        reason: "Creator did not join within three minutes",
+        expiresAt: addDays(now, 30),
+      } })
+      const active = await tx.creatorStrike.findMany({ where: {
+        creatorId: current.creatorId,
+        consumedAt: null,
+        createdAt: { gte: addDays(now, -30) },
+      }, orderBy: { createdAt: "asc" } })
+      const restrictedUntil = active.length >= 5 ? addDays(now, 3) : null
+      const affected: Array<{ id: string; customerId: string; type: BookingType }> = []
+      if (restrictedUntil) {
+        const bookings = await tx.callBooking.findMany({ where: {
+          creatorId: current.creatorId,
+          id: { not: current.id },
+          status: { in: ["PROPOSED", "COUNTER_PROPOSED", "APPROVED"] },
+          scheduledStart: { gt: now, lt: restrictedUntil },
+        }, select: { id: true, customerId: true, type: true } })
+        for (const future of bookings) {
+          await releaseBookingReservation(tx, future)
+          await tx.callBooking.update({ where: { id: future.id }, data: {
+            status: "CANCELLED",
+            cancelledAt: now,
+            endReason: "Creator call restriction",
+          } })
+          affected.push(future)
+        }
+        await tx.creatorStrike.updateMany({
+          where: { id: { in: active.map((strike) => strike.id) } },
+          data: { consumedAt: now },
+        })
+      }
+      await tx.user.update({ where: { id: current.creatorId }, data: {
+        activeStrikeCount: restrictedUntil ? 0 : active.length,
+        ...(restrictedUntil ? { callsRestrictedUntil: restrictedUntil } : {}),
+      } })
+      return { strikeTotal: active.length, restrictedUntil, affected }
     }, { timeout: 20000, maxWait: 10000 })
-    // Notify the creator of the strike in-app + email each time it is recorded.
-    const strikeMessage = strikeTotal >= 3
-      ? `You missed a booked call and received a strike (${strikeTotal}/3). Your account is restricted from sessions for 72 hours.`
-      : `You missed a booked call and received a strike (${strikeTotal}/3).`
+    if (!outcome) continue
+    const strikeMessage = outcome.restrictedUntil
+      ? "You missed a booked call and received strike 5 of 5. Voice and video calls are restricted for 72 hours."
+      : `You missed a booked call and received a strike (${outcome.strikeTotal}/5).`
     await notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email)
+    for (const affected of outcome.affected) {
+      await Promise.all([
+        notifyBooking(affected.customerId, b.creatorId, "Call cancelled and refunded", "This call was cancelled because the creator is temporarily restricted from calls. Your session credit was returned.", affected.id),
+        notifyBooking(b.creatorId, affected.customerId, "Call cancelled", "This call falls inside your 72-hour call restriction.", affected.id, b.creator.email),
+      ])
+    }
   }
   const due = await prisma.callBooking.findMany({ where: { status: { in: ["APPROVED", "LIVE"] }, scheduledEnd: { lte: now } } })
   for (const b of due) await prisma.$transaction(async (tx) => {
@@ -407,10 +491,6 @@ export async function reconcileBookings() {
     await tx.callBooking.update({ where: { id: b.id }, data: { status: "REFUNDED", endReason: (b.endReason ? b.endReason + " — auto-refunded after 24 h" : "Auto-refunded after 24 h review window") } })
   }, { timeout: 20000, maxWait: 10000 })
 
-  const suspended = await prisma.user.findMany({ where: { earningSuspendedUntil: { lte: now } }, select: { id: true } })
-  for (const user of suspended) {
-    const active = await prisma.creatorStrike.count({ where: { creatorId: user.id, expiresAt: { gt: now } } })
-    await prisma.user.update({ where: { id: user.id }, data: { activeStrikeCount: active, earningSuspendedUntil: active >= 3 ? addDays(now, 3) : null } })
-  }
-  return { expired: expired.length, reminded: reminders.length, fines: late.length, creatorNoShows: creatorNoShows.length, settled: due.length, autoRefunded: staleReview.length }
+  await prisma.user.updateMany({ where: { callsRestrictedUntil: { lte: now } }, data: { callsRestrictedUntil: null } })
+  return { expired: expired.length, reminded: reminders.length, fines: creatorNoShows.length, creatorNoShows: creatorNoShows.length, settled: due.length, autoRefunded: staleReview.length }
 }

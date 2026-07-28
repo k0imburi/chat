@@ -392,7 +392,14 @@ export async function getMessages(userId: string, otherUserId: string) {
       }),
       tx.chatThread.findUniqueOrThrow({
         where: { id: participant.threadId },
-        select: { unlockedAt: true, initiatorId: true, broadcastOnly: true },
+        select: {
+          unlockedAt: true,
+          initiatorId: true,
+          broadcastOnly: true,
+          cycleStartedAt: true,
+          cycleIcebreakerId: true,
+          cycleLockedReplyId: true,
+        },
       }),
       tx.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } }),
     ])
@@ -405,12 +412,18 @@ export async function getMessages(userId: string, otherUserId: string) {
     // no length requirement — whether actively auto-deducting or paused for
     // a ChatCredit top-up.
     const unlockWindowValid = isUnlockWindowValid(threadState.unlockedAt)
+    const freshIcebreakerExists = Boolean(
+      threadState.cycleIcebreakerId &&
+      threadState.cycleStartedAt &&
+      (!threadState.unlockedAt || threadState.cycleStartedAt > threadState.unlockedAt),
+    )
     const earningSuspended = Boolean(viewer?.earningSuspendedUntil && viewer.earningSuspendedUntil > new Date())
     const willChargeReply = Boolean(
       !threadState.broadcastOnly &&
       !earningSuspended &&
       threadState.initiatorId != null &&
       threadState.initiatorId !== userId &&
+      freshIcebreakerExists &&
       !unlockWindowValid,
     )
 
@@ -423,6 +436,17 @@ export async function getMessages(userId: string, otherUserId: string) {
       unlockKind,
       willChargeReply,
       turnTakingRequired: !unlockWindowValid,
+      cycleState: unlockWindowValid
+        ? "unlocked"
+        : !freshIcebreakerExists
+          ? "awaiting_icebreaker"
+          : threadState.cycleLockedReplyId
+            ? "awaiting_unlock"
+            : "awaiting_creator_reply",
+      unlockExpiresAt: unlockWindowValid && threadState.unlockedAt
+        ? new Date(threadState.unlockedAt.getTime() + UNLOCK_WINDOW_MS).toISOString()
+        : null,
+      viewerIsInitiator: threadState.initiatorId === userId,
       readAt: new Date().toISOString(),
     }
   })
@@ -455,6 +479,9 @@ export async function getMessages(userId: string, otherUserId: string) {
     messages: serializedMessages,
     willChargeReply: result.willChargeReply,
     turnTakingRequired: result.turnTakingRequired,
+    cycleState: result.cycleState,
+    unlockExpiresAt: result.unlockExpiresAt,
+    viewerIsInitiator: result.viewerIsInitiator,
   }
 }
 
@@ -499,10 +526,27 @@ export async function sendMessage(input: {
     // pays one ChatCredit when sending; creator replies are free.
     const thread = await tx.chatThread.findUnique({
       where: { id: threadId },
-      select: { initiatorId: true, unlockedAt: true, broadcastOnly: true },
+      select: {
+        initiatorId: true,
+        unlockedAt: true,
+        broadcastOnly: true,
+        cycleStartedAt: true,
+        cycleIcebreakerId: true,
+        cycleLockedReplyId: true,
+      },
     })
     if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
     const unlockWindowValid = isUnlockWindowValid(thread?.unlockedAt ?? null)
+    const freshIcebreakerExists = Boolean(
+      thread?.cycleIcebreakerId &&
+      thread.cycleStartedAt &&
+      (!thread.unlockedAt || thread.cycleStartedAt > thread.unlockedAt),
+    )
+    const startingFreshIcebreaker = Boolean(
+      thread?.initiatorId === input.senderId &&
+      !unlockWindowValid &&
+      !freshIcebreakerExists,
+    )
 
     // Before the conversation is unlocked (or after the fixed 24-hour grant
     // expires), messages alternate. A valid unlock window lets the chat flow
@@ -524,7 +568,7 @@ export async function sendMessage(input: {
       lastConversationalSentAt: lastMessage?.sentAt.toISOString() ?? null,
       tipsIgnored: true,
     })
-    if (!unlockWindowValid && lastMessage && lastMessage.senderId === input.senderId) {
+    if (!unlockWindowValid && !startingFreshIcebreaker && lastMessage && lastMessage.senderId === input.senderId) {
       console.warn("[chat:send] blocked by turn-taking", {
         threadId,
         senderId: input.senderId,
@@ -541,20 +585,16 @@ export async function sendMessage(input: {
     // been unlocked or its 24-hour window has expired.
     let needsKeyUnlock = false
     const isInitiator = thread?.initiatorId === input.senderId
+    const startsNewCycle = startingFreshIcebreaker
     if (isInitiator && !unlockWindowValid) {
-      const lockedReply = await tx.chatMessage.findFirst({
-        where: {
-          threadId,
-          locked: true,
-          senderId: { not: input.senderId },
-        },
-        select: { id: true },
-      })
-      if (lockedReply) {
+      if (freshIcebreakerExists && thread?.cycleLockedReplyId) {
         throw new Error("Unlock the conversation before sending a message")
       }
     }
     if (!earningSuspended && isNonInitiator && !unlockWindowValid) {
+      if (!freshIcebreakerExists) {
+        throw new Error("Wait for a new icebreaker before replying")
+      }
       // Never unlocked yet, or grant expired: this creator reply starts the
       // locked conversation the initiator must open with a Key.
       locked = true
@@ -636,6 +676,12 @@ export async function sendMessage(input: {
         lastMessageText: textMsg || null,
         lastMessageType: messageType,
         lastMessageAt: message.sentAt,
+        ...(startsNewCycle ? {
+          cycleStartedAt: message.sentAt,
+          cycleIcebreakerId: message.id,
+          cycleLockedReplyId: null,
+        } : {}),
+        ...(needsKeyUnlock ? { cycleLockedReplyId: message.id } : {}),
       },
     })
 

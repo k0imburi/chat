@@ -4,6 +4,7 @@ import { useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { deliverCampaignNowAction } from "@/lib/actions/notifications"
 import { toast } from "sonner"
+import { LoaderCircle } from "lucide-react"
 
 export function DeliverNowButton({ campaignId }: { campaignId: string }) {
   const [pending, startTransition] = useTransition()
@@ -24,7 +25,7 @@ export function DeliverNowButton({ campaignId }: { campaignId: string }) {
         })
       }
     >
-      {pending ? "Delivering…" : "Deliver now"}
+      {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Deliver now"}
     </Button>
   )
 }

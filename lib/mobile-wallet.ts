@@ -1,9 +1,12 @@
 import "server-only"
 
 import { Prisma } from "@prisma/client"
+import { SignJWT, jwtVerify } from "jose"
+import { env } from "@/lib/env"
 import { sendPaymentNotification } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
+import { calculateWithdrawalValues, roundUsd } from "@/lib/withdrawal-math"
 
 type CreateWalletTransactionInput = {
   userId: string
@@ -23,7 +26,9 @@ type CreateWithdrawalInput = {
   amount: number
   method: string
   destination: string
-  status?: string
+  expectedRate?: number
+  expectedFeePercent?: number
+  quoteToken: string
   metadata?: Record<string, unknown>
 }
 
@@ -58,6 +63,11 @@ export function serializeWalletTransaction(tx: {
   receiverName: string | null
   date: Date
   metadata: unknown
+  grossAmountUsd?: unknown
+  feeAmountUsd?: unknown
+  netAmountUsd?: unknown
+  exchangeRate?: unknown
+  netAmountKes?: unknown
 }) {
   return {
     id: tx.id,
@@ -76,22 +86,34 @@ export function serializeWalletTransaction(tx: {
 export function serializeWithdrawal(withdrawal: {
   id: string
   userId: string
+  creatorPayoutId?: string | null
   amount: unknown
   method: string
   destination: string
   status: string
   metadata: unknown
+  grossAmountUsd?: unknown
+  feeAmountUsd?: unknown
+  netAmountUsd?: unknown
+  exchangeRate?: unknown
+  netAmountKes?: unknown
   createdAt: Date
   updatedAt: Date
 }) {
   return {
     id: withdrawal.id,
     userId: withdrawal.userId,
+    creatorPayoutId: withdrawal.creatorPayoutId ?? null,
     amount: Number(withdrawal.amount),
     method: withdrawal.method,
     destination: withdrawal.destination,
     status: withdrawal.status,
     metadata: withdrawal.metadata,
+    grossAmountUsd: withdrawal.grossAmountUsd == null ? null : Number(withdrawal.grossAmountUsd),
+    feeAmountUsd: withdrawal.feeAmountUsd == null ? null : Number(withdrawal.feeAmountUsd),
+    netAmountUsd: withdrawal.netAmountUsd == null ? null : Number(withdrawal.netAmountUsd),
+    exchangeRate: withdrawal.exchangeRate == null ? null : Number(withdrawal.exchangeRate),
+    netAmountKes: withdrawal.netAmountKes == null ? null : Number(withdrawal.netAmountKes),
     date: withdrawal.createdAt.toISOString(),
     updatedAt: withdrawal.updatedAt.toISOString(),
   }
@@ -152,60 +174,163 @@ export async function getUserWithdrawals(userId: string) {
  * withdraw flow and the automatic payout batch never double-spend the same
  * earnings.
  */
-async function reserveEarningLotsForWithdrawal(userId: string, amountUsd: number) {
-  const settings = await prisma.appSettings.findUnique({ where: { id: 1 } })
-  const rate = Number(settings?.usdToKesRate || 0)
-  if (rate <= 0) throw new Error("Exchange rate is not configured")
-  const amountKes = amountUsd * rate
+type WithdrawalDb = Prisma.TransactionClient | typeof prisma
 
-  const lots = await prisma.earningLot.findMany({
-    where: { userId, status: "AVAILABLE" },
-    orderBy: { availableAt: "asc" },
+const money = roundUsd
+const quoteSecret = new TextEncoder().encode(env.JWT_SECRET)
+
+export async function signWithdrawalQuote(input: {
+  userId: string
+  grossUsd: Prisma.Decimal
+  rate: Prisma.Decimal
+  feePercent: Prisma.Decimal
+  expiresAt: Date
+}) {
+  return new SignJWT({
+    userId: input.userId,
+    grossUsd: input.grossUsd.toFixed(2),
+    rate: input.rate.toFixed(2),
+    feePercent: input.feePercent.toFixed(2),
+    purpose: "withdrawal-quote",
   })
-  const toKes = (amount: number, currency: string) => (currency === "USD" ? amount * rate : amount)
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime(Math.floor(input.expiresAt.getTime() / 1000))
+    .sign(quoteSecret)
+}
 
-  const selected: typeof lots = []
-  let sumKes = 0
+async function verifyWithdrawalQuote(input: CreateWithdrawalInput) {
+  const { payload } = await jwtVerify(input.quoteToken, quoteSecret)
+  if (
+    payload.purpose !== "withdrawal-quote"
+    || payload.userId !== input.userId
+    || !money(String(payload.grossUsd)).eq(input.amount)
+    || !money(String(payload.rate)).eq(input.expectedRate ?? -1)
+    || !money(String(payload.feePercent)).eq(input.expectedFeePercent ?? -1)
+  ) {
+    throw new Error("The withdrawal quote is no longer valid. Review the updated quote.")
+  }
+}
+
+export async function getWithdrawalQuote(userId: string, grossUsdInput: number, db: WithdrawalDb = prisma) {
+  const settings = await db.appSettings.findUnique({ where: { id: 1 } })
+  const rate = money(settings?.usdToKesRate || 0)
+  if (rate.lte(0)) throw new Error("Exchange rate is not configured")
+  const feePercent = money(settings?.withdrawalFeePercent || 0)
+  const values = calculateWithdrawalValues(grossUsdInput, feePercent, rate)
+  const { grossUsd, feeUsd, netUsd, grossKes, netKes } = values
+
+  const lots = await db.earningLot.findMany({
+    where: { userId, status: "AVAILABLE", amount: { gt: 0 } },
+    orderBy: { availableAt: "asc" },
+    include: { allocations: { where: { status: { in: ["RESERVED", "PAID"] } }, select: { amount: true, amountKes: true, currency: true } } },
+  })
+  const fines = await db.creatorFine.findMany({
+    where: { creatorId: userId, status: "OUTSTANDING" },
+    orderBy: { createdAt: "asc" },
+  })
+  let maturedAvailableKes = new Prisma.Decimal(0)
   for (const lot of lots) {
-    if (sumKes >= amountKes) break
-    selected.push(lot)
-    sumKes += toKes(Number(lot.amount), lot.currency)
+    const lotKes = lot.currency === "USD" ? new Prisma.Decimal(lot.amount).mul(rate) : new Prisma.Decimal(lot.amount)
+    const allocatedKes = lot.allocations.reduce((sum, allocation) => {
+      return sum.plus(allocation.amountKes)
+    }, new Prisma.Decimal(0))
+    maturedAvailableKes = maturedAvailableKes.plus(Prisma.Decimal.max(0, lotKes.minus(allocatedKes)))
   }
-  if (sumKes < amountKes) {
-    throw new Error("Insufficient available balance for this withdrawal")
+  const outstandingFinesKes = fines.reduce((sum, fine) => sum.plus(fine.amount), new Prisma.Decimal(0))
+  const withdrawableKes = Prisma.Decimal.max(0, maturedAvailableKes.minus(outstandingFinesKes))
+  const withdrawableUsd = money(withdrawableKes.div(rate))
+  return {
+    grossUsd,
+    feeUsd,
+    netUsd,
+    grossKes,
+    netKes,
+    rate,
+    feePercent,
+    maturedAvailableKes: money(maturedAvailableKes),
+    outstandingFinesKes: money(outstandingFinesKes),
+    withdrawableKes: money(withdrawableKes),
+    withdrawableUsd,
+    minimumShortfallUsd: values.minimumShortfallUsd,
+    fineIds: fines.map((fine) => fine.id),
+    expiresAt: new Date(Date.now() + 5 * 60_000),
+    lots,
   }
-  return { selected, amountKes }
 }
 
 export async function createWithdrawalRequest(input: CreateWithdrawalInput) {
-  const { selected, amountKes } = await reserveEarningLotsForWithdrawal(input.userId, input.amount)
-
+  await verifyWithdrawalQuote(input)
   const withdrawal = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`
+    const quote = await getWithdrawalQuote(input.userId, input.amount, tx)
+    if (quote.netUsd.lt(40)) throw new Error("Net withdrawal must be at least USD 40 after fees")
+    if (input.expectedRate != null && !quote.rate.eq(input.expectedRate)) throw new Error("The exchange rate changed. Review the updated quote.")
+    if (input.expectedFeePercent != null && !quote.feePercent.eq(input.expectedFeePercent)) throw new Error("The withdrawal fee changed. Review the updated quote.")
+    if (quote.grossUsd.gt(quote.withdrawableUsd)) throw new Error("Insufficient matured earnings for this withdrawal")
+    let remainingKes = money(quote.grossKes.plus(quote.outstandingFinesKes))
     const payout = await tx.creatorPayout.create({
       data: {
         userId: input.userId,
-        amount: new Prisma.Decimal(amountKes),
+        amount: quote.netKes,
+        grossAmountUsd: quote.grossUsd,
+        feeAmountUsd: quote.feeUsd,
+        netAmountUsd: quote.netUsd,
+        exchangeRate: quote.rate,
         destination: input.destination,
         provider: input.method.toUpperCase(),
         status: "PROCESSING",
       },
     })
-    await tx.earningLot.updateMany({
-      where: { id: { in: selected.map((lot) => lot.id) } },
-      data: { status: "RESERVED", payoutId: payout.id },
-    })
+    for (const lot of quote.lots) {
+      if (remainingKes.lte(0)) break
+      const lotKes = lot.currency === "USD" ? new Prisma.Decimal(lot.amount).mul(quote.rate) : new Prisma.Decimal(lot.amount)
+      const usedKes = lot.allocations.reduce((sum, allocation) => sum.plus(allocation.amountKes), new Prisma.Decimal(0))
+      const usedSource = lot.allocations.reduce((sum, allocation) => sum.plus(allocation.amount), new Prisma.Decimal(0))
+      const availableKes = Prisma.Decimal.max(0, lotKes.minus(usedKes))
+      const availableSource = Prisma.Decimal.max(0, new Prisma.Decimal(lot.amount).minus(usedSource))
+      if (availableKes.lte(0)) continue
+      const allocatedKes = Prisma.Decimal.min(availableKes, remainingKes)
+      const consumesLot = allocatedKes.eq(availableKes)
+      const allocationAmount = consumesLot
+        ? availableSource
+        : lot.currency === "USD"
+          ? allocatedKes.div(quote.rate).toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP)
+          : money(allocatedKes)
+      await tx.payoutAllocation.create({ data: {
+        payoutId: payout.id,
+        earningLotId: lot.id,
+        amount: allocationAmount,
+        amountKes: money(allocatedKes),
+        currency: lot.currency,
+      } })
+      remainingKes = money(remainingKes.minus(allocatedKes))
+      if (consumesLot) {
+        await tx.earningLot.update({ where: { id: lot.id }, data: { status: "RESERVED", payoutId: payout.id } })
+      }
+    }
+    if (remainingKes.gt("0.01")) throw new Error("Insufficient matured earnings for this withdrawal")
     return tx.withdrawalRequest.create({
       data: {
         userId: input.userId,
-        amount: input.amount,
+        amount: quote.grossUsd,
+        grossAmountUsd: quote.grossUsd,
+        feeAmountUsd: quote.feeUsd,
+        netAmountUsd: quote.netUsd,
+        exchangeRate: quote.rate,
+        netAmountKes: quote.netKes,
+        quoteExpiresAt: quote.expiresAt,
         method: input.method,
         destination: input.destination,
-        status: input.status || "pending",
-        metadata: toJsonValue(input.metadata),
+        status: "pending",
+        metadata: toJsonValue({
+          ...input.metadata,
+          fineIds: quote.fineIds,
+          outstandingFinesKes: Number(quote.outstandingFinesKes),
+        }),
         creatorPayoutId: payout.id,
       },
     })
-  })
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000, maxWait: 10000 })
 
   const serialized = serializeWithdrawal(withdrawal)
   emitChatRealtimeToUser(input.userId, {

@@ -4,6 +4,7 @@ import { CreatorPayout, EarningLotStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { env } from "@/lib/env"
 import { fetchMpesaAccessToken, normalizePhone, resolveMpesaConfig } from "@/lib/mpesa"
+import { createWithdrawalRequest, getWithdrawalQuote, signWithdrawalQuote } from "@/lib/mobile-wallet"
 
 export async function matureEarningLots(now = new Date()) {
   return prisma.earningLot.updateMany({ where: { status: "PENDING", availableAt: { lte: now } }, data: { status: "AVAILABLE" } })
@@ -11,7 +12,7 @@ export async function matureEarningLots(now = new Date()) {
 
 export async function financeSummary(userId: string) {
   await matureEarningLots()
-  const [lots, payouts, settings, kyc, profile] = await Promise.all([
+  const [lots, payouts, settings, kyc, profile, reservedAllocations, outstandingFines] = await Promise.all([
     // Grouped by source too (TIP/KEY/CHAT_CREDIT/VOICE_SESSION/VIDEO_SESSION)
     // so the wallet can show a per-category breakdown of what a creator has
     // earned — these lots only ever belong to the earning creator (never the
@@ -22,10 +23,22 @@ export async function financeSummary(userId: string) {
     prisma.appSettings.findUnique({ where: { id: 1 } }),
     prisma.creatorKyc.findUnique({ where: { userId } }),
     prisma.payoutProfile.findUnique({ where: { userId } }),
+    prisma.payoutAllocation.findMany({
+      where: { earningLot: { userId }, status: "RESERVED" },
+      select: { amountKes: true },
+    }),
+    prisma.creatorFine.aggregate({
+      where: { creatorId: userId, status: "OUTSTANDING" },
+      _sum: { amount: true },
+    }),
   ])
   const rate = Number(settings?.usdToKesRate || 0)
   const toKes = (amount: number, currency: string) => currency === "USD" ? amount * rate : amount
   const sum = (statuses: string[]) => lots.filter((r) => statuses.includes(r.status)).reduce((n, r) => n + toKes(Number(r._sum.amount || 0), r.currency), 0)
+  const reservedAllocationKes = reservedAllocations.reduce((total, row) => total + Number(row.amountKes), 0)
+  const outstandingFinesKes = Number(outstandingFines._sum.amount || 0)
+  const maturedAvailableKes = Math.max(0, sum(["AVAILABLE"]) - reservedAllocationKes)
+  const withdrawableKes = Math.max(0, maturedAvailableKes - outstandingFinesKes)
 
   // Still-on-the-books total (not yet paid out) broken down by what earned it.
   const currentStatuses: EarningLotStatus[] = ["PENDING", "HELD", "AVAILABLE", "RESERVED"]
@@ -91,7 +104,10 @@ export async function financeSummary(userId: string) {
 
   return {
     pendingEarningsKes: sum(["PENDING", "HELD"]),
-    availableBalanceKes: sum(["AVAILABLE"]),
+    availableBalanceKes: withdrawableKes,
+    maturedAvailableKes,
+    outstandingFinesKes,
+    withdrawableKes,
     currentBalanceKes: sum(currentStatuses),
     totalPaidOutKes: Number(payouts._sum.amount || 0),
     totalEarnedKes: sum(currentStatuses) + Number(payouts._sum.amount || 0),
@@ -99,6 +115,7 @@ export async function financeSummary(userId: string) {
     earningItemCounts,
     earningItemMaturity,
     usdToKesRate: rate,
+    withdrawalFeePercent: Number(settings?.withdrawalFeePercent ?? 0),
     kycStatus: kyc?.status || "NOT_SUBMITTED",
     payoutProfile: profile ? { mpesaPhone: profile.mpesaPhone, phoneVerified: Boolean(profile.phoneVerifiedAt), automaticEnabled: profile.automaticEnabled, pausedReason: profile.pausedReason } : null,
   }
@@ -136,15 +153,10 @@ async function mpesaB2c(payout: CreatorPayout) {
 
 export async function runPayoutBatch() {
   await matureEarningLots()
-  const settings = await prisma.appSettings.findUnique({ where: { id: 1 } })
-  const rate = Number(settings?.usdToKesRate || 0)
-  const thresholdKes = 40 * rate
-  if (thresholdKes <= 0) throw new Error("USD to KES exchange rate must be configured")
   const candidates = await prisma.user.findMany({ where: {
     kycProfile: { status: "APPROVED" }, payoutProfile: { automaticEnabled: true, phoneVerifiedAt: { not: null }, pausedReason: null },
-    OR: [{ earningSuspendedUntil: null }, { earningSuspendedUntil: { lte: new Date() } }],
     earningLots: { some: { status: "AVAILABLE" } },
-  }, include: { payoutProfile: true, earningLots: { where: { status: "AVAILABLE" }, orderBy: { availableAt: "asc" } } } })
+  }, include: { payoutProfile: true } })
   const submitted: string[] = []
   for (const user of candidates) {
     if (!user.payoutProfile?.mpesaPhone || !user.payoutProfile.phoneVerifiedAt) continue
@@ -154,13 +166,30 @@ export async function runPayoutBatch() {
       await prisma.payoutProfile.update({ where: { userId: user.id }, data: { pausedReason: "Payout paused after three failed daily batches; please verify the M-PESA destination" } })
       continue
     }
-    const eligible = user.earningLots.filter((lot) => lot.currency === "KES" || rate > 0)
-    const totalKes = eligible.reduce((n, lot) => n + Number(lot.amount) * (lot.currency === "USD" ? rate : 1), 0)
-    if (totalKes < thresholdKes) continue
-    const payout = await prisma.$transaction(async (tx) => {
-      const row = await tx.creatorPayout.create({ data: { userId: user.id, amount: new Prisma.Decimal(totalKes), destination: user.payoutProfile!.mpesaPhone!, status: "PROCESSING", attempts: 1 } })
-      await tx.earningLot.updateMany({ where: { id: { in: eligible.map((l) => l.id) }, status: "AVAILABLE" }, data: { status: "RESERVED", payoutId: row.id } })
-      return row
+    const balance = await getWithdrawalQuote(user.id, 0.01)
+    const grossUsd = Number(balance.withdrawableUsd)
+    if (grossUsd <= 0) continue
+    const quote = await getWithdrawalQuote(user.id, grossUsd)
+    if (quote.netUsd.lt(40)) continue
+    const withdrawal = await createWithdrawalRequest({
+      userId: user.id,
+      amount: grossUsd,
+      method: "MPESA_B2C",
+      destination: user.payoutProfile.mpesaPhone,
+      expectedRate: Number(quote.rate),
+      expectedFeePercent: Number(quote.feePercent),
+      quoteToken: await signWithdrawalQuote({
+        userId: user.id,
+        grossUsd: quote.grossUsd,
+        rate: quote.rate,
+        feePercent: quote.feePercent,
+        expiresAt: quote.expiresAt,
+      }),
+      metadata: { automatic: true },
+    })
+    const payout = await prisma.creatorPayout.update({
+      where: { id: withdrawal.creatorPayoutId! },
+      data: { attempts: 1 },
     })
     try {
       const provider = await mpesaB2c(payout)
@@ -169,6 +198,7 @@ export async function runPayoutBatch() {
     } catch (error) {
       await prisma.$transaction([
         prisma.creatorPayout.update({ where: { id: payout.id }, data: { status: "FAILED", failureReason: error instanceof Error ? error.message : "Provider failed" } }),
+        prisma.payoutAllocation.updateMany({ where: { payoutId: payout.id }, data: { status: "RELEASED" } }),
         prisma.earningLot.updateMany({ where: { payoutId: payout.id }, data: { status: "AVAILABLE", payoutId: null } }),
       ])
     }
@@ -180,7 +210,28 @@ export async function settlePayout(payoutId: string, success: boolean, reference
   return prisma.$transaction(async (tx) => {
     const payout = await tx.creatorPayout.findUnique({ where: { id: payoutId } })
     if (!payout || ["SUCCEEDED", "FAILED"].includes(payout.status)) return payout
-    await tx.earningLot.updateMany({ where: { payoutId }, data: success ? { status: "PAID" } : { status: "AVAILABLE", payoutId: null } })
+    const allocations = await tx.payoutAllocation.findMany({ where: { payoutId } })
+    await tx.payoutAllocation.updateMany({ where: { payoutId, status: "RESERVED" }, data: { status: success ? "PAID" : "RELEASED" } })
+    if (success) {
+      const withdrawal = await tx.withdrawalRequest.findUnique({ where: { creatorPayoutId: payoutId } })
+      const metadata = withdrawal?.metadata && typeof withdrawal.metadata === "object" && !Array.isArray(withdrawal.metadata)
+        ? withdrawal.metadata as Record<string, unknown>
+        : {}
+      const fineIds = Array.isArray(metadata.fineIds) ? metadata.fineIds.filter((id): id is string => typeof id === "string") : []
+      if (fineIds.length) {
+        await tx.creatorFine.updateMany({ where: { id: { in: fineIds }, status: "OUTSTANDING" }, data: { status: "SETTLED", settledAt: new Date() } })
+      }
+      for (const allocation of allocations) {
+        const lot = await tx.earningLot.findUnique({ where: { id: allocation.earningLotId } })
+        if (!lot) continue
+        const paid = await tx.payoutAllocation.aggregate({ where: { earningLotId: lot.id, status: "PAID" }, _sum: { amount: true } })
+        if (new Prisma.Decimal(paid._sum.amount || 0).gte(lot.amount)) {
+          await tx.earningLot.update({ where: { id: lot.id }, data: { status: "PAID" } })
+        }
+      }
+    } else {
+      await tx.earningLot.updateMany({ where: { payoutId }, data: { status: "AVAILABLE", payoutId: null } })
+    }
     return tx.creatorPayout.update({ where: { id: payoutId }, data: { status: success ? "SUCCEEDED" : "FAILED", providerReference: reference, failureReason: reason, processedAt: new Date() } })
   })
 }

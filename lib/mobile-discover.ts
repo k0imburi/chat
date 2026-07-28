@@ -1,7 +1,7 @@
 import "server-only"
 
 import { prisma } from "@/lib/prisma"
-import { serializeMobileUserWithLikes } from "@/lib/mobile-users"
+import { languageTokens, serializeMobileUserWithLikes } from "@/lib/mobile-users"
 import { FEED_LIMIT, hotScore } from "@/lib/discover-score"
 
 // Stable non-cryptographic hash for a string — used to tiebreak trending.
@@ -79,6 +79,7 @@ export async function getDiscoverFeed(currentUserId: string) {
   })
 
   const now = Date.now()
+  const viewerLangs = languageTokens(currentUser.language)
 
   // Build one feed entry per gallery post, scored by the hot algorithm.
   const entries = filteredUsers
@@ -92,7 +93,8 @@ export async function getDiscoverFeed(currentUserId: string) {
       // not the full post list. Keeps the response payload small.
       const { gallery: _g, ...userProfile } = serialized
       const followed = followedSet.has(user.id)
-      const sameLang = (user.language || "en") === (currentUser.language || "en")
+      // Shared spoken language (token overlap) softly boosts a creator.
+      const sameLang = [...languageTokens(user.language)].some((t) => viewerLangs.has(t))
       return videos.map((video) => {
         const id = String(video.id || "")
         const createdAt = new Date(String(video.createdAt || now))

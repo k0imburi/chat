@@ -50,6 +50,7 @@ export default async function SettingsPage() {
                 <Field label="Max videos upload" name="maxVideosUpload" type="number" defaultValue={String(settings?.maxVideosUpload ?? 10)} />
                 <input type="hidden" name="minimumTip" value={settings?.minimumTip.toString() ?? "0"} />
                 <input type="hidden" name="transactionFeePercent" value={settings?.transactionFeePercent.toString() ?? "0"} />
+                <input type="hidden" name="withdrawalFeePercent" value={settings?.withdrawalFeePercent.toString() ?? "0"} />
                 <input type="hidden" name="usdToKesRate" value={settings?.usdToKesRate.toString() ?? "0"} />
                 <input type="hidden" name="mpesaConsumerKey" value={settings?.mpesaConsumerKey ?? ""} />
                 <input type="hidden" name="mpesaConsumerSecret" value={settings?.mpesaConsumerSecret ?? ""} />
@@ -108,6 +109,7 @@ export default async function SettingsPage() {
                 <input type="hidden" name="jwtExpiry" defaultValue={settings?.jwtExpiry ?? "7d"} />
                 <input type="hidden" name="minimumTip" defaultValue={settings?.minimumTip.toString() ?? "0"} />
                 <input type="hidden" name="transactionFeePercent" defaultValue={settings?.transactionFeePercent.toString() ?? "0"} />
+                <input type="hidden" name="withdrawalFeePercent" defaultValue={settings?.withdrawalFeePercent.toString() ?? "0"} />
                 <input type="hidden" name="usdToKesRate" defaultValue={settings?.usdToKesRate.toString() ?? "0"} />
                 <input type="hidden" name="freeMemberSwipeLimit" defaultValue={String(settings?.freeMemberSwipeLimit ?? 20)} />
                 <input type="hidden" name="showDiscoverAdAfterSwipes" defaultValue={String(settings?.showDiscoverAdAfterSwipes ?? 5)} />
@@ -169,6 +171,7 @@ export default async function SettingsPage() {
                     <Field label="JWT expiry" name="jwtExpiry" defaultValue={settings?.jwtExpiry ?? "7d"} />
                     <Field label="Minimum tip" name="minimumTip" type="number" step="0.01" defaultValue={settings?.minimumTip.toString() ?? "0"} />
                     <Field label="Transaction fee %" name="transactionFeePercent" type="number" step="0.01" defaultValue={settings?.transactionFeePercent.toString() ?? "0"} />
+                    <Field label="Withdrawal fee %" name="withdrawalFeePercent" type="number" step="0.01" defaultValue={settings?.withdrawalFeePercent.toString() ?? settings?.transactionFeePercent.toString() ?? "0"} />
                     <Field label="USD to KES rate" name="usdToKesRate" type="number" step="0.01" defaultValue={settings?.usdToKesRate.toString() ?? "0"} />
                   </CardContent>
                 </Card>
