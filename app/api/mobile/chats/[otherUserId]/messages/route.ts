@@ -28,12 +28,22 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
 
   try {
     const params = paramsSchema.parse(await context.params)
-    const { messages, willChargeReply, turnTakingRequired } = await getMessages(session.userId, params.otherUserId)
+    const {
+      messages,
+      willChargeReply,
+      turnTakingRequired,
+      cycleState,
+      viewerIsInitiator,
+      unlockExpiresAt,
+    } = await getMessages(session.userId, params.otherUserId)
     return NextResponse.json({
       success: true,
       data: messages,
       willChargeReply,
       turnTakingRequired,
+      cycleState,
+      viewerIsInitiator,
+      unlockExpiresAt,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
