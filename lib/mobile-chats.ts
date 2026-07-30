@@ -85,6 +85,10 @@ function serializeChatMessage(message: {
   previewText?: string | null
   imageUrl: string | null
   imageObjectKey?: string | null
+  videoUrl?: string | null
+  videoObjectKey?: string | null
+  thumbnailUrl?: string | null
+  thumbnailObjectKey?: string | null
   replyToId: string | null
   replyToText: string | null
   replyToSenderId: string | null
@@ -98,11 +102,13 @@ function serializeChatMessage(message: {
     message.locked && options?.viewerId && message.senderId !== options.viewerId,
   )
   const rawText = message.text || ""
-  const lockedContentType = message.imageUrl || message.imageObjectKey
-    ? "image"
-    : /https?:\/\/\S+/i.test(rawText)
-      ? "link"
-      : "text"
+  const lockedContentType = message.videoUrl || message.videoObjectKey
+    ? "video"
+    : message.imageUrl || message.imageObjectKey
+      ? "image"
+      : /https?:\/\/\S+/i.test(rawText)
+        ? "link"
+        : "text"
   // Client-captured plaintext preview covers encrypted text; fall back to
   // slicing rawText for older/unencrypted messages sent before this existed.
   const lockedPreview = message.previewText
@@ -116,6 +122,8 @@ function serializeChatMessage(message: {
     type: parseChatMessageType(message.type),
     textMsg: hideContent ? lockedPreview : rawText,
     imageUrl: hideContent ? "" : message.imageUrl || "",
+    videoUrl: hideContent ? "" : message.videoUrl || "",
+    thumbnailUrl: hideContent ? "" : message.thumbnailUrl || "",
     replyToId: message.replyToId || "",
     replyToText: hideContent ? "" : message.replyToText || "",
     replyToSenderId: message.replyToSenderId || "",
@@ -137,6 +145,12 @@ async function serializeChatMessageForViewer(
   const serialized = serializeChatMessage(message, { viewerId, unlockKind })
   if (!serialized.locked && message.imageObjectKey) {
     serialized.imageUrl = await getSignedPrivateR2DownloadUrl(message.imageObjectKey)
+  }
+  if (!serialized.locked && message.videoObjectKey) {
+    serialized.videoUrl = await getSignedPrivateR2DownloadUrl(message.videoObjectKey)
+  }
+  if (!serialized.locked && message.thumbnailObjectKey) {
+    serialized.thumbnailUrl = await getSignedPrivateR2DownloadUrl(message.thumbnailObjectKey)
   }
   return serialized
 }
@@ -499,6 +513,10 @@ export async function sendMessage(input: {
   textLength?: number
   imageUrl?: string
   imageObjectKey?: string
+  videoUrl?: string
+  videoObjectKey?: string
+  thumbnailUrl?: string
+  thumbnailObjectKey?: string
   replyToId?: string
   replyToText?: string
   replyToSenderId?: string
@@ -508,24 +526,34 @@ export async function sendMessage(input: {
   const previewText = input.previewText?.trim().slice(0, 10) || ""
   const imageUrl = input.imageUrl?.trim() || ""
   const imageObjectKey = input.imageObjectKey?.trim() || ""
+  const videoUrl = input.videoUrl?.trim() || ""
+  const videoObjectKey = input.videoObjectKey?.trim() || ""
+  const thumbnailUrl = input.thumbnailUrl?.trim() || ""
+  const thumbnailObjectKey = input.thumbnailObjectKey?.trim() || ""
+  const hasImage = Boolean(imageUrl || imageObjectKey)
+  const hasVideo = Boolean(videoUrl || videoObjectKey)
 
   console.info("[chat:send] received", {
     senderId: input.senderId,
     receiverId: input.receiverId,
     hasText: Boolean(textMsg),
     textLength: input.textLength ?? textMsg.length,
-    hasImage: Boolean(imageUrl || imageObjectKey),
+    hasImage,
+    hasVideo,
   })
 
-  if (!textMsg && !imageUrl && !imageObjectKey) {
+  if (!textMsg && !hasImage && !hasVideo) {
     throw new Error("Message content is required")
+  }
+  if (hasImage && hasVideo) {
+    throw new Error("Send a message with either a photo or a video, not both")
   }
 
   const { me, other } = await ensureUsersCanChat(input.senderId, input.receiverId)
 
   const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
     const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
-    const messageType = imageUrl || imageObjectKey ? ChatMessageType.IMAGE : ChatMessageType.TEXT
+    const messageType = hasVideo ? ChatMessageType.VIDEO : hasImage ? ChatMessageType.IMAGE : ChatMessageType.TEXT
 
     // A creator's first reply stays locked until the initiator opens the
     // conversation. Once unlocked, the chat behaves like SMS: the initiator
@@ -624,13 +652,16 @@ export async function sendMessage(input: {
     if (locked && imageUrl && !imageObjectKey) {
       throw new Error("Paid image replies must use private upload storage")
     }
+    if (locked && ((videoUrl && !videoObjectKey) || (thumbnailUrl && !thumbnailObjectKey))) {
+      throw new Error("Paid video replies must use private upload storage")
+    }
     // For encrypted text, the client reports the true plaintext length —
     // textMsg.length would measure ciphertext, which is always inflated.
     const effectiveLength = textMsg.startsWith("enc:") ? (input.textLength ?? 0) : textMsg.length
     // Only the creator reply that starts a locked conversation enforces the
     // 100-character minimum. Once the window is open, normal messages have
-    // no length requirement.
-    if (needsKeyUnlock && !imageUrl && !imageObjectKey && effectiveLength < 100) {
+    // no length requirement. Media replies (photo/video) are exempt too.
+    if (needsKeyUnlock && !hasImage && !hasVideo && effectiveLength < 100) {
       console.warn("[chat:send] blocked by locked-reply minimum", {
         threadId,
         senderId: input.senderId,
@@ -660,6 +691,10 @@ export async function sendMessage(input: {
         previewText: previewText || null,
         imageUrl: imageUrl || null,
         imageObjectKey: imageObjectKey || null,
+        videoUrl: videoUrl || null,
+        videoObjectKey: videoObjectKey || null,
+        thumbnailUrl: thumbnailUrl || null,
+        thumbnailObjectKey: thumbnailObjectKey || null,
         replyToId: input.replyToId || null,
         replyToText: input.replyToText || null,
         replyToSenderId: input.replyToSenderId || null,

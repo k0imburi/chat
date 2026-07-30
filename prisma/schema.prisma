@@ -66,6 +66,7 @@ enum SwipeDirection {
 enum ChatMessageType {
   TEXT
   IMAGE
+  VIDEO
   SYSTEM
   TIP
 }
@@ -814,6 +815,10 @@ model ChatMessage {
   text                String?         @db.Text
   imageUrl            String?
   imageObjectKey      String?
+  videoUrl            String?
+  videoObjectKey      String?
+  thumbnailUrl        String?
+  thumbnailObjectKey  String?
   replyToId           String?
   replyToText         String?         @db.Text
   replyToSenderId     String?
