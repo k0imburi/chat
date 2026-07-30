@@ -121,6 +121,135 @@ export async function financeSummary(userId: string) {
   }
 }
 
+// Per-earning detail for the wallet's "Earnings activity" list: what was
+// earned, how much, who it was with (when resolvable), when it was received,
+// and when it matures/became available.
+export async function financeActivity(userId: string, opts?: { take?: number }) {
+  const take = Math.min(Math.max(opts?.take ?? 50, 1), 200)
+  const [lots, settings] = await Promise.all([
+    prisma.earningLot.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take }),
+    prisma.appSettings.findUnique({ where: { id: 1 } }),
+  ])
+  const rate = Number(settings?.usdToKesRate || 0)
+  const toUsd = (amount: number, currency: string) => (currency === "USD" ? amount : rate > 0 ? amount / rate : 0)
+
+  const tipLotIds = lots.filter((l) => l.source === "TIP").map((l) => l.sourceId)
+  const bookingLotIds = lots.filter((l) => l.source === "VOICE_SESSION" || l.source === "VIDEO_SESSION").map((l) => l.sourceId)
+  // KEY/CHAT_CREDIT lots store the raw idempotency key as sourceId — the
+  // payer is recoverable from the matching "consume:<key>" ledger row.
+  const creditSourceIds = lots.filter((l) => l.source === "KEY" || l.source === "CHAT_CREDIT").map((l) => l.sourceId)
+
+  const [tips, bookings, ledgerRows] = await Promise.all([
+    tipLotIds.length ? prisma.tip.findMany({ where: { id: { in: tipLotIds } }, select: { id: true, tier: true, senderId: true } }) : Promise.resolve([]),
+    bookingLotIds.length ? prisma.callBooking.findMany({ where: { id: { in: bookingLotIds } }, select: { id: true, customerId: true, scheduledStart: true } }) : Promise.resolve([]),
+    creditSourceIds.length
+      ? prisma.creditLedger.findMany({ where: { idempotencyKey: { in: creditSourceIds.map((id) => `consume:${id}`) } }, select: { idempotencyKey: true, userId: true } })
+      : Promise.resolve([]),
+  ])
+
+  const tipById = new Map(tips.map((t) => [t.id, t]))
+  const bookingById = new Map(bookings.map((b) => [b.id, b]))
+  const ledgerByKey = new Map(ledgerRows.map((l) => [l.idempotencyKey, l]))
+
+  const counterpartyIds = new Set<string>()
+  for (const t of tips) counterpartyIds.add(t.senderId)
+  for (const b of bookings) counterpartyIds.add(b.customerId)
+  for (const l of ledgerRows) counterpartyIds.add(l.userId)
+  const counterparties = counterpartyIds.size
+    ? await prisma.user.findMany({ where: { id: { in: [...counterpartyIds] } }, select: { id: true, fullName: true } })
+    : []
+  const nameById = new Map(counterparties.map((u) => [u.id, u.fullName]))
+
+  const TIER_LABEL: Record<string, string> = { PEBBLE: "Pebble", GEM: "Gem", DIAMOND: "Diamond" }
+  const items = lots.map((lot) => {
+    let label = "Earning"
+    let withName: string | null = null
+    if (lot.source === "TIP") {
+      const tip = tipById.get(lot.sourceId)
+      withName = tip ? nameById.get(tip.senderId) ?? null : null
+      label = tip ? `${TIER_LABEL[tip.tier] ?? "Tip"} tip` : "Tip"
+    } else if (lot.source === "VOICE_SESSION" || lot.source === "VIDEO_SESSION") {
+      const booking = bookingById.get(lot.sourceId)
+      withName = booking ? nameById.get(booking.customerId) ?? null : null
+      label = lot.source === "VOICE_SESSION" ? "Voice call" : "Video call"
+    } else if (lot.source === "KEY" || lot.source === "CHAT_CREDIT") {
+      const ledger = ledgerByKey.get(`consume:${lot.sourceId}`)
+      withName = ledger ? nameById.get(ledger.userId) ?? null : null
+      label = lot.source === "KEY" ? "Chat unlock" : "Chat reply"
+    }
+    return {
+      id: lot.id,
+      source: lot.source,
+      label,
+      withName,
+      amountUsd: toUsd(Number(lot.amount), lot.currency),
+      status: lot.status,
+      receivedAt: lot.createdAt.toISOString(),
+      maturesAt: lot.availableAt.toISOString(),
+    }
+  })
+
+  return { items }
+}
+
+// Creator fines (session no-shows etc.) and strikes for the wallet's
+// "Strikes & fines" section.
+export async function financeFinesAndStrikes(userId: string) {
+  const [fines, strikes, settings] = await Promise.all([
+    prisma.creatorFine.findMany({
+      where: { creatorId: userId },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: { booking: { select: { customerId: true, scheduledStart: true } } },
+    }),
+    prisma.creatorStrike.findMany({ where: { creatorId: userId }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.appSettings.findUnique({ where: { id: 1 } }),
+  ])
+  const rate = Number(settings?.usdToKesRate || 0)
+  const toUsd = (amount: number, currency: string) => (currency === "USD" ? amount : rate > 0 ? amount / rate : 0)
+
+  // CreatorStrike.bookingId has no Prisma relation, so resolve bookings and
+  // their customers manually.
+  const strikeBookingIds = strikes.map((s) => s.bookingId).filter((id): id is string => Boolean(id))
+  const strikeBookings = strikeBookingIds.length
+    ? await prisma.callBooking.findMany({ where: { id: { in: strikeBookingIds } }, select: { id: true, customerId: true } })
+    : []
+  const strikeBookingById = new Map(strikeBookings.map((b) => [b.id, b]))
+
+  const customerIds = new Set<string>()
+  for (const f of fines) customerIds.add(f.booking.customerId)
+  for (const b of strikeBookings) customerIds.add(b.customerId)
+  const customers = customerIds.size
+    ? await prisma.user.findMany({ where: { id: { in: [...customerIds] } }, select: { id: true, fullName: true } })
+    : []
+  const nameById = new Map(customers.map((u) => [u.id, u.fullName]))
+
+  const now = new Date()
+  return {
+    fines: fines.map((f) => ({
+      id: f.id,
+      amountUsd: toUsd(Number(f.amount), f.currency),
+      reason: f.reason,
+      status: f.status,
+      withName: nameById.get(f.booking.customerId) ?? null,
+      bookingAt: f.booking.scheduledStart.toISOString(),
+      createdAt: f.createdAt.toISOString(),
+    })),
+    strikes: strikes.map((s) => {
+      const booking = s.bookingId ? strikeBookingById.get(s.bookingId) : undefined
+      return {
+        id: s.id,
+        reason: s.reason,
+        withName: booking ? nameById.get(booking.customerId) ?? null : null,
+        createdAt: s.createdAt.toISOString(),
+        expiresAt: s.expiresAt?.toISOString() ?? null,
+        consumedAt: s.consumedAt?.toISOString() ?? null,
+        active: !s.consumedAt && (!s.expiresAt || s.expiresAt > now),
+      }
+    }),
+  }
+}
+
 export async function submitKyc(userId: string, input: { idFrontObjectKey: string; idBackObjectKey: string; selfieObjectKey: string }) {
   if (!input.idFrontObjectKey || !input.idBackObjectKey || !input.selfieObjectKey) throw new Error("ID front, ID back, and selfie are required")
   return prisma.creatorKyc.upsert({ where: { userId }, create: { userId, ...input, status: "PENDING", submittedAt: new Date() }, update: {
