@@ -50,7 +50,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, data: { token: "", channelId } })
     }
 
-    const expiresAt = Math.floor(Date.now() / 1000) + 3600 // 1 hour
+    // Cap the token to the booked slot (plus the same 5-minute tail the join
+    // window allows) so Agora itself enforces the session length — a client
+    // that ignores the in-app auto-end still can't keep the channel open.
+    const slotEndsAt = Math.floor(booking.scheduledEnd.getTime() / 1000) + 5 * 60
+    // Agora rejects tokens that are already expired; keep a small floor so a
+    // late join near the end of the window still gets a usable token.
+    const expiresAt = Math.max(slotEndsAt, Math.floor(Date.now() / 1000) + 60)
 
     const token = RtcTokenBuilder.buildTokenWithUid(
       appId,

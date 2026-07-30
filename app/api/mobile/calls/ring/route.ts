@@ -57,6 +57,10 @@ export async function POST(request: Request) {
       receiverName: callee.fullName,
       receiverPhotoUrl: callee.avatarUrl ?? "",
       expiresAt: invite.expiresAt.toISOString(),
+      // The booked slot's hard end — the client ends the call here so a
+      // 15-minute session can't run indefinitely.
+      scheduledStart: booking.scheduledStart.toISOString(),
+      scheduledEnd: booking.scheduledEnd.toISOString(),
     }
     const installations = await prisma.deviceInstallation.findMany({
       where: { userId: callee.id, isActive: true },
