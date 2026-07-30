@@ -446,7 +446,13 @@ export async function getMessages(userId: string, otherUserId: string) {
       unlockExpiresAt: unlockWindowValid && threadState.unlockedAt
         ? new Date(threadState.unlockedAt.getTime() + UNLOCK_WINDOW_MS).toISOString()
         : null,
-      viewerIsInitiator: threadState.initiatorId === userId,
+      // While the cycle is dormant (window lapsed, no fresh icebreaker sent
+      // yet), either participant can send the next free icebreaker and
+      // become the new initiator — so both viewers see themselves as able to
+      // send here, not just whoever the thread's initiator happened to be.
+      viewerIsInitiator: !unlockWindowValid && !freshIcebreakerExists
+        ? true
+        : threadState.initiatorId === userId,
       readAt: new Date().toISOString(),
     }
   })
@@ -542,10 +548,16 @@ export async function sendMessage(input: {
       thread.cycleStartedAt &&
       (!thread.unlockedAt || thread.cycleStartedAt > thread.unlockedAt),
     )
+    // Once the unlock window has lapsed and no fresh icebreaker has started
+    // this cycle, the conversation is dormant: whoever sends next becomes the
+    // new initiator and gets a free icebreaker, restarting the cycle. This
+    // lets roles flip between the two participants over time instead of
+    // always favouring whoever sent the very first message in the thread.
+    const cycleIsDormant = !unlockWindowValid && !freshIcebreakerExists
+    const reassignInitiator = cycleIsDormant && thread?.initiatorId !== input.senderId
+    const effectiveInitiatorId = reassignInitiator ? input.senderId : thread?.initiatorId ?? null
     const startingFreshIcebreaker = Boolean(
-      thread?.initiatorId === input.senderId &&
-      !unlockWindowValid &&
-      !freshIcebreakerExists,
+      effectiveInitiatorId === input.senderId && cycleIsDormant,
     )
 
     // Before the conversation is unlocked (or after the fixed 24-hour grant
@@ -578,13 +590,13 @@ export async function sendMessage(input: {
     }
 
     const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
-    const isNonInitiator = thread?.initiatorId != null && thread.initiatorId !== input.senderId
+    const isInitiator = effectiveInitiatorId === input.senderId
+    const isNonInitiator = effectiveInitiatorId != null && effectiveInitiatorId !== input.senderId
     let locked = false
     let autoDeductCredit = false
-    // Only true for a creator's first reply after a conversation has never
-    // been unlocked or its 24-hour window has expired.
+    // Only true for a non-initiator's first reply after a conversation has
+    // never been unlocked or its 24-hour window has expired.
     let needsKeyUnlock = false
-    const isInitiator = thread?.initiatorId === input.senderId
     const startsNewCycle = startingFreshIcebreaker
     if (isInitiator && !unlockWindowValid) {
       if (freshIcebreakerExists && thread?.cycleLockedReplyId) {
@@ -593,17 +605,20 @@ export async function sendMessage(input: {
     }
     if (!earningSuspended && isNonInitiator && !unlockWindowValid) {
       if (!freshIcebreakerExists) {
+        // The dormant-cycle reassignment above already handles this sender
+        // becoming the new initiator — this only remains reachable if that
+        // guard didn't apply (e.g. earning-suspended sender).
         throw new Error("Wait for a new icebreaker before replying")
       }
-      // Never unlocked yet, or grant expired: this creator reply starts the
-      // locked conversation the initiator must open with a Key.
+      // Never unlocked yet, or grant expired: this reply starts the locked
+      // conversation the initiator must open with a Key.
       locked = true
       needsKeyUnlock = true
     }
     if (isInitiator && unlockWindowValid) {
-      // The initiator pays when they send, never when the creator replies.
-      // consumeCreditInTransaction makes this atomic and rolls back the
-      // message if the initiator has no ChatCredits left.
+      // The initiator pays when they send, never when the other party
+      // replies. consumeCreditInTransaction makes this atomic and rolls back
+      // the message if the initiator has no ChatCredits left.
       autoDeductCredit = true
     }
     if (locked && imageUrl && !imageObjectKey) {
@@ -676,6 +691,7 @@ export async function sendMessage(input: {
         lastMessageText: textMsg || null,
         lastMessageType: messageType,
         lastMessageAt: message.sentAt,
+        ...(reassignInitiator ? { initiatorId: input.senderId } : {}),
         ...(startsNewCycle ? {
           cycleStartedAt: message.sentAt,
           cycleIcebreakerId: message.id,
