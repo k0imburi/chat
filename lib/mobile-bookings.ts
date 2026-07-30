@@ -381,8 +381,32 @@ export async function joinBooking(userId: string, bookingId: string) {
 
 export async function reconcileBookings() {
   const now = new Date()
-  const expired = await prisma.callBooking.findMany({ where: { status: { in: ["PROPOSED", "COUNTER_PROPOSED"] }, proposalExpiresAt: { lte: now } } })
-  for (const b of expired) await prisma.$transaction(async (tx) => { await releaseBookingReservation(tx, b); await tx.callBooking.update({ where: { id: b.id }, data: { status: "EXPIRED" } }) }, { timeout: 20000, maxWait: 10000 })
+  // A proposal nobody confirmed in time. The held session credit goes back to
+  // the customer and neither side is penalised (this is NOT a no-show), but
+  // both are told why it lapsed — otherwise the credit silently reappears and
+  // the booking just reads "Expired" with no explanation.
+  const expired = await prisma.callBooking.findMany({
+    where: { status: { in: ["PROPOSED", "COUNTER_PROPOSED"] }, proposalExpiresAt: { lte: now } },
+    include: { customer: true, creator: true },
+  })
+  for (const b of expired) {
+    await prisma.$transaction(async (tx) => {
+      await releaseBookingReservation(tx, b)
+      await tx.callBooking.update({ where: { id: b.id }, data: { status: "EXPIRED" } })
+    }, { timeout: 20000, maxWait: 10000 })
+    await Promise.all([
+      notifyBooking(
+        b.customerId, b.creatorId, "Call request expired",
+        `Your ${b.type.toLowerCase()} call request wasn't confirmed in time, so it expired. Your session credit has been returned.`,
+        b.id, b.customer.email,
+      ),
+      notifyBooking(
+        b.creatorId, b.customerId, "Call request expired",
+        `A ${b.type.toLowerCase()} call request from ${b.customer.fullName} expired before you confirmed it.`,
+        b.id, b.creator.email,
+      ),
+    ])
+  }
   const reminders = await prisma.callBooking.findMany({ where: { status: "APPROVED", reminderSentAt: null, scheduledStart: { gt: now, lte: addMinutes(now, 10) } }, include: { customer: true, creator: true } })
   for (const b of reminders) {
     await Promise.all([
