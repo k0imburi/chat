@@ -182,6 +182,10 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       },
     })
 
+    // Tips mature immediately — a direct gift, not a delivered session, so
+    // there's nothing to wait on. They skip both the 30-day maturity and the
+    // review hold that call/chat earnings go through. (The Tip row above is
+    // still flagged for admin visibility on unusual bursts.)
     await tx.earningLot.create({
       data: {
         userId: input.receiverId,
@@ -189,11 +193,8 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
         sourceId: tip.id,
         amount: new Prisma.Decimal(creatorAmountUsd),
         currency: "USD",
-        status: flaggedForReview ? "HELD" : "PENDING",
-        heldReason: flaggedForReview
-          ? "Tip held for review"
-          : null,
-        availableAt: new Date(Date.now() + 30 * 86_400_000),
+        status: "AVAILABLE",
+        availableAt: new Date(),
       },
     })
 
