@@ -26,7 +26,8 @@ export async function POST(request: Request) {
     if (booking.customerId !== session.userId && booking.creatorId !== session.userId) throw new Error("Booking is not available")
     if (booking.creator.callsRestrictedUntil && booking.creator.callsRestrictedUntil > new Date()) throw new Error("This creator is temporarily unavailable for calls")
     const now = new Date()
-    if (now < new Date(booking.scheduledStart.getTime() - 10 * 60_000) || now > new Date(booking.scheduledEnd.getTime() + 5 * 60_000)) {
+    // Room opens at the scheduled start — no early entry (see joinBooking).
+    if (now < booking.scheduledStart || now > new Date(booking.scheduledEnd.getTime() + 5 * 60_000)) {
       throw new Error("The call room is not open")
     }
 

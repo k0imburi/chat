@@ -26,7 +26,8 @@ export async function GET(request: Request) {
       OR: [{ customerId: session.userId }, { creatorId: session.userId }],
       status: { in: ["APPROVED", "LIVE"] },
     }, include: { creator: { select: { callsRestrictedUntil: true } } } })
-    if (!booking || Date.now() < booking.scheduledStart.getTime() - 10 * 60_000 || Date.now() > booking.scheduledEnd.getTime() + 5 * 60_000) {
+    // Room opens at the scheduled start — no early entry (see joinBooking).
+    if (!booking || Date.now() < booking.scheduledStart.getTime() || Date.now() > booking.scheduledEnd.getTime() + 5 * 60_000) {
       return NextResponse.json({ success: false, message: "Booking room is not available" }, { status: 403 })
     }
     if (booking.creator.callsRestrictedUntil && booking.creator.callsRestrictedUntil > new Date()) {
