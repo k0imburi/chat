@@ -45,9 +45,16 @@ export async function GET(request: Request) {
       )
     }
 
-    // If no certificate is set (e.g. Agora project in test mode), return an
-    // empty token — Agora accepts this when certificate auth is disabled.
+    // Without a certificate we can only issue an empty token, which Agora
+    // accepts ONLY while a project is in App ID–only (testing) mode. Once that
+    // lapses Agora rejects the join and the call appears to cancel itself, so
+    // log loudly rather than pretending this succeeded.
     if (!appCertificate) {
+      console.warn(
+        "[agora-token] AGORA_APP_CERTIFICATE is not set — issuing an empty token. " +
+          "This only works while the Agora project allows App ID-only joins; " +
+          "if calls are being rejected, set the certificate from the Agora console.",
+      )
       return NextResponse.json({ success: true, data: { token: "", channelId } })
     }
 
