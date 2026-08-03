@@ -153,7 +153,17 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       data: { [field]: { decrement: 1 } },
     })
 
-    const priorCount = await tx.tip.count({ where: { senderId: input.senderId } })
+    // Suspicious pattern is repeatedly tipping THE SAME person, so count this
+    // pair inside a rolling 24h window. (This previously counted every tip the
+    // sender had ever sent to anyone, so once past five tips in total every
+    // later tip to anybody was flagged.)
+    const priorCount = await tx.tip.count({
+      where: {
+        senderId: input.senderId,
+        receiverId: input.receiverId,
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+    })
     const flaggedForReview = priorCount >= TIP_REVIEW_THRESHOLD
 
     const tip = await tx.tip.create({
@@ -182,10 +192,8 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       },
     })
 
-    // Tips mature immediately — a direct gift, not a delivered session, so
-    // there's nothing to wait on. They skip both the 30-day maturity and the
-    // review hold that call/chat earnings go through. (The Tip row above is
-    // still flagged for admin visibility on unusual bursts.)
+    // Tips mature like other earnings (30 days), and a burst of tips to the
+    // same person is held for review rather than counted straight away.
     await tx.earningLot.create({
       data: {
         userId: input.receiverId,
@@ -193,8 +201,11 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
         sourceId: tip.id,
         amount: new Prisma.Decimal(creatorAmountUsd),
         currency: "USD",
-        status: "AVAILABLE",
-        availableAt: new Date(),
+        status: flaggedForReview ? "HELD" : "PENDING",
+        heldReason: flaggedForReview
+          ? `More than ${TIP_REVIEW_THRESHOLD} tips to the same person within 24 hours`
+          : null,
+        availableAt: new Date(Date.now() + 30 * 86_400_000),
       },
     })
 
@@ -231,6 +242,7 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
     return {
       tip,
       tipMessage,
+      flaggedForReview,
       wallet: {
         pebbles: updated?.pebbles ?? 0,
         gems: updated?.gems ?? 0,
@@ -238,6 +250,32 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       },
     }
   }, { timeout: 20_000, maxWait: 10_000 })
+
+  // Tell both sides when a tip trips the review threshold, so a held payout is
+  // never silent — the creator knows why it isn't counting yet and the sender
+  // knows the tip landed but is being checked.
+  if (result.flaggedForReview) {
+    await Promise.all([
+      createUserNotification({
+        userId: input.receiverId,
+        senderId: input.senderId,
+        title: "Tip under review",
+        message:
+          `A tip was flagged for review because more than ${TIP_REVIEW_THRESHOLD} tips came from the same person within 24 hours. It will be released once checked.`,
+        type: "alert",
+        metadata: { tipId: result.tip.id, reason: "tip_review_threshold" },
+      }),
+      createUserNotification({
+        userId: input.senderId,
+        senderId: input.receiverId,
+        title: "Tip sent — under review",
+        message:
+          `You've sent more than ${TIP_REVIEW_THRESHOLD} tips to this person in 24 hours, so this one is being reviewed before it reaches them.`,
+        type: "alert",
+        metadata: { tipId: result.tip.id, reason: "tip_review_threshold" },
+      }),
+    ])
+  }
 
   // Push TIP message to both parties in real time
   if (result.tipMessage) {

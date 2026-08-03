@@ -272,14 +272,16 @@ export async function recordTipInTransaction(
       value: new Prisma.Decimal(creatorAmountUsd), currency: "USD", counterpartyId: senderId,
       idempotencyKey: `tip:${transactionId}`, metadata: { tier, tipId: tip.id },
     } })
-    // Tips (Pebble/Gem/Diamond) mature immediately — they're a direct gift, not
-    // a delivered session, so there's nothing to wait on. Unlike call/chat
-    // earnings they skip both the 30-day maturity and the review hold.
+    // Tips mature like other earnings (30 days); a burst of tips to the same
+    // person inside 24h is held for review instead of counting immediately.
     await tx.earningLot.create({ data: {
       userId: receiverId, source: "TIP", sourceId: tip.id,
       amount: new Prisma.Decimal(creatorAmountUsd), currency: "USD",
-      status: "AVAILABLE",
-      availableAt: new Date(),
+      status: flaggedForReview ? "HELD" : "PENDING",
+      heldReason: flaggedForReview
+        ? `More than ${TIP_REVIEW_THRESHOLD} tips to the same person within 24 hours`
+        : null,
+      availableAt: new Date(Date.now() + 30 * 86_400_000),
     } })
   return tip
 }
