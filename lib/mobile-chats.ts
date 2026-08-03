@@ -143,14 +143,19 @@ async function serializeChatMessageForViewer(
   unlockKind?: "KEY" | "CHAT_CREDIT",
 ) {
   const serialized = serializeChatMessage(message, { viewerId, unlockKind })
+  // All chat media lives in the private bucket, so every unlocked attachment
+  // needs a signed URL. The default 5-minute expiry left media broken in a
+  // chat left open for a while; an hour survives a normal session and media
+  // is re-signed on every fetch anyway.
+  const mediaUrlTtlSeconds = 3600
   if (!serialized.locked && message.imageObjectKey) {
-    serialized.imageUrl = await getSignedPrivateR2DownloadUrl(message.imageObjectKey)
+    serialized.imageUrl = await getSignedPrivateR2DownloadUrl(message.imageObjectKey, mediaUrlTtlSeconds)
   }
   if (!serialized.locked && message.videoObjectKey) {
-    serialized.videoUrl = await getSignedPrivateR2DownloadUrl(message.videoObjectKey)
+    serialized.videoUrl = await getSignedPrivateR2DownloadUrl(message.videoObjectKey, mediaUrlTtlSeconds)
   }
   if (!serialized.locked && message.thumbnailObjectKey) {
-    serialized.thumbnailUrl = await getSignedPrivateR2DownloadUrl(message.thumbnailObjectKey)
+    serialized.thumbnailUrl = await getSignedPrivateR2DownloadUrl(message.thumbnailObjectKey, mediaUrlTtlSeconds)
   }
   return serialized
 }
