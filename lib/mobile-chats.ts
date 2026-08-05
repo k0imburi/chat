@@ -360,7 +360,23 @@ export async function getMessages(userId: string, otherUserId: string) {
   await ensureUsersCanChat(userId, otherUserId)
 
   const participant = await getParticipant(userId, otherUserId)
-  if (!participant) return { messages: [], willChargeReply: false }
+  if (!participant) {
+    // No ChatParticipant row exists until sendMessage creates the thread, so
+    // this is a conversation that has never had a single message sent. The
+    // viewer is necessarily about to send the free icebreaker — leaving
+    // viewerIsInitiator/turnTakingRequired at their old undefined (dropped by
+    // JSON serialization) made the client default viewerIsInitiator to false,
+    // which read as "waiting for the other side to reply" and locked the
+    // composer before the conversation had even started.
+    return {
+      messages: [],
+      willChargeReply: false,
+      turnTakingRequired: false,
+      cycleState: "awaiting_icebreaker",
+      viewerIsInitiator: true,
+      unlockExpiresAt: null,
+    }
+  }
 
   const clearedAt = participant.clearedAt
 
