@@ -251,31 +251,9 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
     }
   }, { timeout: 20_000, maxWait: 10_000 })
 
-  // Tell both sides when a tip trips the review threshold, so a held payout is
-  // never silent — the creator knows why it isn't counting yet and the sender
-  // knows the tip landed but is being checked.
-  if (result.flaggedForReview) {
-    await Promise.all([
-      createUserNotification({
-        userId: input.receiverId,
-        senderId: input.senderId,
-        title: "Tip under review",
-        message:
-          `A tip was flagged for review because more than ${TIP_REVIEW_THRESHOLD} tips came from the same person within 24 hours. It will be released once checked.`,
-        type: "alert",
-        metadata: { tipId: result.tip.id, reason: "tip_review_threshold" },
-      }),
-      createUserNotification({
-        userId: input.senderId,
-        senderId: input.receiverId,
-        title: "Tip sent — under review",
-        message:
-          `You've sent more than ${TIP_REVIEW_THRESHOLD} tips to this person in 24 hours, so this one is being reviewed before it reaches them.`,
-        type: "alert",
-        metadata: { tipId: result.tip.id, reason: "tip_review_threshold" },
-      }),
-    ])
-  }
+  // A flagged tip is held silently — no notification to either side. It just
+  // won't show as available until an admin releases it from Held Tips, at
+  // which point it appears in the creator's wallet like any other earning.
 
   // Push TIP message to both parties in real time
   if (result.tipMessage) {
