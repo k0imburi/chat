@@ -8,6 +8,16 @@ import { ON_ACCOUNT_VALUE_KES } from "@/lib/mobile-credits"
 
 const SESSION_MINUTES = 15
 const BUFFER_MINUTES = 10
+// Creator-no-show ladder. Two minutes in the creator is fined a quarter of the
+// session but the room stays open — they can still turn up and deliver it. By
+// the third minute the session is written off: the customer is refunded and the
+// creator takes a strike.
+const CREATOR_FINE_MINUTES = 2
+const CREATOR_FINE_PERCENT = 25
+const NO_SHOW_MINUTES = 3
+// Three strikes inside the 30-day window costs the creator 72 hours of calls.
+const STRIKE_LIMIT = 3
+const RESTRICTION_HOURS = 72
 // Must match the cutoff availableSlots() uses to decide what's even offered,
 // or slots that look bookable in the list would immediately fail with "can
 // no longer be proposed" the moment they're picked.
@@ -17,6 +27,7 @@ const MIN_PROPOSAL_LEAD_MINUTES = 5
 const ACTIVE: BookingStatus[] = ["PROPOSED", "COUNTER_PROPOSED", "APPROVED", "LIVE"]
 
 const addMinutes = (date: Date, minutes: number) => new Date(date.getTime() + minutes * 60_000)
+const addHours = (date: Date, hours: number) => new Date(date.getTime() + hours * 3_600_000)
 const addDays = (date: Date, days: number) => new Date(date.getTime() + days * 86_400_000)
 
 function partsInZone(date: Date, timeZone: string) {
@@ -122,6 +133,20 @@ async function hasConfirmedConflict(
   return Boolean(conflict)
 }
 
+/// Holds one session credit for a booking. The optimistic updatedAt check makes
+/// two concurrent bookings unable to claim the same last credit.
+async function reserveBookingCredit(tx: Prisma.TransactionClient, customerId: string, type: BookingType) {
+  const field = type === "VOICE" ? "voiceSessions" : "videoSessions"
+  const reserved = type === "VOICE" ? "reservedVoiceSessions" : "reservedVideoSessions"
+  await tx.creditAccount.upsert({ where: { userId: customerId }, create: { userId: customerId }, update: {} })
+  const account = await tx.creditAccount.findUnique({ where: { userId: customerId } })
+  const available = account ? account[field] - account[reserved] : 0
+  const claimed = available > 0
+    ? await tx.creditAccount.updateMany({ where: { userId: customerId, updatedAt: account!.updatedAt }, data: { [reserved]: { increment: 1 } } })
+    : { count: 0 }
+  if (!claimed.count) throw new Error(`You need an available ${type.toLowerCase()} session credit`)
+}
+
 export async function proposeBooking(customerId: string, input: { creatorId: string; type: BookingType; start: string; timezone: string }) {
   if (customerId === input.creatorId) throw new Error("You cannot book yourself")
   const start = new Date(input.start)
@@ -131,7 +156,6 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
   const end = addMinutes(start, SESSION_MINUTES)
   const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(start, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
   if (expires <= new Date()) throw new Error("This slot can no longer be proposed")
-  const field = input.type === "VOICE" ? "voiceSessions" : "videoSessions"
   const reserved = input.type === "VOICE" ? "reservedVoiceSessions" : "reservedVideoSessions"
   const booking = await prisma.$transaction(async (tx) => {
     const creator = await tx.user.findUnique({
@@ -155,13 +179,7 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
     })
     if (duplicate) throw new Error("You already have a booking for this time")
 
-    await tx.creditAccount.upsert({ where: { userId: customerId }, create: { userId: customerId }, update: {} })
-    const account = await tx.creditAccount.findUnique({ where: { userId: customerId } })
-    const available = account ? account[field] - account[reserved] : 0
-    const claimed = available > 0
-      ? await tx.creditAccount.updateMany({ where: { userId: customerId, updatedAt: account!.updatedAt }, data: { [reserved]: { increment: 1 } } })
-      : { count: 0 }
-    if (!claimed.count) throw new Error(`You need an available ${input.type.toLowerCase()} session credit`)
+    await reserveBookingCredit(tx, customerId, input.type)
     try {
       return await tx.callBooking.create({ data: {
         customerId, creatorId: input.creatorId, type: input.type, timezone: input.timezone,
@@ -175,6 +193,29 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
   }, { timeout: 20000, maxWait: 10000 })
   await notifyBooking(booking.creatorId, booking.customerId, "New call proposal", `A ${input.type.toLowerCase()} call has been proposed. Go to my calls in the my calls section to view. `, booking.id, booking.creator.email)
   return booking
+}
+
+/// Charges the creator for turning up late. Called at the two-minute mark, and
+/// again as a fallback at the write-off mark for bookings the two-minute pass
+/// missed (a skipped cron tick), which is why it is guarded by
+/// creatorFineAppliedAt rather than assumed to run once.
+async function applyCreatorLateFine(
+  tx: Prisma.TransactionClient,
+  booking: { id: string; creatorId: string; type: BookingType },
+  now: Date,
+) {
+  const kind: CreditKind = booking.type === "VOICE" ? "VOICE_SESSION" : "VIDEO_SESSION"
+  const baseAmount = new Prisma.Decimal(ON_ACCOUNT_VALUE_KES[kind])
+  const rate = new Prisma.Decimal(CREATOR_FINE_PERCENT)
+  await tx.creatorFine.create({ data: {
+    creatorId: booking.creatorId,
+    bookingId: booking.id,
+    baseAmount,
+    ratePercent: rate,
+    amount: baseAmount.mul(rate).div(100),
+    reason: `Creator more than ${CREATOR_FINE_MINUTES} minutes late`,
+  } })
+  await tx.callBooking.update({ where: { id: booking.id }, data: { creatorFineAppliedAt: now } })
 }
 
 async function notifyBooking(userId: string, senderId: string, title: string, message: string, bookingId: string, email?: string | null) {
@@ -252,7 +293,12 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       }
       return tx.callBooking.update({ where: { id: booking.id }, data: { status: "APPROVED", approvedAt: new Date() } })
     }, { timeout: 20000, maxWait: 10000 })
-    await notifyBooking(booking.customerId, booking.creatorId, "Call approved", "Your call proposal was approved.", booking.id, booking.customer.email)
+    // Both parties get the confirmation — the creator used to get nothing, so a
+    // call they had just committed to left no trace in their inbox.
+    await Promise.all([
+      notifyBooking(booking.customerId, booking.creatorId, "Call approved", "Your call proposal was approved.", booking.id, booking.customer.email),
+      notifyBooking(booking.creatorId, booking.customerId, "Call confirmed", `Your ${booking.type.toLowerCase()} call with ${booking.customer.fullName} is confirmed.`, booking.id, booking.creator.email),
+    ])
     return updated
   }
   if (action === "decline") {
@@ -316,8 +362,12 @@ export async function bookingAction(userId: string, bookingId: string, action: s
   // The customer can move the same reservation to another slot. It returns
   // to the creator for approval; no second booking is created and no credit
   // is released.
+  // Also the way back from a DECLINED booking: the creator said no to the time,
+  // not to the call, so the customer can put a different slot forward on the
+  // same booking instead of starting over.
   if (action === "choose_alternative") {
-    if (isCreator || booking.status !== "COUNTER_PROPOSED") throw new Error("There is no time to change")
+    const wasDeclined = booking.status === "DECLINED"
+    if (isCreator || !(booking.status === "COUNTER_PROPOSED" || wasDeclined)) throw new Error("There is no time to change")
     if (!opts?.start) throw new Error("Choose another time")
     const chosenStart = new Date(opts.start)
     if (!Number.isFinite(chosenStart.getTime())) throw new Error("Invalid time")
@@ -325,10 +375,21 @@ export async function bookingAction(userId: string, bookingId: string, action: s
     if (!slots.some((s) => s.start === chosenStart.toISOString())) throw new Error("That time is not available")
     const chosenEnd = addMinutes(chosenStart, SESSION_MINUTES)
     const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(chosenStart, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
-    const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: {
-      status: "PROPOSED", scheduledStart: chosenStart, scheduledEnd: chosenEnd,
-      proposedStart: null, proposedEnd: null, proposalExpiresAt: expires,
-    } })
+    if (expires <= new Date()) throw new Error("That time is too soon to propose")
+    const updated = await prisma.$transaction(async (tx) => {
+      if (await hasConfirmedConflict(tx, booking.creatorId, chosenStart, booking.id)) {
+        throw new Error("That time is already booked")
+      }
+      // A COUNTER_PROPOSED booking still holds the customer's credit. A DECLINED
+      // one released it on decline, so it has to be taken again — and the
+      // customer may have spent it in the meantime.
+      if (wasDeclined) await reserveBookingCredit(tx, booking.customerId, booking.type)
+      return tx.callBooking.update({ where: { id: booking.id }, data: {
+        status: "PROPOSED", scheduledStart: chosenStart, scheduledEnd: chosenEnd,
+        proposedStart: null, proposedEnd: null, proposalExpiresAt: expires,
+        declinedAt: null,
+      } })
+    }, { timeout: 20000, maxWait: 10000 })
     await notifyBooking(booking.creatorId, booking.customerId, "Another time selected", `${booking.customer.fullName} selected another time for your approval.`, booking.id, booking.creator.email)
     return updated
   }
@@ -362,8 +423,48 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       status: "UNDER_REVIEW", completedAt: new Date(), endReason: reason.trim(),
     } })
   }
+  // Either side may hang up whenever they like. What happens to the money
+  // depends on who ended it:
+  //   customer, creator present  -> session delivered, creator paid in full
+  //   customer, creator absent   -> nothing was delivered, credit returned
+  //   creator                    -> must say why, value held under review
   if (action === "end") {
-    throw new Error("Calls remain available for the full 15-minute booking")
+    if (!["APPROVED", "LIVE"].includes(booking.status)) throw new Error("This call is not in progress")
+    if (isCreator) {
+      if (!reason?.trim()) throw new Error("Tell us why you ended the call")
+      const updated = await prisma.callBooking.update({ where: { id: booking.id }, data: {
+        status: "UNDER_REVIEW", completedAt: new Date(), endReason: reason.trim(),
+      } })
+      await notifyBooking(
+        booking.customerId, booking.creatorId, "Call ended early",
+        "The creator ended this call. It is under review and your session credit is held until that completes.",
+        booking.id, booking.customer.email,
+      )
+      return updated
+    }
+    const delivered = Boolean(booking.creatorJoinedAt)
+    const updated = await prisma.$transaction(async (tx) => {
+      if (delivered) {
+        await settleBookedSession(tx, booking)
+      } else {
+        await releaseBookingReservation(tx, booking)
+      }
+      return tx.callBooking.update({ where: { id: booking.id }, data: {
+        status: delivered ? "COMPLETED" : "CANCELLED",
+        completedAt: new Date(),
+        ...(delivered ? {} : { cancelledAt: new Date() }),
+        endReason: reason?.trim() || (delivered ? "Ended by the user" : "Ended by the user before the creator joined"),
+      } })
+    }, { timeout: 20000, maxWait: 10000 })
+    await notifyBooking(
+      booking.creatorId, booking.customerId,
+      delivered ? "Call ended" : "Call ended before you joined",
+      delivered
+        ? `${booking.customer.fullName} ended the call. The full session value has been credited to you.`
+        : `${booking.customer.fullName} ended the call before you joined, so their session credit was returned.`,
+      booking.id, booking.creator.email,
+    )
+    return updated
   }
   throw new Error("Unknown booking action")
 }
@@ -417,10 +518,48 @@ export async function reconcileBookings() {
     ])
     await prisma.callBooking.update({ where: { id: b.id }, data: { reminderSentAt: now } })
   }
+  // Stage one of the no-show ladder: the creator is late, so they lose a
+  // quarter of the session — but the booking stays APPROVED/LIVE so they can
+  // still join and earn the rest. Bounded above by the write-off mark so a
+  // booking is only ever handled by one stage per tick.
+  const lateCreators = await prisma.callBooking.findMany({ where: {
+    status: { in: ["APPROVED", "LIVE"] }, creatorJoinedAt: null, creatorFineAppliedAt: null,
+    scheduledStart: {
+      lte: addMinutes(now, -CREATOR_FINE_MINUTES),
+      gt: addMinutes(now, -NO_SHOW_MINUTES),
+    },
+  }, include: { creator: true, customer: true } })
+  for (const b of lateCreators) {
+    const fined = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
+      const current = await tx.callBooking.findUnique({ where: { id: b.id } })
+      if (
+        !current
+        || !["APPROVED", "LIVE"].includes(current.status)
+        || current.creatorJoinedAt
+        || current.creatorFineAppliedAt
+      ) return false
+      await applyCreatorLateFine(tx, current, now)
+      return true
+    }, { timeout: 20000, maxWait: 10000 })
+    if (!fined) continue
+    await Promise.all([
+      notifyBooking(
+        b.creatorId, b.customerId, "You are late for a booked call",
+        `You lost ${CREATOR_FINE_PERCENT}% of this session for being late. Join now — you still earn the rest.`,
+        b.id, b.creator.email,
+      ),
+      notifyBooking(
+        b.customerId, b.creatorId, "The creator is running late",
+        "Your call is still open and they have been penalised. If they haven't joined by the third minute you'll be refunded in full.",
+        b.id, b.customer.email,
+      ),
+    ])
+  }
   const creatorNoShows = await prisma.callBooking.findMany({ where: {
     status: { in: ["APPROVED", "LIVE"] }, creatorJoinedAt: null,
-    scheduledStart: { lte: addMinutes(now, -3) },
-  }, include: { creator: true } })
+    scheduledStart: { lte: addMinutes(now, -NO_SHOW_MINUTES) },
+  }, include: { creator: true, customer: true } })
   for (const b of creatorNoShows) {
     const outcome = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
@@ -429,25 +568,16 @@ export async function reconcileBookings() {
         !current
         || !["APPROVED", "LIVE"].includes(current.status)
         || current.creatorJoinedAt
-        || current.creatorFineAppliedAt
       ) return null
       await releaseBookingReservation(tx, current)
       await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
-      const kind: CreditKind = current.type === "VOICE" ? "VOICE_SESSION" : "VIDEO_SESSION"
-      const baseAmount = new Prisma.Decimal(ON_ACCOUNT_VALUE_KES[kind])
-      await tx.creatorFine.create({ data: {
-        creatorId: current.creatorId,
-        bookingId: current.id,
-        baseAmount,
-        ratePercent: new Prisma.Decimal(25),
-        amount: baseAmount.mul(new Prisma.Decimal("0.25")),
-        reason: "Confirmed creator no-show",
-      } })
-      await tx.callBooking.update({ where: { id: current.id }, data: { creatorFineAppliedAt: now } })
+      // Normally the two-minute pass already fined them; only charge here if it
+      // didn't get the chance.
+      if (!current.creatorFineAppliedAt) await applyCreatorLateFine(tx, current, now)
       await tx.creatorStrike.create({ data: {
         creatorId: current.creatorId,
         bookingId: current.id,
-        reason: "Creator did not join within three minutes",
+        reason: `Creator did not join within ${NO_SHOW_MINUTES} minutes`,
         expiresAt: addDays(now, 30),
       } })
       const active = await tx.creatorStrike.findMany({ where: {
@@ -455,7 +585,7 @@ export async function reconcileBookings() {
         consumedAt: null,
         createdAt: { gte: addDays(now, -30) },
       }, orderBy: { createdAt: "asc" } })
-      const restrictedUntil = active.length >= 5 ? addDays(now, 3) : null
+      const restrictedUntil = active.length >= STRIKE_LIMIT ? addHours(now, RESTRICTION_HOURS) : null
       const affected: Array<{ id: string; customerId: string; type: BookingType }> = []
       if (restrictedUntil) {
         const bookings = await tx.callBooking.findMany({ where: {
@@ -486,15 +616,54 @@ export async function reconcileBookings() {
     }, { timeout: 20000, maxWait: 10000 })
     if (!outcome) continue
     const strikeMessage = outcome.restrictedUntil
-      ? "You missed a booked call and received strike 5 of 5. Voice and video calls are restricted for 72 hours."
-      : `You missed a booked call and received a strike (${outcome.strikeTotal}/5).`
-    await notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email)
+      ? `You missed a booked call and received strike ${STRIKE_LIMIT} of ${STRIKE_LIMIT}. Voice and video calls are restricted for ${RESTRICTION_HOURS} hours.`
+      : `You missed a booked call and received a strike (${outcome.strikeTotal}/${STRIKE_LIMIT}).`
+    await Promise.all([
+      notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email),
+      // The customer used to be told nothing at all here — their credit came
+      // back with no explanation of why the call never happened.
+      notifyBooking(
+        b.customerId, b.creatorId, "Call refunded",
+        `${b.creator.fullName} did not join within ${NO_SHOW_MINUTES} minutes, so your session credit has been returned in full.`,
+        b.id, b.customer.email,
+      ),
+    ])
     for (const affected of outcome.affected) {
       await Promise.all([
         notifyBooking(affected.customerId, b.creatorId, "Call cancelled and refunded", "This call was cancelled because the creator is temporarily restricted from calls. Your session credit was returned.", affected.id),
         notifyBooking(b.creatorId, affected.customerId, "Call cancelled", "This call falls inside your 72-hour call restriction.", affected.id, b.creator.email),
       ])
     }
+  }
+  // The other half of the three-minute "did both parties join?" check. The
+  // creator showed up and the customer hasn't, which costs the customer the
+  // session (settled at scheduledEnd) — but nobody used to say so while there
+  // was still time to join. The outcome is unchanged; this is the warning.
+  const lateCustomers = await prisma.callBooking.findMany({ where: {
+    status: { in: ["APPROVED", "LIVE"] },
+    customerJoinedAt: null, creatorJoinedAt: { not: null },
+    lateNoticeSentAt: null,
+    scheduledStart: { lte: addMinutes(now, -NO_SHOW_MINUTES) },
+    scheduledEnd: { gt: now },
+  }, include: { creator: true, customer: true } })
+  for (const b of lateCustomers) {
+    const claimed = await prisma.callBooking.updateMany({
+      where: { id: b.id, lateNoticeSentAt: null },
+      data: { lateNoticeSentAt: now },
+    })
+    if (!claimed.count) continue
+    await Promise.all([
+      notifyBooking(
+        b.customerId, b.creatorId, "Your call is waiting",
+        `${b.creator.fullName} joined and is waiting. The room stays open until the end of your slot, but the session is charged whether or not you join.`,
+        b.id, b.customer.email,
+      ),
+      notifyBooking(
+        b.creatorId, b.customerId, "The user hasn't joined",
+        "They are past the three-minute mark. Stay on — this session still counts as delivered and you earn the full value.",
+        b.id, b.creator.email,
+      ),
+    ])
   }
   const due = await prisma.callBooking.findMany({ where: { status: { in: ["APPROVED", "LIVE"] }, scheduledEnd: { lte: now } } })
   for (const b of due) await prisma.$transaction(async (tx) => {

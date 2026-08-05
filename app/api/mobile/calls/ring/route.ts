@@ -57,6 +57,9 @@ export async function POST(request: Request) {
       calleeId: callee.id,
       receiverName: callee.fullName,
       receiverPhotoUrl: callee.avatarUrl ?? "",
+      // Which side is the creator — the client needs this because ending a call
+      // asks the creator for a reason but lets the customer just hang up.
+      creatorId: booking.creatorId,
       expiresAt: invite.expiresAt.toISOString(),
       // The booked slot's hard end — the client ends the call here so a
       // 15-minute session can't run indefinitely.

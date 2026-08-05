@@ -882,6 +882,9 @@ model CallBooking {
   completedAt          DateTime?
   creatorFineAppliedAt DateTime?
   reminderSentAt       DateTime?
+  // Marks the three-minute both-parties-joined check as done, so the late
+  // notice is sent once rather than on every reconcile tick.
+  lateNoticeSentAt     DateTime?
   endReason            String?       @db.Text
   reviewDecision       String?
   reviewedAt           DateTime?
