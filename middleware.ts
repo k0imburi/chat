@@ -35,8 +35,16 @@ export async function middleware(request: NextRequest) {
   const adminHost = (process.env.ADMIN_HOST || "admin.chatandtip.com").toLowerCase()
   const customerHost = (process.env.CUSTOMER_HOST || "www.chatandtip.com").toLowerCase()
   const apexHost = (process.env.ROOT_HOST || "chatandtip.com").toLowerCase()
+  const contactHost = (process.env.CONTACT_HOST || "contact.chatandtip.com").toLowerCase()
   const isLocal = hostname === "localhost" || hostname === "127.0.0.1"
   const isCustomerHost = hostname === customerHost || hostname === apexHost
+
+  // contact.chatandtip.com is a wildcard subdomain of the same Railway
+  // service (no separate deployment) — every path there shows the contact
+  // page rather than the main feed.
+  if (hostname === contactHost && pathname === "/") {
+    return NextResponse.rewrite(new URL("/contact", request.url))
+  }
   const isAdminHost = !isCustomerHost && (hostname === adminHost || hostname === "admin.localhost" || (isLocal && request.nextUrl.searchParams.get("surface") === "admin"))
   const isAdminPath = adminPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
   const adminOnlyApi = ["/api/admin/"]

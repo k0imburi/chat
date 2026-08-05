@@ -1292,3 +1292,18 @@ model UserKey {
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+// Public contact-us submissions (contact.chatandtip.com). Persisted so a
+// message isn't lost if outbound email is disabled or misconfigured — email
+// notifies the admin inbox, this table is the record of truth.
+model ContactMessage {
+  id        String   @id @default(cuid())
+  fullName  String
+  address   String   @db.Text
+  email     String
+  phone     String
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
