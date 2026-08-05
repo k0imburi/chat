@@ -41,6 +41,35 @@ export async function reportMedia(input: { reporterId: string; mediaId: string; 
   })
 }
 
+/**
+ * Admin decision on a reported post: restore it (visible again) or remove it
+ * (stays hidden). Mirrors resolveCopyright's restore/remove pattern.
+ */
+export async function resolveReportedMedia(mediaId: string, decision: "restore" | "remove") {
+  const media = await prisma.userMedia.findUnique({
+    where: { id: mediaId },
+    select: { userId: true },
+  })
+  if (!media) throw new Error("Post not found")
+
+  await prisma.userMedia.update({
+    where: { id: mediaId },
+    data: { reportStatus: decision === "restore" ? null : "REMOVED" },
+  })
+
+  await createUserNotification({
+    userId: media.userId,
+    title: decision === "restore" ? "Post restored" : "Post removed",
+    message: decision === "restore"
+      ? "Your reported post passed review and is visible again."
+      : "Your post was removed after a moderation review.",
+    type: "report",
+    metadata: { videoId: mediaId, reportDecision: decision === "restore" ? "RESTORED" : "REMOVED" },
+  })
+
+  return { status: decision === "restore" ? "RESTORED" : "REMOVED" }
+}
+
 /** Report an account (not tied to a specific post) — flags it for admin review. */
 export async function reportUserAccount(input: { reporterId: string; reportedUserId: string; message: string }) {
   await prisma.$transaction([

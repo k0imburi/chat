@@ -1,6 +1,6 @@
 import "server-only"
 
-import { Prisma, TipRequestStatus, UserRole } from "@prisma/client"
+import { Prisma, UserRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { DEFAULT_PAGE_SIZE } from "@/lib/constants"
 import { formatWalletAccountId, getSignedWalletAmount } from "@/lib/wallet-account"
@@ -400,66 +400,3 @@ export async function getWithdrawalsAdmin(params: {
   }
 }
 
-export async function getTipRequestsAdmin(params: {
-  query?: string
-  status?: string
-}) {
-  const query = params.query?.trim()
-  const status =
-    params.status && params.status !== "ALL"
-      ? (params.status.toUpperCase() as TipRequestStatus)
-      : undefined
-
-  const where: Prisma.TipRequestWhereInput = {
-    ...(status ? { status } : {}),
-    ...(query
-      ? {
-          OR: [
-            { sender: { fullName: { contains: query } } },
-            { receiver: { fullName: { contains: query } } },
-          ],
-        }
-      : {}),
-  }
-
-  const [items, pendingAgg, sentAgg, completedAgg, cancelledAgg] = await Promise.all([
-    prisma.tipRequest.findMany({
-      where,
-      include: {
-        sender: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-          },
-        },
-        receiver: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.tipRequest.aggregate({ where: { status: TipRequestStatus.PENDING }, _count: true, _sum: { amount: true } }),
-    prisma.tipRequest.aggregate({ where: { status: TipRequestStatus.SENT }, _count: true, _sum: { amount: true } }),
-    prisma.tipRequest.aggregate({ where: { status: TipRequestStatus.COMPLETED }, _count: true, _sum: { amount: true } }),
-    prisma.tipRequest.aggregate({ where: { status: TipRequestStatus.CANCELLED }, _count: true, _sum: { amount: true } }),
-  ])
-
-  return {
-    items: items.map((item) => ({
-      ...item,
-      amount: money(item.amount),
-    })),
-    summary: {
-      pendingCount: pendingAgg._count,
-      pendingAmount: money(pendingAgg._sum.amount),
-      sentCount: sentAgg._count,
-      completedCount: completedAgg._count,
-      cancelledCount: cancelledAgg._count,
-    },
-  }
-}

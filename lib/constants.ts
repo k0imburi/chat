@@ -11,7 +11,6 @@ import {
   MessageSquareMore,
   ScanFace,
   ShieldEllipsis,
-  ReceiptText,
   Settings,
   ShieldCheck,
   ShieldQuestion,
@@ -31,7 +30,6 @@ export const NAV_ITEMS = [
   { title: "Reports", url: "/reports", icon: TriangleAlert },
   { title: "Wallets", url: "/wallets", icon: CircleDollarSign },
   { title: "Withdrawals", url: "/withdrawals", icon: Landmark },
-  { title: "Tip Requests", url: "/tip-requests", icon: ReceiptText },
   { title: "Chats", url: "/chats", icon: MessageSquareMore },
   { title: "Assets", url: "/assets", icon: Archive },
   { title: "Explore Insights", url: "/explore-insights", icon: Flame },
@@ -69,7 +67,6 @@ export const NAV_GROUPS = [
     items: [
       { title: "Wallets", url: "/wallets", icon: CircleDollarSign },
       { title: "Withdrawals", url: "/withdrawals", icon: Landmark },
-      { title: "Tip Requests", url: "/tip-requests", icon: ReceiptText },
       { title: "Payment Plans", url: "/payment-plans", icon: CreditCard },
       { title: "Payment Reconciliation", url: "/payment-reconciliation", icon: ListChecks },
       { title: "Creator Verifications", url: "/creator-verifications", icon: FileCheck2 },

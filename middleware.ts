@@ -23,7 +23,7 @@ const bypassPrefixes = [
 
 const adminPrefixes = [
   "/dashboard", "/users", "/reports", "/wallets", "/withdrawals",
-  "/tip-requests", "/chats", "/assets", "/explore-insights",
+  "/chats", "/assets", "/explore-insights",
   "/verification-logs", "/payment-plans", "/notifications", "/settings",
   "/payment-reconciliation", "/creator-verifications", "/held-tips",
   "/booking-reviews", "/creator-payouts",

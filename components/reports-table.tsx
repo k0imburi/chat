@@ -6,7 +6,7 @@ import { Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DataTable, type DataTableColumn } from "@/components/data-table"
-import { queryReportsAction, deleteReportByIdAction } from "@/lib/actions/reports"
+import { queryReportsAction, deleteReportByIdAction, resolveReportedMediaAction } from "@/lib/actions/reports"
 import { formatDateTime } from "@/lib/format"
 
 type Report = Awaited<ReturnType<typeof queryReportsAction>>[number]
@@ -30,7 +30,48 @@ export function ReportsTable({ initialReports }: { initialReports: Report[] }) {
     })
   }
 
+  function handleResolve(report: Report, decision: "restore" | "remove") {
+    if (!report.media) return
+    const mediaId = report.media.id
+    startTransition(async () => {
+      await resolveReportedMediaAction(mediaId, decision)
+      setReports((prev) =>
+        prev.map((r) =>
+          r.media?.id === mediaId
+            ? { ...r, media: { ...r.media, reportStatus: decision === "restore" ? null : "REMOVED" } }
+            : r,
+        ),
+      )
+    })
+  }
+
   const columns: DataTableColumn<Report>[] = [
+    {
+      key: "content",
+      header: "Reported content",
+      render: (report) =>
+        report.media ? (
+          <a
+            href={report.media.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 hover:opacity-80"
+            title="Open post"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={report.media.thumbnailUrl || report.media.url}
+              alt=""
+              className="h-14 w-14 shrink-0 rounded-md border object-cover"
+            />
+            <span className="max-w-[160px] truncate text-xs text-muted-foreground">
+              {report.media.title || "Untitled post"}
+            </span>
+          </a>
+        ) : (
+          <span className="text-xs text-muted-foreground">Account report — no post</span>
+        ),
+    },
     {
       key: "reported-user",
       header: "Reported user",
@@ -62,15 +103,33 @@ export function ReportsTable({ initialReports }: { initialReports: Report[] }) {
       headerClassName: "text-right",
       cellClassName: "text-right",
       render: (report) => (
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          disabled={isPending}
-          onClick={() => handleDelete(report.id)}
-        >
-          Delete
-        </Button>
+        <div className="flex justify-end gap-2">
+          {report.media ? (
+            report.media.reportStatus === "UNDER_REVIEW" ? (
+              <>
+                <Button type="button" size="sm" disabled={isPending} onClick={() => handleResolve(report, "restore")}>
+                  Restore
+                </Button>
+                <Button type="button" variant="destructive" size="sm" disabled={isPending} onClick={() => handleResolve(report, "remove")}>
+                  Remove
+                </Button>
+              </>
+            ) : (
+              <span className="self-center text-xs text-muted-foreground">
+                {report.media.reportStatus === "REMOVED" ? "Removed" : "Restored"}
+              </span>
+            )
+          ) : null}
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={isPending}
+            onClick={() => handleDelete(report.id)}
+          >
+            Delete
+          </Button>
+        </div>
       ),
     },
   ]

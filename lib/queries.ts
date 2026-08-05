@@ -82,6 +82,9 @@ export async function getReports({ query = "" }: { query?: string } = {}) {
     include: {
       target: true,
       reporter: true,
+      media: {
+        select: { id: true, title: true, url: true, thumbnailUrl: true, kind: true, reportStatus: true },
+      },
     },
     orderBy: { createdAt: "desc" },
   })

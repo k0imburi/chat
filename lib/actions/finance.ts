@@ -1,16 +1,14 @@
 "use server"
 
-import { TipRequestStatus } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { requireSessionUser } from "@/lib/auth"
-import { getWalletAccounts, getWithdrawalsAdmin, getTipRequestsAdmin } from "@/lib/finance-queries"
+import { getWalletAccounts, getWithdrawalsAdmin } from "@/lib/finance-queries"
 import { createWalletTransaction, serializeWalletTransaction, serializeWithdrawal } from "@/lib/mobile-wallet"
 import { settlePayout } from "@/lib/mobile-finance"
 import { errorResult, getActionFormData, successResult, type ActionResult } from "@/lib/actions/action-result"
 import { createUserNotification } from "@/lib/mobile-notifications"
-import { serializeTipRequest } from "@/lib/mobile-tip-requests"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 const walletQuerySchema = z.object({
@@ -28,11 +26,6 @@ const walletAdjustmentSchema = z.object({
 const withdrawalStatusSchema = z.object({
   withdrawalId: z.string().min(1),
   status: z.enum(["approved", "paid", "rejected", "cancelled"]),
-})
-
-const tipRequestStatusSchema = z.object({
-  tipRequestId: z.string().min(1),
-  status: z.enum(["pending", "sent", "completed", "cancelled"]),
 })
 
 function buildAdminTransactionId(prefix: string, entityId: string) {
@@ -54,14 +47,6 @@ export async function queryWithdrawalsAdminAction(params: {
 }) {
   await requireSessionUser()
   return getWithdrawalsAdmin(params)
-}
-
-export async function queryTipRequestsAdminAction(params: {
-  query?: string
-  status?: string
-}) {
-  await requireSessionUser()
-  return getTipRequestsAdmin(params)
 }
 
 export async function createWalletAdjustmentAction(
@@ -281,66 +266,3 @@ export async function updateWithdrawalStatusAdminAction(withdrawalId: string, ne
   return { success: true, message: "Withdrawal status updated successfully." }
 }
 
-export async function updateTipRequestStatusAdminAction(tipRequestId: string, nextStatus: string) {
-  await requireSessionUser()
-  const parsed = tipRequestStatusSchema.parse({
-    tipRequestId,
-    status: nextStatus,
-  })
-
-  const tipRequest = await prisma.tipRequest.findUnique({
-    where: { id: parsed.tipRequestId },
-    include: {
-      sender: { select: { fullName: true } },
-      receiver: { select: { fullName: true } },
-    },
-  })
-
-  if (!tipRequest) {
-    throw new Error("Tip request not found.")
-  }
-
-  const status = parsed.status.toUpperCase() as TipRequestStatus
-
-  const updatedTipRequest = await prisma.$transaction(async (tx) => {
-    await tx.tipRequest.update({
-      where: { id: tipRequest.id },
-      data: { status },
-    })
-
-    return tx.tipRequest.findUnique({
-      where: { id: tipRequest.id },
-    })
-  })
-
-  if (updatedTipRequest) {
-    const serialized = serializeTipRequest(updatedTipRequest)
-    emitChatRealtimeToUser(tipRequest.senderId, {
-      channel: "tip_requests",
-      type: "tip_request_updated",
-      otherUserId: tipRequest.receiverId,
-      data: serialized,
-    })
-    emitChatRealtimeToUser(tipRequest.receiverId, {
-      channel: "tip_requests",
-      type: "tip_request_updated",
-      otherUserId: tipRequest.senderId,
-      data: serialized,
-    })
-  }
-
-  await createUserNotification({
-    userId: tipRequest.senderId,
-    title: "Tip request update",
-    message: `${tipRequest.receiver.fullName.split(" ").at(0) || "A user"} tip request is now ${parsed.status}.`,
-    type: "tip_request_update",
-    metadata: {
-      tipRequestId: tipRequest.id,
-      status: parsed.status,
-      amount: Number(tipRequest.amount),
-    },
-  })
-
-  revalidatePath("/tip-requests")
-  return { success: true, message: "Tip request status updated successfully." }
-}

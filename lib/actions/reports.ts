@@ -5,6 +5,7 @@ import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { requireSessionUser } from "@/lib/auth"
 import { getReports } from "@/lib/queries"
+import { resolveReportedMedia } from "@/lib/mobile-reports"
 
 const schema = z.object({
   reportId: z.string().min(1),
@@ -27,4 +28,11 @@ export async function deleteReportByIdAction(reportId: string) {
   await requireSessionUser()
   await prisma.report.delete({ where: { id: reportId } })
   revalidatePath("/dashboard")
+}
+
+export async function resolveReportedMediaAction(mediaId: string, decision: "restore" | "remove") {
+  await requireSessionUser()
+  const result = await resolveReportedMedia(mediaId, decision)
+  revalidatePath("/reports")
+  return result
 }

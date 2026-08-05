@@ -67,9 +67,11 @@ export default async function CreatorVerificationsPage() {
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-muted-foreground">{formatDate(row.submittedAt || row.createdAt)}</td>
                   <td className="px-5 py-4">
-                    <DocumentKey label="ID front" value={row.idFrontObjectKey} />
-                    <DocumentKey label="ID back" value={row.idBackObjectKey} />
-                    <DocumentKey label="Selfie" value={row.selfieObjectKey} />
+                    <div className="flex flex-col gap-2">
+                      <DocumentKey label="ID front" value={row.idFrontObjectKey} />
+                      <DocumentKey label="ID back" value={row.idBackObjectKey} />
+                      <DocumentKey label="Selfie" value={row.selfieObjectKey} />
+                    </div>
                   </td>
                   <td className="px-5 py-4">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${badgeStyles[row.status] || badgeStyles.NOT_SUBMITTED}`}>
@@ -142,26 +144,30 @@ function SummaryCard({ label, value, icon }: { label: string; value: number; ico
 function DocumentKey({ label, value }: { label: string; value: string | null }) {
   if (!value) {
     return (
-      <p className="max-w-sm truncate text-xs">
+      <p className="text-xs">
         <span className="font-semibold text-foreground">{label}:</span>{" "}
         <span className="font-mono text-muted-foreground">missing</span>
       </p>
     )
   }
 
+  const href = `/api/admin/private-file?key=${encodeURIComponent(value)}`
   return (
-    <div className="flex max-w-sm items-center gap-2 text-xs">
-      <span className="font-semibold text-foreground">{label}:</span>
-      <a
-        href={`/api/admin/private-file?key=${encodeURIComponent(value)}`}
-        target="_blank"
-        rel="noreferrer"
-        className="rounded-full bg-muted px-2.5 py-1 font-bold text-foreground hover:bg-muted/80"
-      >
-        View
-      </a>
-      <span className="min-w-0 truncate font-mono text-muted-foreground">{value}</span>
-    </div>
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center gap-2 text-xs hover:opacity-80"
+      title={`${label} — open full size`}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={href}
+        alt={label}
+        className="h-14 w-20 shrink-0 rounded-md border object-cover"
+      />
+      <span className="font-semibold text-foreground">{label}</span>
+    </a>
   )
 }
 
