@@ -69,10 +69,10 @@ export default function ContactPage() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#101211] px-4 py-12 text-white sm:py-16">
+    <main className="relative min-h-screen overflow-hidden bg-[#FAFAF8] px-4 py-12 text-neutral-900 sm:py-16">
       {/* A single flat wash, not a neon glow — keeps depth without the
           gradient-blob look. */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_15%_0%,rgba(63,163,77,0.10),transparent)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_15%_0%,rgba(47,143,59,0.06),transparent)]" />
 
       <div className="relative mx-auto grid w-full max-w-5xl min-w-0 gap-10 lg:grid-cols-[1.05fr_1fr] lg:gap-16">
         {/* ── Left: brand / info panel ───────────────────────── */}
@@ -92,9 +92,9 @@ export default function ContactPage() {
           <h1 className="mt-8 text-4xl font-black leading-[1.1] tracking-tight sm:text-5xl">
             Let&apos;s talk.
             <br />
-            <span className="text-[#5FBF6C]">We&apos;re listening.</span>
+            <span className="text-[#2F8F3B]">We&apos;re listening.</span>
           </h1>
-          <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/60">
+          <p className="mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500">
             Questions, feedback, or something urgent — send us a message and
             our team will get back to you by email.
           </p>
@@ -107,19 +107,19 @@ export default function ContactPage() {
         </div>
 
         {/* ── Right: form card ───────────────────────────────── */}
-        <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-8">
+        <div className="min-w-0 rounded-3xl border border-neutral-200 bg-white p-6 shadow-xl shadow-neutral-200/60 sm:p-8">
           {status === "sent" ? (
             <div className="flex min-h-[26rem] flex-col items-center justify-center text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#3FA34D]/15">
-                <CheckCircle2 className="h-9 w-9 text-[#5FBF6C]" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#2F8F3B]/10">
+                <CheckCircle2 className="h-9 w-9 text-[#2F8F3B]" />
               </div>
               <h2 className="mt-5 text-2xl font-bold">Message sent</h2>
-              <p className="mt-2 max-w-xs text-sm text-white/55">
+              <p className="mt-2 max-w-xs text-sm text-neutral-500">
                 Thanks for reaching out — we&apos;ll get back to you shortly.
               </p>
               <button
                 onClick={() => setStatus("idle")}
-                className="mt-6 rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/80 transition hover:border-white/30 hover:text-white"
+                className="mt-6 rounded-full border border-neutral-300 px-5 py-2.5 text-sm font-semibold text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900"
               >
                 Send another message
               </button>
@@ -127,39 +127,39 @@ export default function ContactPage() {
           ) : (
             <>
               <h2 className="text-xl font-bold">Send a message</h2>
-              <p className="mt-1 text-sm text-white/50">
+              <p className="mt-1 text-sm text-neutral-500">
                 Fill in your details below.
               </p>
 
               <div className="mt-6 space-y-4">
                 {FIELDS.map(({ key, label, type, icon: Icon, autoComplete }) => (
                   <div key={key}>
-                    <label className="mb-1.5 block text-xs font-semibold text-white/70">
+                    <label className="mb-1.5 block text-xs font-semibold text-neutral-600">
                       {label}
                     </label>
-                    <div className="group flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 transition focus-within:border-[#5FBF6C]/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-[#5FBF6C]/15">
-                      <Icon className="h-4 w-4 shrink-0 text-white/35 transition group-focus-within:text-[#5FBF6C]" />
+                    <div className="group flex items-center gap-2.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-3 transition focus-within:border-[#2F8F3B]/50 focus-within:bg-white focus-within:ring-2 focus-within:ring-[#2F8F3B]/15">
+                      <Icon className="h-4 w-4 shrink-0 text-neutral-400 transition group-focus-within:text-[#2F8F3B]" />
                       <input
                         type={type}
                         autoComplete={autoComplete}
                         value={values[key]}
                         onChange={(e) => setField(key, e.target.value)}
-                        className="w-full min-w-0 bg-transparent text-sm text-white placeholder:text-white/25 focus:outline-none"
+                        className="w-full min-w-0 bg-transparent text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none"
                       />
                     </div>
                   </div>
                 ))}
 
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-white/70">
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600">
                     Message
                   </label>
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 transition focus-within:border-[#5FBF6C]/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-[#5FBF6C]/15">
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-3 transition focus-within:border-[#2F8F3B]/50 focus-within:bg-white focus-within:ring-2 focus-within:ring-[#2F8F3B]/15">
                     <textarea
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
                       rows={4}
-                      className="w-full resize-none bg-transparent text-sm text-white placeholder:text-white/25 focus:outline-none"
+                      className="w-full resize-none bg-transparent text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none"
                       placeholder="How can we help?"
                     />
                   </div>
@@ -169,7 +169,7 @@ export default function ContactPage() {
               <button
                 disabled={!canSend}
                 onClick={submit}
-                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#3FA34D] py-3.5 text-sm font-bold text-white transition hover:bg-[#469f53] disabled:cursor-not-allowed disabled:opacity-35"
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#2F8F3B] py-3.5 text-sm font-bold text-white transition hover:bg-[#297D33] disabled:cursor-not-allowed disabled:opacity-35"
               >
                 {sending ? (
                   <>
@@ -185,7 +185,7 @@ export default function ContactPage() {
               </button>
 
               {status === "error" && (
-                <p className="mt-3 text-center text-sm text-rose-400">{statusText}</p>
+                <p className="mt-3 text-center text-sm text-rose-600">{statusText}</p>
               )}
             </>
           )}
@@ -206,12 +206,12 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-center gap-3.5">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
-        <Icon className="h-4 w-4 text-[#5FBF6C]" />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white">
+        <Icon className="h-4 w-4 text-[#2F8F3B]" />
       </div>
       <div>
-        <p className="text-xs text-white/40">{label}</p>
-        <p className="text-sm font-semibold text-white/90">{value}</p>
+        <p className="text-xs text-neutral-400">{label}</p>
+        <p className="text-sm font-semibold text-neutral-800">{value}</p>
       </div>
     </div>
   )
