@@ -191,7 +191,7 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
       throw error
     }
   }, { timeout: 20000, maxWait: 10000 })
-  await notifyBooking(booking.creatorId, booking.customerId, "New call proposal", `A ${input.type.toLowerCase()} call has been proposed. Go to my calls in the my calls section to view. `, booking.id, booking.creator.email)
+  await notifyBooking(booking.creatorId, booking.customerId, "New call proposal", `A ${input.type.toLowerCase()} call has been proposed. Go to my calls  section to view. `, booking.id, booking.creator.email)
   return booking
 }
 
@@ -437,7 +437,7 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       } })
       await notifyBooking(
         booking.customerId, booking.creatorId, "Call ended early",
-        "The creator ended this call. It is under review and your session credit is held until that completes.",
+        "Call ended. Under review.",
         booking.id, booking.customer.email,
       )
       return updated
@@ -460,8 +460,8 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       booking.creatorId, booking.customerId,
       delivered ? "Call ended" : "Call ended before you joined",
       delivered
-        ? `${booking.customer.fullName} ended the call. The full session value has been credited to you.`
-        : `${booking.customer.fullName} ended the call before you joined, so their session credit was returned.`,
+        ? `${booking.customer.fullName} ended the call. You've been paid in full.`
+        : `${booking.customer.fullName} ended the call before you joined.`,
       booking.id, booking.creator.email,
     )
     return updated
@@ -545,13 +545,13 @@ export async function reconcileBookings() {
     if (!fined) continue
     await Promise.all([
       notifyBooking(
-        b.creatorId, b.customerId, "You are late for a booked call",
-        `You lost ${CREATOR_FINE_PERCENT}% of this session for being late. Join now — you still earn the rest.`,
+        b.creatorId, b.customerId, "You're late",
+        "Join the call now.",
         b.id, b.creator.email,
       ),
       notifyBooking(
-        b.customerId, b.creatorId, "The creator is running late",
-        "Your call is still open and they have been penalised. If they haven't joined by the third minute you'll be refunded in full.",
+        b.customerId, b.creatorId, "Running late",
+        "The creator hasn't joined yet. Stay on the call.",
         b.id, b.customer.email,
       ),
     ])
@@ -616,22 +616,22 @@ export async function reconcileBookings() {
     }, { timeout: 20000, maxWait: 10000 })
     if (!outcome) continue
     const strikeMessage = outcome.restrictedUntil
-      ? `You missed a booked call and received strike ${STRIKE_LIMIT} of ${STRIKE_LIMIT}. Voice and video calls are restricted for ${RESTRICTION_HOURS} hours.`
-      : `You missed a booked call and received a strike (${outcome.strikeTotal}/${STRIKE_LIMIT}).`
+      ? `Missed call — strike ${STRIKE_LIMIT}/${STRIKE_LIMIT}. Calls restricted for ${RESTRICTION_HOURS} hours.`
+      : `Missed call — strike ${outcome.strikeTotal}/${STRIKE_LIMIT}.`
     await Promise.all([
       notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email),
       // The customer used to be told nothing at all here — their credit came
       // back with no explanation of why the call never happened.
       notifyBooking(
         b.customerId, b.creatorId, "Call refunded",
-        `${b.creator.fullName} did not join within ${NO_SHOW_MINUTES} minutes, so your session credit has been returned in full.`,
+        `${b.creator.fullName} didn't join. You've been refunded.`,
         b.id, b.customer.email,
       ),
     ])
     for (const affected of outcome.affected) {
       await Promise.all([
-        notifyBooking(affected.customerId, b.creatorId, "Call cancelled and refunded", "This call was cancelled because the creator is temporarily restricted from calls. Your session credit was returned.", affected.id),
-        notifyBooking(b.creatorId, affected.customerId, "Call cancelled", "This call falls inside your 72-hour call restriction.", affected.id, b.creator.email),
+        notifyBooking(affected.customerId, b.creatorId, "Call cancelled and refunded", "Cancelled and refunded.", affected.id),
+        notifyBooking(b.creatorId, affected.customerId, "Call cancelled", "Cancelled — you're restricted.", affected.id, b.creator.email),
       ])
     }
   }
@@ -655,12 +655,12 @@ export async function reconcileBookings() {
     await Promise.all([
       notifyBooking(
         b.customerId, b.creatorId, "Your call is waiting",
-        `${b.creator.fullName} joined and is waiting. The room stays open until the end of your slot, but the session is charged whether or not you join.`,
+        `${b.creator.fullName} is waiting. Join now.`,
         b.id, b.customer.email,
       ),
       notifyBooking(
         b.creatorId, b.customerId, "The user hasn't joined",
-        "They are past the three-minute mark. Stay on — this session still counts as delivered and you earn the full value.",
+        "Stay on the call — it still counts.",
         b.id, b.creator.email,
       ),
     ])
