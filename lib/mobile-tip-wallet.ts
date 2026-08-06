@@ -1,10 +1,9 @@
 import "server-only"
-import { ChatMessageType, TipTier, Prisma } from "@prisma/client"
+import { TipTier, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { initiateStkPush, normalizePhone } from "@/lib/mpesa"
 import { TIP_USD, TIP_CREATOR_SHARE, TIP_REVIEW_THRESHOLD } from "@/lib/mobile-credits"
 import { newPaymentIdempotencyKey } from "@/lib/payment-attempts"
-import { emitChatRealtimeToUser } from "@/lib/realtime"
 import { createUserNotification } from "@/lib/mobile-notifications"
 
 export type TipWallet = { pebbles: number; gems: number; diamonds: number }
@@ -209,39 +208,9 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       },
     })
 
-    // Create TIP chat message in the existing thread (if one exists)
-    const participant = await tx.chatParticipant.findFirst({
-      where: { userId: input.senderId, otherUserId: input.receiverId },
-      select: { threadId: true },
-    })
-    let tipMessage: { id: string; threadId: string; sentAt: Date } | null = null
-    if (participant) {
-      const msg = await tx.chatMessage.create({
-        data: {
-          threadId: participant.threadId,
-          senderId: input.senderId,
-          type: ChatMessageType.TIP,
-          text: input.tier,
-          reactions: {},
-          locked: false,
-        },
-        select: { id: true, threadId: true, sentAt: true },
-      })
-      tipMessage = msg
-      await tx.chatThread.update({
-        where: { id: participant.threadId },
-        data: { lastMessageAt: msg.sentAt, lastMessageType: ChatMessageType.TIP },
-      })
-      await tx.chatParticipant.updateMany({
-        where: { threadId: participant.threadId, userId: input.receiverId },
-        data: { unreadCount: { increment: 1 } },
-      })
-    }
-
     const updated = await tx.creditAccount.findUnique({ where: { userId: input.senderId } })
     return {
       tip,
-      tipMessage,
       flaggedForReview,
       wallet: {
         pebbles: updated?.pebbles ?? 0,
@@ -254,30 +223,6 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
   // A flagged tip is held silently — no notification to either side. It just
   // won't show as available until an admin releases it from Held Tips, at
   // which point it appears in the creator's wallet like any other earning.
-
-  // Push TIP message to both parties in real time
-  if (result.tipMessage) {
-    const serializedTip = {
-      id: result.tipMessage.id,
-      chatId: result.tipMessage.threadId,
-      senderId: input.senderId,
-      type: "tip",
-      textMsg: input.tier,
-      imageUrl: "",
-      replyToId: "",
-      replyToText: "",
-      replyToSenderId: "",
-      replyToSenderName: "",
-      reactions: {},
-      isRead: false,
-      locked: false,
-      lockedContentType: "",
-      unlockKind: "",
-      sentAt: result.tipMessage.sentAt.toISOString(),
-    }
-    emitChatRealtimeToUser(input.senderId, { channel: "chat", type: "message_created", otherUserId: input.receiverId, data: serializedTip })
-    emitChatRealtimeToUser(input.receiverId, { channel: "chat", type: "message_created", otherUserId: input.senderId, data: serializedTip })
-  }
 
   const tierName = ({ PEBBLE: "Pebble", GEM: "Gem", DIAMOND: "Diamond" })[input.tier] ?? input.tier
   const sender = await prisma.user.findUnique({
