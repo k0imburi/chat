@@ -69,13 +69,10 @@ export default function ContactPage() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#07090a] px-4 py-12 text-white sm:py-16">
-      {/* Ambient glow */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-32 -top-32 h-[28rem] w-[28rem] rounded-full bg-emerald-500/20 blur-[110px]" />
-        <div className="absolute -right-24 top-1/3 h-[24rem] w-[24rem] rounded-full bg-emerald-400/10 blur-[100px]" />
-        <div className="absolute bottom-0 left-1/3 h-[20rem] w-[20rem] rounded-full bg-teal-500/10 blur-[100px]" />
-      </div>
+    <main className="relative min-h-screen overflow-hidden bg-[#101211] px-4 py-12 text-white sm:py-16">
+      {/* A single flat wash, not a neon glow — keeps depth without the
+          gradient-blob look. */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_15%_0%,rgba(63,163,77,0.10),transparent)]" />
 
       <div className="relative mx-auto grid w-full max-w-5xl min-w-0 gap-10 lg:grid-cols-[1.05fr_1fr] lg:gap-16">
         {/* ── Left: brand / info panel ───────────────────────── */}
@@ -95,9 +92,7 @@ export default function ContactPage() {
           <h1 className="mt-8 text-4xl font-black leading-[1.1] tracking-tight sm:text-5xl">
             Let&apos;s talk.
             <br />
-            <span className="bg-gradient-to-r from-emerald-300 to-teal-400 bg-clip-text text-transparent">
-              We&apos;re listening.
-            </span>
+            <span className="text-[#5FBF6C]">We&apos;re listening.</span>
           </h1>
           <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/60">
             Questions, feedback, or something urgent — send us a message and
@@ -115,8 +110,8 @@ export default function ContactPage() {
         <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-8">
           {status === "sent" ? (
             <div className="flex min-h-[26rem] flex-col items-center justify-center text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/15">
-                <CheckCircle2 className="h-9 w-9 text-emerald-400" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#3FA34D]/15">
+                <CheckCircle2 className="h-9 w-9 text-[#5FBF6C]" />
               </div>
               <h2 className="mt-5 text-2xl font-bold">Message sent</h2>
               <p className="mt-2 max-w-xs text-sm text-white/55">
@@ -142,8 +137,8 @@ export default function ContactPage() {
                     <label className="mb-1.5 block text-xs font-semibold text-white/70">
                       {label}
                     </label>
-                    <div className="group flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 transition focus-within:border-emerald-400/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-emerald-400/15">
-                      <Icon className="h-4 w-4 shrink-0 text-white/35 transition group-focus-within:text-emerald-400" />
+                    <div className="group flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 transition focus-within:border-[#5FBF6C]/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-[#5FBF6C]/15">
+                      <Icon className="h-4 w-4 shrink-0 text-white/35 transition group-focus-within:text-[#5FBF6C]" />
                       <input
                         type={type}
                         autoComplete={autoComplete}
@@ -159,7 +154,7 @@ export default function ContactPage() {
                   <label className="mb-1.5 block text-xs font-semibold text-white/70">
                     Message
                   </label>
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 transition focus-within:border-emerald-400/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-emerald-400/15">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 transition focus-within:border-[#5FBF6C]/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-[#5FBF6C]/15">
                     <textarea
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
@@ -174,7 +169,7 @@ export default function ContactPage() {
               <button
                 disabled={!canSend}
                 onClick={submit}
-                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 transition hover:shadow-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-35 disabled:shadow-none"
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#3FA34D] py-3.5 text-sm font-bold text-white transition hover:bg-[#469f53] disabled:cursor-not-allowed disabled:opacity-35"
               >
                 {sending ? (
                   <>
@@ -212,7 +207,7 @@ function InfoRow({
   return (
     <div className="flex items-center gap-3.5">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
-        <Icon className="h-4 w-4 text-emerald-400" />
+        <Icon className="h-4 w-4 text-[#5FBF6C]" />
       </div>
       <div>
         <p className="text-xs text-white/40">{label}</p>
