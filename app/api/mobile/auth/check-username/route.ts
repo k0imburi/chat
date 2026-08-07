@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { isUsernameAvailable, isValidUsernameFormat } from "@/lib/username-rules"
 
+// Every result here must reflect the current DB state — never cache this.
+export const dynamic = "force-dynamic"
+
 export async function GET(request: Request) {
   const url = new URL(request.url)
   const username = url.searchParams.get("username")?.trim()

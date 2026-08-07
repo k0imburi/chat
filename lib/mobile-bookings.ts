@@ -512,9 +512,14 @@ export async function reconcileBookings() {
   }
   const reminders = await prisma.callBooking.findMany({ where: { status: "APPROVED", reminderSentAt: null, scheduledStart: { gt: now, lte: addMinutes(now, 10) } }, include: { customer: true, creator: true } })
   for (const b of reminders) {
+    // Usually ~10 minutes, but a booking approved with less than 10 minutes
+    // left is caught by this same query on its first tick — the title
+    // should say how long is actually left, not always "10 minutes".
+    const minutesLeft = Math.max(1, Math.round((b.scheduledStart.getTime() - now.getTime()) / 60_000))
+    const title = `Call starts in ${minutesLeft} minute${minutesLeft === 1 ? "" : "s"}`
     await Promise.all([
-      notifyBooking(b.customerId, b.creatorId, "Call starts in 10 minutes", "Your booked call starts soon.", b.id, b.customer.email),
-      notifyBooking(b.creatorId, b.customerId, "Call starts in 10 minutes", "Your booked call starts soon.", b.id, b.creator.email),
+      notifyBooking(b.customerId, b.creatorId, title, "Your booked call starts soon.", b.id, b.customer.email),
+      notifyBooking(b.creatorId, b.customerId, title, "Your booked call starts soon.", b.id, b.creator.email),
     ])
     await prisma.callBooking.update({ where: { id: b.id }, data: { reminderSentAt: now } })
   }
