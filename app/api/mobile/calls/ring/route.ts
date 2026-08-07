@@ -73,11 +73,18 @@ export async function POST(request: Request) {
     const fcmTokens = installations.flatMap((row) => row.platform === "android" && row.fcmToken ? [row.fcmToken] : [])
     if (!installations.length && callee.deviceToken) fcmTokens.push(callee.deviceToken)
     const data = Object.fromEntries(Object.entries(call).map(([key, value]) => [key, String(value)]))
-    await Promise.all([
+    const [fcmSent] = await Promise.all([
       sendIncomingCallFcm(fcmTokens, { type: "incoming_call", ...data }),
       sendVoipPush(installations.flatMap((row) => row.voipToken ? [row.voipToken] : []), { type: "incoming_call", ...call }),
     ])
     emitChatRealtimeToUser(callee.id, { channel: "call", type: "call_ring", call })
+    // A ring that reaches nobody is indistinguishable from a ring that was
+    // ignored, so record what actually went out.
+    console.info("[calls:ring]", {
+      inviteId: invite.id, bookingId, callerId: caller.id, calleeId: callee.id,
+      isVideo: booking.type === "VIDEO", fcmTokens: fcmTokens.length, fcmSent,
+      installations: installations.length,
+    })
     return NextResponse.json({ success: true, data: { invite, call } })
   } catch (error) {
     if (!(error instanceof z.ZodError)) logError("/api/mobile/calls/ring", error)

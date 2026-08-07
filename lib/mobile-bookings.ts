@@ -477,8 +477,13 @@ export async function joinBooking(userId: string, bookingId: string) {
   // The room opens exactly at the scheduled start (no early entry) and stays
   // open a few minutes past the end so a late join still connects.
   if (now < booking.scheduledStart || now > addMinutes(booking.scheduledEnd, 5)) throw new Error("The call room is not open")
+  const isCustomer = userId === booking.customerId
+  console.info("[calls:join]", {
+    bookingId, userId, side: isCustomer ? "customer" : "creator",
+    type: booking.type, wasStatus: booking.status,
+  })
   return prisma.callBooking.update({ where: { id: booking.id }, data: {
-    status: "LIVE", ...(userId === booking.customerId ? { customerJoinedAt: now } : { creatorJoinedAt: now }),
+    status: "LIVE", ...(isCustomer ? { customerJoinedAt: now } : { creatorJoinedAt: now }),
   } })
 }
 

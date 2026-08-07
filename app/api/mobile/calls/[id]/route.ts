@@ -22,22 +22,40 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       status,
       ...(status === "ANSWERED" ? { answeredAt: new Date() } : { endedAt: new Date() }),
     } })
-    const userIds = [invite.callerId, invite.calleeId]
+    // Answering is NOT an ending, and must never be broadcast as one.
+    // Telling the person who just answered that the call "ended" made their
+    // own client dismiss the CallKit call, which then (a) fired a CallKit
+    // ENDED event that got reported back here as a decline, and (b) removed
+    // the call from CallKit's accepted-call list — the very list the
+    // cold-start path reads to work out which call to open. Net effect: you
+    // answer, the ring disappears, and nothing opens. Only the caller needs
+    // to hear about an answer (to stop their outgoing ring), and it gets its
+    // own event type so no client mistakes it for a teardown.
+    const answered = action === "answer"
+    const userIds = answered ? [invite.callerId] : [invite.callerId, invite.calleeId]
     const installations = await prisma.deviceInstallation.findMany({
       where: { userId: { in: userIds }, isActive: true, fcmToken: { not: null } },
       select: { fcmToken: true },
     })
-    const event = { type: "call_invite_ended", inviteId: invite.id, status: status.toLowerCase() }
+    const event = {
+      type: answered ? "call_answered" : "call_invite_ended",
+      inviteId: invite.id,
+      status: status.toLowerCase(),
+    }
     await sendCallStateFcm(installations.flatMap((row) => row.fcmToken ? [row.fcmToken] : []), event)
     for (const userId of userIds) {
       emitChatRealtimeToUser(userId, {
         channel: "call",
-        type: "call_ended",
+        type: answered ? "call_answered" : "call_ended",
         inviteId: invite.id,
         bookingId: invite.bookingId,
         status: status.toLowerCase(),
       })
     }
+    console.info("[calls:update]", {
+      inviteId: id, action, status, actorId: session.userId,
+      bookingId: invite.bookingId, notified: userIds.length,
+    })
     return NextResponse.json({ success: true, data: updated })
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to update call" }, { status: 400 })

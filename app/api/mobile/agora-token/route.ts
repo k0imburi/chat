@@ -75,6 +75,10 @@ export async function GET(request: Request) {
       expiresAt,
     )
 
+    console.info("[calls:token]", {
+      bookingId, channelId, uid, userId: session.userId,
+      tokenLength: token.length, expiresAt,
+    })
     return NextResponse.json({ success: true, data: { token, channelId } })
   } catch (error) {
     logError("/api/mobile/agora-token", error)

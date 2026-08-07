@@ -166,8 +166,11 @@ export type ChatRealtimeEvent =
       call: Record<string, unknown>
     }
   | {
+      // Kept distinct from "call_ended" on purpose: clients dismiss the
+      // CallKit call on an ending, and doing that on an answer tore the call
+      // down the instant it was picked up.
       channel: "call"
-      type: "call_ended"
+      type: "call_answered" | "call_ended"
       inviteId: string
       bookingId: string
       status: string
