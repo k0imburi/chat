@@ -82,11 +82,41 @@ export async function sendFcmMulticast(tokens: string[], payload: FcmPayload): P
   return sent
 }
 
+/**
+ * Deactivates device registrations FCM has told us no longer exist.
+ *
+ * Every reinstall mints a fresh deviceId, so without this the old rows live
+ * forever: real accounts were carrying three "active" registrations of which
+ * only one could actually be reached. Left alone that grows with every
+ * install, making each ring mostly fan out to dead tokens.
+ */
+async function pruneDeadTokens(deadTokens: string[]) {
+  if (!deadTokens.length) return
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { prisma } = require("@/lib/prisma") as typeof import("@/lib/prisma")
+    const { count } = await prisma.deviceInstallation.updateMany({
+      where: { fcmToken: { in: deadTokens }, isActive: true },
+      data: { isActive: false },
+    })
+    if (count) console.info("[fcm] deactivated stale installations:", count)
+  } catch (err) {
+    console.error("[fcm] pruneDeadTokens error:", err)
+  }
+}
+
+const DEAD_TOKEN_CODES = new Set([
+  "messaging/registration-token-not-registered",
+  "messaging/invalid-registration-token",
+  "messaging/invalid-argument",
+])
+
 export async function sendIncomingCallFcm(tokens: string[], data: Record<string, string>): Promise<number> {
   const messaging = getMessaging()
   if (!messaging || !tokens.length) return 0
+  const unique = [...new Set(tokens)].slice(0, 500)
   const result = await messaging.sendEachForMulticast({
-    tokens: [...new Set(tokens)].slice(0, 500),
+    tokens: unique,
     data,
     android: {
       priority: "high",
@@ -99,6 +129,11 @@ export async function sendIncomingCallFcm(tokens: string[], data: Record<string,
       },
     },
   })
+  const dead = result.responses.flatMap((response, index) => {
+    const code = (response.error as { code?: string } | undefined)?.code
+    return !response.success && code && DEAD_TOKEN_CODES.has(code) ? [unique[index]] : []
+  })
+  await pruneDeadTokens(dead)
   return result.successCount
 }
 
