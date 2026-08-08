@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
     // Best-effort notification — the submission is already durable above, so a
     // disabled/misconfigured SMTP setup doesn't lose the message, just the ping.
-    const to = process.env.CONTACT_RECEIVER_EMAIL || "admin@chatandtip.com"
+    const to = process.env.CONTACT_RECEIVER_EMAIL || "info@chatandtip.com"
     await sendEmail({
       to,
       subject: `New contact message from ${input.fullName}`,

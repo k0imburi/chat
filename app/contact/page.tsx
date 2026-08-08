@@ -100,7 +100,7 @@ export default function ContactPage() {
           </p>
 
           <div className="mt-10 space-y-4">
-            <InfoRow icon={Mail} label="Email us" value="admin@chatandtip.com" />
+            <InfoRow icon={Mail} label="Email us" value="info@chatandtip.com" />
             <InfoRow icon={Clock} label="Response time" value="Usually within 24 hours" />
             <InfoRow icon={MessageCircle} label="Best for" value="Support, partnerships & feedback" />
           </div>
