@@ -218,6 +218,25 @@ async function applyCreatorLateFine(
   await tx.callBooking.update({ where: { id: booking.id }, data: { creatorFineAppliedAt: now } })
 }
 
+/**
+ * Did the creator actually turn up, independently of the join stamp?
+ *
+ * An ANSWERED invite proves it either way round: if the creator rang, they
+ * were plainly present; if the customer rang and it was answered, the creator
+ * is who picked up. Users were reporting a strike right after joining a call,
+ * because the join stamp is the only thing the no-show check looked at and it
+ * can be missed (an answer that races the room-open check, a failed request).
+ * Penalising someone for a call they demonstrably took is the worst possible
+ * failure here, so this is checked before any fine or strike lands.
+ */
+async function creatorWasPresent(tx: Prisma.TransactionClient, bookingId: string) {
+  const answered = await tx.callInvite.findFirst({
+    where: { bookingId, status: "ANSWERED" },
+    select: { id: true },
+  })
+  return Boolean(answered)
+}
+
 async function notifyBooking(userId: string, senderId: string, title: string, message: string, bookingId: string, email?: string | null) {
   await createUserNotification({ userId, senderId, title, message, type: "booking", metadata: { targetType: "booking", bookingId } })
   if (email) await sendEmail({ to: email, subject: title, text: message })
@@ -423,11 +442,16 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       status: "UNDER_REVIEW", completedAt: new Date(), endReason: reason.trim(),
     } })
   }
-  // Either side may hang up whenever they like. What happens to the money
-  // depends on who ended it:
-  //   customer, creator present  -> session delivered, creator paid in full
-  //   customer, creator absent   -> nothing was delivered, credit returned
-  //   creator                    -> must say why, value held under review
+  // Hanging up ends the MEDIA session, not the booking.
+  //
+  // The creator is paid for the slot, not for however long the connection
+  // happened to survive — so settlement waits for scheduledEnd and is done by
+  // reconcileBookings. That also means a call cut short by bad signal, noise
+  // or a dropped connection is simply rejoinable: the booking stays open for
+  // the rest of its 15 minutes and either side can dial back in.
+  //
+  // The one exception is a creator ending on a policy violation, which still
+  // has to say why and still parks the value under review.
   if (action === "end") {
     if (!["APPROVED", "LIVE"].includes(booking.status)) throw new Error("This call is not in progress")
     if (isCreator) {
@@ -442,29 +466,14 @@ export async function bookingAction(userId: string, bookingId: string, action: s
       )
       return updated
     }
-    const delivered = Boolean(booking.creatorJoinedAt)
-    const updated = await prisma.$transaction(async (tx) => {
-      if (delivered) {
-        await settleBookedSession(tx, booking)
-      } else {
-        await releaseBookingReservation(tx, booking)
-      }
-      return tx.callBooking.update({ where: { id: booking.id }, data: {
-        status: delivered ? "COMPLETED" : "CANCELLED",
-        completedAt: new Date(),
-        ...(delivered ? {} : { cancelledAt: new Date() }),
-        endReason: reason?.trim() || (delivered ? "Ended by the user" : "Ended by the user before the creator joined"),
-      } })
-    }, { timeout: 20000, maxWait: 10000 })
-    await notifyBooking(
-      booking.creatorId, booking.customerId,
-      delivered ? "Call ended" : "Call ended before you joined",
-      delivered
-        ? `${booking.customer.fullName} ended the call. You've been paid in full.`
-        : `${booking.customer.fullName} ended the call before you joined.`,
-      booking.id, booking.creator.email,
-    )
-    return updated
+    // Customer hung up. Deliberately no settlement and no status change — the
+    // slot is still theirs until scheduledEnd, so they can come back.
+    console.info("[calls:end]", {
+      bookingId: booking.id, by: "customer",
+      creatorJoined: Boolean(booking.creatorJoinedAt),
+      rejoinableUntil: booking.scheduledEnd.toISOString(),
+    })
+    return booking
   }
   throw new Error("Unknown booking action")
 }
@@ -548,6 +557,7 @@ export async function reconcileBookings() {
         || !["APPROVED", "LIVE"].includes(current.status)
         || current.creatorJoinedAt
         || current.creatorFineAppliedAt
+        || await creatorWasPresent(tx, current.id)
       ) return false
       await applyCreatorLateFine(tx, current, now)
       return true
@@ -578,6 +588,7 @@ export async function reconcileBookings() {
         !current
         || !["APPROVED", "LIVE"].includes(current.status)
         || current.creatorJoinedAt
+        || await creatorWasPresent(tx, current.id)
       ) return null
       await releaseBookingReservation(tx, current)
       await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
