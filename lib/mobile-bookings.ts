@@ -537,6 +537,39 @@ export async function reconcileBookings() {
     ])
     await prisma.callBooking.update({ where: { id: b.id }, data: { reminderSentAt: now } })
   }
+  // The slot has opened — the room is joinable right now. The 10-minute
+  // reminder tells people to get ready; this is the one that says go, which
+  // matters because the creator has only a couple of minutes before a fine.
+  const nowLive = await prisma.callBooking.findMany({
+    where: {
+      status: { in: ["APPROVED", "LIVE"] },
+      liveNoticeSentAt: null,
+      scheduledStart: { lte: now },
+      scheduledEnd: { gt: now },
+    },
+    include: { customer: true, creator: true },
+  })
+  for (const b of nowLive) {
+    const claimed = await prisma.callBooking.updateMany({
+      where: { id: b.id, liveNoticeSentAt: null },
+      data: { liveNoticeSentAt: now },
+    })
+    if (!claimed.count) continue
+    const label = b.type === "VIDEO" ? "Video call" : "Voice call"
+    await Promise.all([
+      notifyBooking(
+        b.customerId, b.creatorId, `${label} is live`,
+        `Your ${b.type.toLowerCase()} call with ${b.creator.fullName} is live. Join now.`,
+        b.id, b.customer.email,
+      ),
+      notifyBooking(
+        b.creatorId, b.customerId, `${label} is live`,
+        `Your ${b.type.toLowerCase()} call with ${b.customer.fullName} is live. Join now.`,
+        b.id, b.creator.email,
+      ),
+    ])
+    console.info("[calls:live]", { bookingId: b.id, type: b.type })
+  }
   // Stage one of the no-show ladder: the creator is late, so they lose a
   // quarter of the session — but the booking stays APPROVED/LIVE so they can
   // still join and earn the rest. Bounded above by the write-off mark so a

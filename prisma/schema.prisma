@@ -885,6 +885,9 @@ model CallBooking {
   // Marks the three-minute both-parties-joined check as done, so the late
   // notice is sent once rather than on every reconcile tick.
   lateNoticeSentAt     DateTime?
+  // Marks the "your call is live, join now" notice as sent, so it goes out
+  // once when the slot opens rather than on every reconcile tick.
+  liveNoticeSentAt     DateTime?
   endReason            String?       @db.Text
   reviewDecision       String?
   reviewedAt           DateTime?
