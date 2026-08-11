@@ -15,8 +15,8 @@ const BUFFER_MINUTES = 10
 const CREATOR_FINE_MINUTES = 2
 const CREATOR_FINE_PERCENT = 25
 const NO_SHOW_MINUTES = 3
-// Three strikes inside the 30-day window costs the creator 72 hours of calls.
-const STRIKE_LIMIT = 3
+// Five strikes inside the 30-day window costs the creator 72 hours of calls.
+const STRIKE_LIMIT = 5
 const RESTRICTION_HOURS = 72
 // Must match the cutoff availableSlots() uses to decide what's even offered,
 // or slots that look bookable in the list would immediately fail with "can
