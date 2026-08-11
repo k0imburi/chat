@@ -294,6 +294,12 @@ app
       };
       cronTimers.push(setInterval(runMinutely, 60_000));
       setTimeout(runMinutely, 15_000); // first run shortly after boot
+      // Every 5 seconds: the "your call is live" notice, checked separately
+      // from the minutely reconcile above so it can fire a few seconds
+      // BEFORE scheduledStart (see LOOKAHEAD_MS in the route) instead of up
+      // to a minute after it. Cheap: a single indexed range query when
+      // nothing is due.
+      cronTimers.push(setInterval(() => hitJob("/api/jobs/bookings/live-notice"), 5_000));
       // Hourly: deliver queued broadcast campaigns.
       cronTimers.push(setInterval(() => hitJob("/api/jobs/broadcasts/deliver"), 60 * 60_000));
       // Daily: process matured creator payouts.

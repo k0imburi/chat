@@ -242,6 +242,46 @@ async function notifyBooking(userId: string, senderId: string, title: string, me
   if (email) await sendEmail({ to: email, subject: title, text: message })
 }
 
+// The 10-minute reminder says get ready; this one says go — sent to both
+// sides as the slot opens, which matters because the creator has only a
+// couple of minutes before a fine. `lookaheadMs` lets a caller fire it a few
+// seconds BEFORE scheduledStart rather than only once it's already true,
+// since the point is to have the notification land right as the call opens,
+// not noticeably after.
+export async function sendLiveCallNotices(db: Prisma.TransactionClient | typeof prisma, now: Date, lookaheadMs: number) {
+  const horizon = new Date(now.getTime() + lookaheadMs)
+  const nowLive = await db.callBooking.findMany({
+    where: {
+      status: { in: ["APPROVED", "LIVE"] },
+      liveNoticeSentAt: null,
+      scheduledStart: { lte: horizon },
+      scheduledEnd: { gt: now },
+    },
+    include: { customer: true, creator: true },
+  })
+  for (const b of nowLive) {
+    const claimed = await db.callBooking.updateMany({
+      where: { id: b.id, liveNoticeSentAt: null },
+      data: { liveNoticeSentAt: now },
+    })
+    if (!claimed.count) continue
+    const label = b.type === "VIDEO" ? "Video call" : "Voice call"
+    await Promise.all([
+      notifyBooking(
+        b.customerId, b.creatorId, `${label} is live`,
+        `Your ${b.type.toLowerCase()} call with ${b.creator.fullName} is live. Join now.`,
+        b.id, b.customer.email,
+      ),
+      notifyBooking(
+        b.creatorId, b.customerId, `${label} is live`,
+        `Your ${b.type.toLowerCase()} call with ${b.customer.fullName} is live. Join now.`,
+        b.id, b.creator.email,
+      ),
+    ])
+    console.info("[calls:live]", { bookingId: b.id, type: b.type })
+  }
+}
+
 function reserveField(type: BookingType) { return type === "VOICE" ? "reservedVoiceSessions" : "reservedVideoSessions" }
 function balanceField(type: BookingType) { return type === "VOICE" ? "voiceSessions" : "videoSessions" }
 
@@ -537,39 +577,12 @@ export async function reconcileBookings() {
     ])
     await prisma.callBooking.update({ where: { id: b.id }, data: { reminderSentAt: now } })
   }
-  // The slot has opened — the room is joinable right now. The 10-minute
-  // reminder tells people to get ready; this is the one that says go, which
-  // matters because the creator has only a couple of minutes before a fine.
-  const nowLive = await prisma.callBooking.findMany({
-    where: {
-      status: { in: ["APPROVED", "LIVE"] },
-      liveNoticeSentAt: null,
-      scheduledStart: { lte: now },
-      scheduledEnd: { gt: now },
-    },
-    include: { customer: true, creator: true },
-  })
-  for (const b of nowLive) {
-    const claimed = await prisma.callBooking.updateMany({
-      where: { id: b.id, liveNoticeSentAt: null },
-      data: { liveNoticeSentAt: now },
-    })
-    if (!claimed.count) continue
-    const label = b.type === "VIDEO" ? "Video call" : "Voice call"
-    await Promise.all([
-      notifyBooking(
-        b.customerId, b.creatorId, `${label} is live`,
-        `Your ${b.type.toLowerCase()} call with ${b.creator.fullName} is live. Join now.`,
-        b.id, b.customer.email,
-      ),
-      notifyBooking(
-        b.creatorId, b.customerId, `${label} is live`,
-        `Your ${b.type.toLowerCase()} call with ${b.customer.fullName} is live. Join now.`,
-        b.id, b.creator.email,
-      ),
-    ])
-    console.info("[calls:live]", { bookingId: b.id, type: b.type })
-  }
+  // Catch-all: sendLiveCallNotices() runs on its own fast timer (see
+  // server.mjs) to fire this a few seconds BEFORE scheduledStart. This
+  // lookahead-0 call just catches anything that timer missed (e.g. it was
+  // down) — by the time reconcile's minutely tick sees it, it's already late,
+  // but late-and-sent beats never-sent.
+  await sendLiveCallNotices(prisma, now, 0)
   // Stage one of the no-show ladder: the creator is late, so they lose a
   // quarter of the session — but the booking stays APPROVED/LIVE so they can
   // still join and earn the rest. Bounded above by the write-off mark so a

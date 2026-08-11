@@ -54,7 +54,15 @@ export async function GET(request: Request) {
     // The room stays open a few minutes past the slot so a late rejoin still
     // connects — same tail joinBooking allows.
     const stillOpen = invite && now <= new Date(invite.booking.scheduledEnd.getTime() + 5 * 60_000)
-    if (!invite || !stillOpen) {
+    // Only recover a call answered recently. Without this, a fresh install (or
+    // a first login on a new device) that lands on an account with a call
+    // answered earlier — even one nobody is still on — dropped the person
+    // straight into that dead call screen before they ever saw the home
+    // screen. This is meant to recover from an app kill seconds into a call,
+    // not to resurrect one from minutes ago; 5 min mirrors the tail window
+    // above so there's one "stale" cutoff across the whole feature.
+    const recentlyAnswered = invite?.answeredAt && now.getTime() - invite.answeredAt.getTime() <= 5 * 60_000
+    if (!invite || !stillOpen || !recentlyAnswered) {
       return NextResponse.json({ success: true, data: { call: null } })
     }
 
