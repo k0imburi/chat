@@ -10,6 +10,7 @@ const ECONOMY_ACCOUNTS = [
   "koimburi",
   "lucyjoymwende",
   "joelm",
+  "hunter",
 ]
 
 const ECONOMY_GRANT = {
