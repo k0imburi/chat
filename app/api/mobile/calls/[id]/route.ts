@@ -5,7 +5,7 @@ import { emitChatRealtimeToUser } from "@/lib/realtime"
 import { sendCallStateFcm } from "@/lib/fcm"
 import { prisma } from "@/lib/prisma"
 
-const schema = z.object({ action: z.enum(["answer", "decline", "cancel", "missed"]) })
+const schema = z.object({ action: z.enum(["answer", "decline", "cancel", "missed", "end"]) })
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await getMobileSessionFromRequest(request)
@@ -14,10 +14,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const [{ id }, { action }] = await Promise.all([context.params, request.json().then((body) => schema.parse(body))])
     const invite = await prisma.callInvite.findUnique({ where: { id } })
     if (!invite || (invite.callerId !== session.userId && invite.calleeId !== session.userId)) throw new Error("Call invite not found")
-    if (invite.status !== "RINGING") return NextResponse.json({ success: true, data: invite })
+    if (invite.status !== "RINGING" && !(invite.status === "ANSWERED" && action === "end")) {
+      return NextResponse.json({ success: true, data: invite })
+    }
     if (action === "answer" && invite.calleeId !== session.userId) throw new Error("Only the recipient can answer")
     if (action === "cancel" && invite.callerId !== session.userId) throw new Error("Only the caller can cancel")
-    const status = action === "answer" ? "ANSWERED" : action === "decline" ? "DECLINED" : action === "cancel" ? "CANCELLED" : "MISSED"
+    const status = action === "answer" ? "ANSWERED" : action === "decline" ? "DECLINED" : action === "cancel" || action === "end" ? "CANCELLED" : "MISSED"
     const updated = await prisma.callInvite.update({ where: { id }, data: {
       status,
       ...(status === "ANSWERED" ? { answeredAt: new Date() } : { endedAt: new Date() }),
@@ -40,7 +42,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const event = {
       type: answered ? "call_answered" : "call_invite_ended",
       inviteId: invite.id,
-      status: status.toLowerCase(),
+      status: action === "end" ? "ended" : status.toLowerCase(),
     }
     await sendCallStateFcm(installations.flatMap((row) => row.fcmToken ? [row.fcmToken] : []), event)
     for (const userId of userIds) {
@@ -49,7 +51,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         type: answered ? "call_answered" : "call_ended",
         inviteId: invite.id,
         bookingId: invite.bookingId,
-        status: status.toLowerCase(),
+        status: action === "end" ? "ended" : status.toLowerCase(),
       })
     }
     console.info("[calls:update]", {
