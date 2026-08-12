@@ -638,9 +638,9 @@ export async function reconcileBookings() {
       ) return null
       await releaseBookingReservation(tx, current)
       await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
-      // Normally the two-minute pass already fined them; only charge here if it
-      // didn't get the chance.
-      if (!current.creatorFineAppliedAt) await applyCreatorLateFine(tx, current, now)
+      // 2 minutes = fine. 3 minutes = strike (mutually exclusive per spec).
+      // If fine was already applied at 2 minutes, don't apply strike.
+      if (current.creatorFineAppliedAt) return null
       await tx.creatorStrike.create({ data: {
         creatorId: current.creatorId,
         bookingId: current.id,
