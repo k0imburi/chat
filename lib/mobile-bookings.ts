@@ -9,12 +9,14 @@ import { ON_ACCOUNT_VALUE_KES } from "@/lib/mobile-credits"
 const SESSION_MINUTES = 15
 const BUFFER_MINUTES = 10
 // Creator-no-show ladder. Two minutes in the creator is fined a quarter of the
-// session but the room stays open — they can still turn up and deliver it. By
-// the third minute the session is written off: the customer is refunded and the
-// creator takes a strike.
+// session — unconditionally, whether or not they go on to join — but the room
+// stays open so they can still turn up and deliver it. By the fourth minute
+// the session is written off: the customer is refunded and the creator takes
+// a strike IN ADDITION TO the fine already applied at the two-minute mark —
+// these are two separate, independent penalties, not alternatives.
 const CREATOR_FINE_MINUTES = 2
 const CREATOR_FINE_PERCENT = 25
-const NO_SHOW_MINUTES = 3
+const NO_SHOW_MINUTES = 4
 // Five strikes inside the 30-day window costs the creator 72 hours of calls.
 const STRIKE_LIMIT = 5
 const RESTRICTION_HOURS = 72
@@ -638,9 +640,10 @@ export async function reconcileBookings() {
       ) return null
       await releaseBookingReservation(tx, current)
       await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
-      // 2 minutes = fine. 3 minutes = strike (mutually exclusive per spec).
-      // If fine was already applied at 2 minutes, don't apply strike.
-      if (current.creatorFineAppliedAt) return null
+      // The 2-minute fine is unconditional and should already have landed by
+      // now. This is only a fallback for the rare case a cron tick was missed
+      // — the strike below always applies regardless, on top of the fine.
+      if (!current.creatorFineAppliedAt) await applyCreatorLateFine(tx, current, now)
       await tx.creatorStrike.create({ data: {
         creatorId: current.creatorId,
         bookingId: current.id,
