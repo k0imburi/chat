@@ -10,7 +10,7 @@ export default async function LoginPage() {
   const isCustomerHost = hostname === customerHost || hostname === apexHost
   const isAdmin = !isCustomerHost && (hostname === (process.env.ADMIN_HOST || "admin.chatandtip.com").toLowerCase() || hostname === "admin.localhost")
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-black px-4 py-10 sm:px-6">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-white px-4 py-10 dark:bg-black sm:px-6">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(34,197,94,0.08),transparent_30%),radial-gradient(circle_at_80%_22%,rgba(74,222,128,0.06),transparent_26%),radial-gradient(circle_at_50%_100%,rgba(34,197,94,0.05),transparent_34%)]" />
       <section className="relative z-10 flex w-full max-w-md flex-col items-center gap-6">
         {isAdmin ? <LoginForm /> : <CustomerLoginForm />}

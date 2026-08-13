@@ -11,7 +11,7 @@ export default async function EditAccountPage() {
   if (!user) return <CustomerShell active="/account" signedIn={false}><SignInRequired title="Sign in to edit your profile" /></CustomerShell>
   return (
     <CustomerShell active="/account" signedIn>
-      <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+      <section className="rounded-[2rem] border border-black/10 bg-black/5 p-5 dark:border-white/10 dark:bg-white/5">
         <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-400">Account</p>
         <h1 className="mt-2 text-3xl font-black">Edit profile</h1>
         <form action={saveProfile} className="mt-6 space-y-4">
@@ -58,7 +58,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-white/50">{label}</span>
+      <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-black/50 dark:text-white/50">{label}</span>
       <Input
         name={name}
         defaultValue={defaultValue}
@@ -66,7 +66,7 @@ function Field({
         disabled={disabled}
         className="h-11 rounded-2xl disabled:opacity-60"
       />
-      {hint && <span className="mt-1 block text-xs text-white/40">{hint}</span>}
+      {hint && <span className="mt-1 block text-xs text-black/40 dark:text-white/40">{hint}</span>}
     </label>
   )
 }

@@ -33,11 +33,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
   return (
     <CustomerShell active="" signedIn={Boolean(viewer)}>
       {/* Profile header */}
-      <div className="mb-4 overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+      <div className="mb-4 overflow-hidden rounded-3xl border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
         <div className="h-28 bg-gradient-to-br from-emerald-900/40 via-cyan-900/20 to-black/60" />
         <div className="px-5 pb-5">
           <div className="-mt-11 flex items-end justify-between gap-3">
-            <div className="relative h-20 w-20 overflow-hidden rounded-2xl border-4 border-black bg-white/10 shadow">
+            <div className="relative h-20 w-20 overflow-hidden rounded-2xl border-4 border-white bg-black/10 shadow dark:border-black dark:bg-white/10">
               {profile.profileAvatarUrl ? (
                 <Image src={profile.profileAvatarUrl} alt="" fill sizes="80px" className="object-cover" />
               ) : null}
@@ -51,7 +51,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
                     type="submit"
                     variant={following ? "outline" : "default"}
                     size="sm"
-                    className={following ? "rounded-full border-white/20 bg-transparent text-white hover:bg-white/10" : "rounded-full"}
+                    className={following ? "rounded-full border-black/20 bg-transparent text-black hover:bg-black/10 dark:border-white/20 dark:text-white dark:hover:bg-white/10" : "rounded-full"}
                   >
                     {following ? "Following" : "Follow"}
                   </Button>
@@ -68,21 +68,21 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
                   <Link
                     href={`/book/${profile.userId}?type=VOICE`}
                     aria-label="Voice call"
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-white/70"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-black/20 text-black/70 dark:border-white/20 dark:text-white/70"
                   >
                     <PhoneCall className="h-4 w-4" />
                   </Link>
                   <Link
                     href={`/book/${profile.userId}?type=VIDEO`}
                     aria-label="Video call"
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-white/70"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-black/20 text-black/70 dark:border-white/20 dark:text-white/70"
                   >
                     <Video className="h-4 w-4" />
                   </Link>
                   <Link
                     href={`/inbox/${profile.userId}`}
                     aria-label="Message"
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-black/10 text-black dark:bg-white/10 dark:text-white"
                   >
                     <MessageCircle className="h-4 w-4" />
                   </Link>
@@ -96,14 +96,14 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
             {profile.fullname || "ChatAndTip creator"}
             <VerifiedBadge verified={profile.verified} isBroadcaster={profile.isBroadcaster} className="h-5 w-5" />
           </h1>
-          <p className="text-sm text-white/50">
+          <p className="text-sm text-black/50 dark:text-white/50">
             {profile.username ? `@${profile.username}` : "Creator"}
           </p>
           {profile.bio ? (
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/70">{profile.bio}</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-black/70 dark:text-white/70">{profile.bio}</p>
           ) : null}
 
-          <div className="mt-4 flex gap-6 border-t border-white/10 pt-4 text-center">
+          <div className="mt-4 flex gap-6 border-t border-black/10 pt-4 text-center dark:border-white/10">
             <StatItem label="Posts" value={profile.gallery.length} />
             <StatItem label="Followers" value={profile.followersCount ?? 0} />
             <StatItem label="Following" value={profile.followingCount ?? 0} />
@@ -121,7 +121,7 @@ function StatItem({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <p className="text-xl font-black tabular-nums">{value.toLocaleString()}</p>
-      <p className="text-xs font-bold text-white/50">{label}</p>
+      <p className="text-xs font-bold text-black/50 dark:text-white/50">{label}</p>
     </div>
   )
 }

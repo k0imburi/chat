@@ -26,7 +26,7 @@ export default async function DownloadPage() {
   if (isIOS && APP_STORE_URL) redirect(APP_STORE_URL)
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center bg-black px-6 text-center text-white">
+    <main className="flex min-h-dvh flex-col items-center justify-center bg-white px-6 text-center text-black dark:bg-black dark:text-white">
       <Image
         src="/chatandtip-logo-v2.png"
         alt="ChatAndTip"
@@ -36,7 +36,7 @@ export default async function DownloadPage() {
         priority
       />
       <h1 className="text-2xl font-black">Get ChatAndTip</h1>
-      <p className="mt-2 max-w-sm text-sm text-white/60">
+      <p className="mt-2 max-w-sm text-sm text-black/60 dark:text-white/60">
         Connect with creators, chat, and tip — right from your phone.
       </p>
       <a
@@ -48,7 +48,7 @@ export default async function DownloadPage() {
       {APP_STORE_URL ? (
         <a
           href={APP_STORE_URL}
-          className="mt-3 rounded-full border border-white/20 px-6 py-3 text-sm font-black text-white"
+          className="mt-3 rounded-full border border-black/20 px-6 py-3 text-sm font-black text-black dark:border-white/20 dark:text-white"
         >
           Download on the App Store
         </a>

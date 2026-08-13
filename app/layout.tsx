@@ -28,11 +28,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="font-sans antialiased">
-        {/* Dark-first: the customer app is hardcoded dark (bg-black), so we
-            default to dark and skip system-resolution. next-themes applies the
-            .dark class pre-paint, which stops the white base background from
-            flashing behind pages on load/navigation. */}
-        <ThemeProvider attribute="class" defaultTheme="dark" disableTransitionOnChange>
+        {/* Light-first: both the admin dashboard and the customer app now
+            support light and dark. next-themes applies the class pre-paint,
+            which stops the wrong base background from flashing behind pages
+            on load/navigation. */}
+        <ThemeProvider attribute="class" defaultTheme="light" disableTransitionOnChange>
           {children}
           <PwaRegister />
           <Toaster richColors position="top-right" />

@@ -36,7 +36,7 @@ export function ReportButton({
         className={
           className ??
           (iconOnly
-            ? "flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-white/60 hover:text-white"
+            ? "flex h-9 w-9 items-center justify-center rounded-full border border-black/20 text-black/60 hover:text-black dark:border-white/20 dark:text-white/60 dark:hover:text-white"
             : "flex flex-col items-center gap-1")
         }
       >

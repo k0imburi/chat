@@ -11,15 +11,15 @@ export default async function ChatsPage() {
 
   return (
     <CustomerShell active="/inbox" signedIn>
-      <div className="rounded-3xl border border-white/10 bg-white/5">
-        <div className="border-b border-white/10 p-5">
+      <div className="rounded-3xl border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
+        <div className="border-b border-black/10 p-5 dark:border-white/10">
           <h1 className="text-2xl font-black">Chats</h1>
-          <p className="mt-1 text-sm text-white/50">Broadcast messages and paid creator replies appear here. Locked previews never reveal protected content.</p>
+          <p className="mt-1 text-sm text-black/50 dark:text-white/50">Broadcast messages and paid creator replies appear here. Locked previews never reveal protected content.</p>
         </div>
-        <div className="divide-y divide-white/10">
+        <div className="divide-y divide-black/10 dark:divide-white/10">
           {chats.map((chat) => (
-            <Link key={chat.chatUserId} href={`/inbox/${chat.chatUserId}`} className="flex items-center gap-3 p-4 hover:bg-white/5">
-              <div className="relative h-12 w-12 overflow-hidden rounded-full bg-white/10">
+            <Link key={chat.chatUserId} href={`/inbox/${chat.chatUserId}`} className="flex items-center gap-3 p-4 hover:bg-black/5 dark:hover:bg-white/5">
+              <div className="relative h-12 w-12 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
                 {chat.receiver.profileAvatarUrl ? <Image src={chat.receiver.profileAvatarUrl} alt="" fill sizes="48px" className="object-cover" /> : null}
               </div>
               <div className="min-w-0 flex-1">
@@ -27,7 +27,7 @@ export default async function ChatsPage() {
                   <p className="truncate font-extrabold">{chat.receiver.fullname || "ChatAndTip"}</p>
                   {chat.broadcastOnly ? <span className="rounded-full bg-emerald-900/60 px-2 py-0.5 text-[10px] font-bold text-emerald-400">Broadcast</span> : null}
                 </div>
-                <p className="mt-1 flex items-center gap-1 truncate text-sm text-white/50">
+                <p className="mt-1 flex items-center gap-1 truncate text-sm text-black/50 dark:text-white/50">
                   {chat.lastMsg === "Locked reply" ? <Lock className="h-3.5 w-3.5" /> : null}
                   {chat.lastMsg || "Media message"}
                 </p>
@@ -35,7 +35,7 @@ export default async function ChatsPage() {
               {chat.unread ? <span className="rounded-full bg-[#25d366] px-2 py-1 text-xs font-black text-white">{chat.unread}</span> : null}
             </Link>
           ))}
-          {!chats.length ? <p className="p-8 text-center text-sm text-white/50">No chats yet.</p> : null}
+          {!chats.length ? <p className="p-8 text-center text-sm text-black/50 dark:text-white/50">No chats yet.</p> : null}
         </div>
       </div>
     </CustomerShell>
