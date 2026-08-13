@@ -703,7 +703,7 @@ export async function reconcileBookings() {
       await tx.creatorStrike.create({ data: {
         creatorId: current.creatorId,
         bookingId: current.id,
-        reason: `Creator did not join within ${NO_SHOW_MINUTES} minutes`,
+        reason: "Creator no show",
         expiresAt: addDays(now, 30),
       } })
       const active = await tx.creatorStrike.findMany({ where: {
