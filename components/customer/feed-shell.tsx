@@ -6,10 +6,12 @@ import {
   CalendarClock,
   Compass,
   Flame,
+  LifeBuoy,
   MessageCircle,
   PlusSquare,
   UserRound,
 } from "lucide-react"
+import { ModeToggle } from "@/components/customer/mode-toggle"
 
 const nav = [
   { href: "/", label: "Discover", icon: Compass },
@@ -48,12 +50,15 @@ export function FeedShell({
           </div>
           <span className="text-white">ChatAndTip</span>
         </Link>
-        <Link
-          href={signedIn ? "/account" : "/login"}
-          className="pointer-events-auto rounded-full bg-white/20 px-4 py-1.5 text-sm font-bold text-white backdrop-blur-sm"
-        >
-          {signedIn ? "Account" : "Sign in"}
-        </Link>
+        <div className="pointer-events-auto flex items-center gap-2">
+          <ModeToggle variant="onDark" />
+          <Link
+            href={signedIn ? "/account" : "/login"}
+            className="rounded-full bg-white/20 px-4 py-1.5 text-sm font-bold text-white backdrop-blur-sm"
+          >
+            {signedIn ? "Account" : "Sign in"}
+          </Link>
+        </div>
       </header>
 
       {/* ── Desktop layout: sidebar + feed column + right gutter ── */}
@@ -95,16 +100,24 @@ export function FeedShell({
                 </Link>
               )
             })}
+            <Link
+              href="/contact"
+              className="flex items-center gap-3.5 rounded-xl px-4 py-3 text-[15px] font-bold text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <LifeBuoy className="h-[22px] w-[22px] stroke-2" />
+              Contact Us
+            </Link>
           </nav>
 
           {/* Sign in / account at bottom */}
-          <div className="mt-auto">
+          <div className="mt-auto flex items-center gap-2">
             <Link
               href={signedIn ? "/account" : "/login"}
-              className="flex w-full items-center justify-center rounded-xl border border-white/20 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-white/10"
+              className="flex flex-1 items-center justify-center rounded-xl border border-white/20 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-white/10"
             >
               {signedIn ? "My Account" : "Sign in"}
             </Link>
+            <ModeToggle variant="onDark" />
           </div>
         </aside>
 
