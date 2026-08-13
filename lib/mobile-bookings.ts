@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma"
 import { createUserNotification } from "@/lib/mobile-notifications"
 import { sendEmail } from "@/lib/email"
 import { ON_ACCOUNT_VALUE_KES } from "@/lib/mobile-credits"
+import { sendCallStateFcm } from "@/lib/fcm"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 const SESSION_MINUTES = 15
 const BUFFER_MINUTES = 10
@@ -281,6 +283,60 @@ export async function sendLiveCallNotices(db: Prisma.TransactionClient | typeof 
       ),
     ])
     console.info("[calls:live]", { bookingId: b.id, type: b.type })
+  }
+}
+
+// Settles a booking the instant its slot ends, and pushes both parties out of
+// the call screen in real time via the same FCM+websocket rail used when
+// someone manually hangs up. Runs on its own fast timer (see server.mjs) so
+// the room doesn't linger open — each device's own local countdown timer
+// already tries to do this, but that alone isn't reliable while backgrounded,
+// so this server-authoritative broadcast is what actually guarantees both
+// screens close within a few seconds rather than whenever each device's timer
+// happens to fire (or doesn't).
+export async function endDueSessions(db: Prisma.TransactionClient | typeof prisma, now: Date) {
+  const due = await db.callBooking.findMany({
+    where: { status: { in: ["APPROVED", "LIVE"] }, scheduledEnd: { lte: now } },
+    include: { customer: true, creator: true },
+  })
+  for (const b of due) {
+    const outcome = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
+      const current = await tx.callBooking.findUnique({ where: { id: b.id } })
+      if (!current || !["APPROVED", "LIVE"].includes(current.status)) return null
+      if (!current.creatorJoinedAt) {
+        // Creator never joined — refund reservation, no creator payment
+        await releaseBookingReservation(tx, current)
+        await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
+      } else {
+        await settleBookedSession(tx, current)
+        await tx.callBooking.update({ where: { id: current.id }, data: { status: current.customerJoinedAt ? "COMPLETED" : "USER_NO_SHOW", completedAt: now } })
+      }
+      const invite = await tx.callInvite.findFirst({ where: { bookingId: current.id, status: "ANSWERED" } })
+      if (invite) await tx.callInvite.update({ where: { id: invite.id }, data: { status: "CANCELLED", endedAt: now } })
+      return { invite }
+    }, { timeout: 20000, maxWait: 10000 })
+    if (!outcome) continue
+    await Promise.all([
+      notifyBooking(b.customerId, b.creatorId, "Session ended", "This session has ended.", b.id, b.customer.email),
+      notifyBooking(b.creatorId, b.customerId, "Session ended", "This session has ended.", b.id, b.creator.email),
+    ])
+    if (outcome.invite) {
+      const userIds = [outcome.invite.callerId, outcome.invite.calleeId]
+      const installations = await prisma.deviceInstallation.findMany({
+        where: { userId: { in: userIds }, isActive: true, fcmToken: { not: null } },
+        select: { fcmToken: true },
+      })
+      await sendCallStateFcm(installations.flatMap((row) => row.fcmToken ? [row.fcmToken] : []), {
+        type: "call_invite_ended", inviteId: outcome.invite.id, status: "ended",
+      })
+      for (const userId of userIds) {
+        emitChatRealtimeToUser(userId, {
+          channel: "call", type: "call_ended", inviteId: outcome.invite.id, bookingId: b.id, status: "ended",
+        })
+      }
+    }
+    console.info("[calls:settled]", { bookingId: b.id, hadInvite: Boolean(outcome.invite) })
   }
 }
 
@@ -735,17 +791,11 @@ export async function reconcileBookings() {
       ),
     ])
   }
-  const due = await prisma.callBooking.findMany({ where: { status: { in: ["APPROVED", "LIVE"] }, scheduledEnd: { lte: now } } })
-  for (const b of due) await prisma.$transaction(async (tx) => {
-    if (!b.creatorJoinedAt) {
-      // Creator never joined — refund reservation, no creator payment
-      await releaseBookingReservation(tx, b)
-      await tx.callBooking.update({ where: { id: b.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
-    } else {
-      await settleBookedSession(tx, b)
-      await tx.callBooking.update({ where: { id: b.id }, data: { status: b.customerJoinedAt ? "COMPLETED" : "USER_NO_SHOW", completedAt: now } })
-    }
-  }, { timeout: 20000, maxWait: 10000 })
+  // Catch-all: endDueSessions() runs on its own fast timer (see server.mjs)
+  // so slot-end settlement and the call-screen-closing broadcast happen
+  // within a few seconds. This call just catches anything that timer missed.
+  const settledCount = (await prisma.callBooking.count({ where: { status: { in: ["APPROVED", "LIVE"] }, scheduledEnd: { lte: now } } }))
+  await endDueSessions(prisma, now)
   // Auto-resolve UNDER_REVIEW bookings after 24 h. Creator ended early so
   // the customer gets a full refund — no manual admin review happened.
   const staleReview = await prisma.callBooking.findMany({
@@ -757,5 +807,5 @@ export async function reconcileBookings() {
   }, { timeout: 20000, maxWait: 10000 })
 
   await prisma.user.updateMany({ where: { callsRestrictedUntil: { lte: now } }, data: { callsRestrictedUntil: null } })
-  return { expired: expired.length, reminded: reminders.length, fines: creatorNoShows.length, creatorNoShows: creatorNoShows.length, settled: due.length, autoRefunded: staleReview.length }
+  return { expired: expired.length, reminded: reminders.length, fines: creatorNoShows.length, creatorNoShows: creatorNoShows.length, settled: settledCount, autoRefunded: staleReview.length }
 }
