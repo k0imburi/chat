@@ -66,6 +66,11 @@ export function CustomerShell({
           >
             <LifeBuoy className="h-5 w-5" />Contact Us
           </Link>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 pt-2 text-xs font-semibold text-black/40 dark:text-white/40">
+            <Link href="/about" className="hover:text-black dark:hover:text-white">About</Link>
+            <Link href="/terms" className="hover:text-black dark:hover:text-white">Terms</Link>
+            <Link href="/privacy" className="hover:text-black dark:hover:text-white">Privacy</Link>
+          </div>
         </aside>
 
         <section className="min-w-0">{children}</section>

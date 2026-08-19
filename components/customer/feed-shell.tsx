@@ -109,6 +109,12 @@ export function FeedShell({
             </Link>
           </nav>
 
+          <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 pt-3 text-xs font-semibold text-white/30">
+            <Link href="/about" className="hover:text-white">About</Link>
+            <Link href="/terms" className="hover:text-white">Terms</Link>
+            <Link href="/privacy" className="hover:text-white">Privacy</Link>
+          </div>
+
           {/* Sign in / account at bottom */}
           <div className="mt-auto flex items-center gap-2">
             <Link

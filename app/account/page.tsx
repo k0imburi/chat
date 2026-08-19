@@ -33,6 +33,13 @@ export default async function AccountPage() {
           <Link href="/create" className="rounded-2xl border border-black/15 px-4 py-4 text-center text-sm font-black text-black dark:border-white/15 dark:text-white">Create post</Link>
         </div>
       </section>
+
+      <section className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-semibold text-black/50 dark:text-white/50">
+        <Link href="/about" className="hover:text-black dark:hover:text-white">About</Link>
+        <Link href="/terms" className="hover:text-black dark:hover:text-white">Terms</Link>
+        <Link href="/privacy" className="hover:text-black dark:hover:text-white">Privacy Policy</Link>
+        <Link href="/contact" className="hover:text-black dark:hover:text-white">Contact Us</Link>
+      </section>
     </CustomerShell>
   )
 }
