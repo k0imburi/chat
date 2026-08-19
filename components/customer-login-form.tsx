@@ -25,5 +25,12 @@ export function CustomerLoginForm() {
       <button disabled={loading} className="w-full rounded-2xl bg-[#25d366] px-4 py-3 font-extrabold text-white disabled:opacity-50">{loading ? "Signing in…" : "Sign in"}</button>
     </form>
     <div className="mt-5 flex justify-between text-sm"><Link href="/forgot-password" className="text-neutral-500">Forgot password?</Link>{/* Account creation happens in the ChatAndTip app */}<span className="text-neutral-400">New here? Get the app</span></div>
+    <p className="mt-6 text-center text-xs text-neutral-400">
+      <Link href="/about" className="hover:underline">About</Link>
+      {" · "}
+      <Link href="/terms" className="hover:underline">Terms</Link>
+      {" · "}
+      <Link href="/privacy" className="hover:underline">Privacy</Link>
+    </p>
   </div>
 }

@@ -23,6 +23,12 @@ export default function SignupPage() {
         >
           Sign in
         </Link>
+        <p className="mt-6 text-xs text-neutral-400">
+          By continuing, you agree to our{" "}
+          <Link href="/terms" className="font-bold text-neutral-600 hover:underline">Terms</Link>
+          {" "}and{" "}
+          <Link href="/privacy" className="font-bold text-neutral-600 hover:underline">Privacy Policy</Link>.
+        </p>
       </section>
     </main>
   )
