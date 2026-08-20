@@ -5,10 +5,13 @@ import {
   Bell,
   CalendarClock,
   Compass,
+  FileText,
   Flame,
+  Info,
   LifeBuoy,
   MessageCircle,
   PlusSquare,
+  ShieldCheck,
   UserRound,
 } from "lucide-react"
 import { ModeToggle } from "@/components/customer/mode-toggle"
@@ -21,6 +24,16 @@ const nav = [
   { href: "/sessions", label: "Sessions", icon: CalendarClock },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/account", label: "Account", icon: UserRound },
+]
+
+// Secondary nav — same row treatment as the primary items above, just
+// grouped below a divider (the TikTok web app pattern: About/Contact/Terms/
+// Privacy get their own full menu rows, not small footer-style text links).
+const secondaryNav = [
+  { href: "/contact", label: "Contact Us", icon: LifeBuoy },
+  { href: "/about", label: "About", icon: Info },
+  { href: "/terms", label: "Terms", icon: FileText },
+  { href: "/privacy", label: "Privacy", icon: ShieldCheck },
 ]
 
 export function FeedShell({
@@ -100,20 +113,25 @@ export function FeedShell({
                 </Link>
               )
             })}
-            <Link
-              href="/contact"
-              className="flex items-center gap-3.5 rounded-xl px-4 py-3 text-[15px] font-bold text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              <LifeBuoy className="h-[22px] w-[22px] stroke-2" />
-              Contact Us
-            </Link>
+            <div className="my-2 border-t border-white/10" />
+            {secondaryNav.map(({ href, label, icon: Icon }) => {
+              const isActive = active === href
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`flex items-center gap-3.5 rounded-xl px-4 py-3 text-[15px] font-bold transition-colors ${
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : "text-white/50 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <Icon className="h-[22px] w-[22px] stroke-2" />
+                  {label}
+                </Link>
+              )
+            })}
           </nav>
-
-          <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 pt-3 text-xs font-semibold text-white/30">
-            <Link href="/about" className="hover:text-white">About</Link>
-            <Link href="/terms" className="hover:text-white">Terms</Link>
-            <Link href="/privacy" className="hover:text-white">Privacy</Link>
-          </div>
 
           {/* Sign in / account at bottom */}
           <div className="mt-auto flex items-center gap-2">

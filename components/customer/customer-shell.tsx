@@ -1,7 +1,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import type { ReactNode } from "react"
-import { Bell, CalendarClock, Compass, Flame, LifeBuoy, MessageCircle, PlusSquare, UserRound, WalletCards } from "lucide-react"
+import { Bell, CalendarClock, Compass, FileText, Flame, Info, LifeBuoy, MessageCircle, PlusSquare, ShieldCheck, UserRound, WalletCards } from "lucide-react"
 import { ModeToggle } from "@/components/customer/mode-toggle"
 
 const nav = [
@@ -12,6 +12,16 @@ const nav = [
   { href: "/sessions", label: "Sessions", icon: CalendarClock },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/account", label: "Account", icon: UserRound },
+]
+
+// Secondary nav — same row treatment as the primary items above, just
+// grouped below a divider (the TikTok web app pattern: About/Contact/Terms/
+// Privacy get their own full menu rows, not small footer-style text links).
+const secondaryNav = [
+  { href: "/contact", label: "Contact Us", icon: LifeBuoy },
+  { href: "/about", label: "About", icon: Info },
+  { href: "/terms", label: "Terms", icon: FileText },
+  { href: "/privacy", label: "Privacy", icon: ShieldCheck },
 ]
 
 export function CustomerShell({
@@ -60,17 +70,20 @@ export function CustomerShell({
               <Icon className="h-5 w-5" />{label}
             </Link>
           ))}
-          <Link
-            href="/contact"
-            className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold text-black/60 hover:bg-black/5 dark:text-white/60 dark:hover:bg-white/5"
-          >
-            <LifeBuoy className="h-5 w-5" />Contact Us
-          </Link>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 pt-2 text-xs font-semibold text-black/40 dark:text-white/40">
-            <Link href="/about" className="hover:text-black dark:hover:text-white">About</Link>
-            <Link href="/terms" className="hover:text-black dark:hover:text-white">Terms</Link>
-            <Link href="/privacy" className="hover:text-black dark:hover:text-white">Privacy</Link>
-          </div>
+          <div className="my-2 border-t border-black/10 dark:border-white/10" />
+          {secondaryNav.map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold ${
+                active === href
+                  ? "bg-black/5 text-black dark:bg-white/10 dark:text-white"
+                  : "text-black/60 hover:bg-black/5 dark:text-white/60 dark:hover:bg-white/5"
+              }`}
+            >
+              <Icon className="h-5 w-5" />{label}
+            </Link>
+          ))}
         </aside>
 
         <section className="min-w-0">{children}</section>

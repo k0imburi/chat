@@ -1,7 +1,15 @@
 import Image from "next/image"
 import Link from "next/link"
+import { FileText, Info, LifeBuoy, ShieldCheck } from "lucide-react"
 import { CustomerShell, SignInRequired } from "@/components/customer/customer-shell"
 import { getCurrentCustomerUser } from "@/lib/customer-web"
+
+const legalLinks = [
+  { href: "/about", label: "About", icon: Info },
+  { href: "/terms", label: "Terms", icon: FileText },
+  { href: "/privacy", label: "Privacy Policy", icon: ShieldCheck },
+  { href: "/contact", label: "Contact Us", icon: LifeBuoy },
+]
 
 export default async function AccountPage() {
   const user = await getCurrentCustomerUser()
@@ -34,11 +42,19 @@ export default async function AccountPage() {
         </div>
       </section>
 
-      <section className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-semibold text-black/50 dark:text-white/50">
-        <Link href="/about" className="hover:text-black dark:hover:text-white">About</Link>
-        <Link href="/terms" className="hover:text-black dark:hover:text-white">Terms</Link>
-        <Link href="/privacy" className="hover:text-black dark:hover:text-white">Privacy Policy</Link>
-        <Link href="/contact" className="hover:text-black dark:hover:text-white">Contact Us</Link>
+      {/* Mobile-reachable path for the same menu items the desktop sidebar
+          shows — the bottom tab bar is icon-only, so this is where a phone
+          user finds About/Terms/Privacy/Contact. */}
+      <section className="mt-4 overflow-hidden rounded-3xl border border-black/10 dark:border-white/10 lg:hidden">
+        {legalLinks.map(({ href, label, icon: Icon }) => (
+          <Link
+            key={href}
+            href={href}
+            className="flex items-center gap-3 border-b border-black/10 px-4 py-3 text-sm font-bold text-black/70 last:border-b-0 hover:bg-black/5 dark:border-white/10 dark:text-white/70 dark:hover:bg-white/5"
+          >
+            <Icon className="h-5 w-5" />{label}
+          </Link>
+        ))}
       </section>
     </CustomerShell>
   )
