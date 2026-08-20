@@ -47,7 +47,11 @@ export function FeedShell({
   children: ReactNode
 }) {
   return (
-    <div className="relative h-dvh overflow-hidden bg-black text-white">
+    // The shell chrome follows the site theme like every other page. The
+    // video itself does not — each slide in FullScreenFeed sets its own
+    // bg-black and its overlay controls are white-on-video, because that's
+    // video content rather than a themed surface.
+    <div className="relative h-dvh overflow-hidden bg-white text-black dark:bg-black dark:text-white">
 
       {/* ── Mobile-only floating header ──────────────────────────── */}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex h-14 items-center justify-between px-4 md:hidden">
@@ -86,10 +90,10 @@ export function FeedShell({
           reachable, never pushed off-screen by menu length. */}
       <div className="pointer-events-none absolute right-6 top-5 z-40 hidden md:block">
         <div className="pointer-events-auto flex items-center gap-2">
-          <ModeToggle variant="onDark" />
+          <ModeToggle />
           <Link
             href={signedIn ? "/account" : "/login"}
-            className="rounded-full border border-white/20 bg-black/40 px-5 py-2 text-sm font-bold text-white backdrop-blur-sm transition-colors hover:bg-white/10"
+            className="rounded-full border border-black/15 bg-white/70 px-5 py-2 text-sm font-bold text-black backdrop-blur-sm transition-colors hover:bg-black/5 dark:border-white/20 dark:bg-black/40 dark:text-white dark:hover:bg-white/10"
           >
             {signedIn ? "My Account" : "Sign in"}
           </Link>
@@ -100,7 +104,7 @@ export function FeedShell({
       <div className="flex h-full">
 
         {/* Desktop left sidebar */}
-        <aside className="hidden md:flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r border-white/10 px-4 py-6 lg:w-72">
+        <aside className="hidden md:flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r border-black/10 px-4 py-6 dark:border-white/10 lg:w-72">
           {/* Logo */}
           <Link href="/" className="mb-8 flex items-center gap-2.5 font-extrabold">
             <div className="overflow-hidden rounded-xl bg-white/90 px-1 py-0.5">
@@ -113,7 +117,7 @@ export function FeedShell({
                 priority
               />
             </div>
-            <span className="text-[17px] text-white">ChatAndTip</span>
+            <span className="text-[17px]">ChatAndTip</span>
           </Link>
 
           {/* Nav items */}
@@ -126,8 +130,8 @@ export function FeedShell({
                   href={href}
                   className={`flex items-center gap-3.5 rounded-xl px-4 py-3 text-[15px] font-bold transition-colors ${
                     isActive
-                      ? "bg-white/20 text-white"
-                      : "text-white/50 hover:bg-white/10 hover:text-white"
+                      ? "bg-black/5 text-black dark:bg-white/20 dark:text-white"
+                      : "text-black/60 hover:bg-black/5 hover:text-black dark:text-white/50 dark:hover:bg-white/10 dark:hover:text-white"
                   }`}
                 >
                   <Icon className="h-[22px] w-[22px] stroke-2" />
@@ -135,7 +139,7 @@ export function FeedShell({
                 </Link>
               )
             })}
-            <div className="my-2 border-t border-white/10" />
+            <div className="my-2 border-t border-black/10 dark:border-white/10" />
             {secondaryNav.map(({ href, label, icon: Icon }) => {
               const isActive = active === href
               return (
@@ -144,8 +148,8 @@ export function FeedShell({
                   href={href}
                   className={`flex items-center gap-3.5 rounded-xl px-4 py-3 text-[15px] font-bold transition-colors ${
                     isActive
-                      ? "bg-white/20 text-white"
-                      : "text-white/50 hover:bg-white/10 hover:text-white"
+                      ? "bg-black/5 text-black dark:bg-white/20 dark:text-white"
+                      : "text-black/60 hover:bg-black/5 hover:text-black dark:text-white/50 dark:hover:bg-white/10 dark:hover:text-white"
                   }`}
                 >
                   <Icon className="h-[22px] w-[22px] stroke-2" />
@@ -169,14 +173,16 @@ export function FeedShell({
       </div>
 
       {/* ── Mobile-only bottom nav ────────────────────────────────── */}
-      <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-40 border-t border-white/10 bg-black/70 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur-md md:hidden">
+      <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/85 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur-md dark:border-white/10 dark:bg-black/70 md:hidden">
         <div className="pointer-events-auto mx-auto flex max-w-[430px] justify-around px-2">
           {nav.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
               className={`flex min-w-[52px] flex-col items-center gap-1 px-2 py-1 text-[10px] font-bold transition-colors ${
-                active === href ? "text-white" : "text-white/45"
+                active === href
+                  ? "text-black dark:text-white"
+                  : "text-black/50 dark:text-white/45"
               }`}
             >
               <Icon className="h-5 w-5" />
