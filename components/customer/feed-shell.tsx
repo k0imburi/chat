@@ -78,11 +78,29 @@ export function FeedShell({
         </div>
       </header>
 
+      {/* ── Desktop-only floating top-right controls ─────────────────
+          These used to sit at the bottom of the sidebar (mt-auto). Once the
+          secondary nav (About/Terms/Privacy/Contact) was added the sidebar
+          got tall enough that reaching sign-in or the theme toggle meant
+          scrolling the whole menu, so they float here instead — always
+          reachable, never pushed off-screen by menu length. */}
+      <div className="pointer-events-none absolute right-6 top-5 z-40 hidden md:block">
+        <div className="pointer-events-auto flex items-center gap-2">
+          <ModeToggle variant="onDark" />
+          <Link
+            href={signedIn ? "/account" : "/login"}
+            className="rounded-full border border-white/20 bg-black/40 px-5 py-2 text-sm font-bold text-white backdrop-blur-sm transition-colors hover:bg-white/10"
+          >
+            {signedIn ? "My Account" : "Sign in"}
+          </Link>
+        </div>
+      </div>
+
       {/* ── Desktop layout: sidebar + feed column + right gutter ── */}
       <div className="flex h-full">
 
         {/* Desktop left sidebar */}
-        <aside className="hidden md:flex h-full w-60 shrink-0 flex-col border-r border-white/10 px-4 py-6 lg:w-72">
+        <aside className="hidden md:flex h-full w-60 shrink-0 flex-col overflow-y-auto border-r border-white/10 px-4 py-6 lg:w-72">
           {/* Logo */}
           <Link href="/" className="mb-8 flex items-center gap-2.5 font-extrabold">
             <div className="overflow-hidden rounded-xl bg-white/90 px-1 py-0.5">
@@ -136,17 +154,6 @@ export function FeedShell({
               )
             })}
           </nav>
-
-          {/* Sign in / account at bottom */}
-          <div className="mt-auto flex items-center gap-2">
-            <Link
-              href={signedIn ? "/account" : "/login"}
-              className="flex flex-1 items-center justify-center rounded-xl border border-white/20 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-white/10"
-            >
-              {signedIn ? "My Account" : "Sign in"}
-            </Link>
-            <ModeToggle variant="onDark" />
-          </div>
         </aside>
 
         {/* Feed column — centered within the remaining space.

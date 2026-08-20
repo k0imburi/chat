@@ -24,7 +24,16 @@ export function CustomerLoginForm() {
       {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       <button disabled={loading} className="w-full rounded-2xl bg-[#25d366] px-4 py-3 font-extrabold text-white disabled:opacity-50">{loading ? "Signing in…" : "Sign in"}</button>
     </form>
-    <div className="mt-5 flex justify-between text-sm"><Link href="/forgot-password" className="text-neutral-500">Forgot password?</Link>{/* Account creation happens in the ChatAndTip app */}<span className="text-neutral-400">New here? Get the app</span></div>
+    <div className="mt-5 flex items-center justify-between text-sm">
+      <Link href="/forgot-password" className="text-neutral-500 hover:text-neutral-900">Forgot password?</Link>
+      <Link href="/signup" className="font-bold text-[#25d366] hover:underline">Create an account</Link>
+    </div>
+    <Link
+      href="/signup"
+      className="mt-4 flex w-full items-center justify-center rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-extrabold text-neutral-700 hover:bg-neutral-50"
+    >
+      New to ChatAndTip? Sign up
+    </Link>
     <p className="mt-6 text-center text-xs text-neutral-400">
       <Link href="/about" className="hover:underline">About</Link>
       {" · "}
