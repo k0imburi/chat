@@ -1,5 +1,6 @@
 import Image from "next/image"
 import Link from "next/link"
+import { ArrowLeft } from "lucide-react"
 import type { ReactNode } from "react"
 
 export function LegalPage({
@@ -28,6 +29,12 @@ export function LegalPage({
       </header>
 
       <article className="mx-auto max-w-3xl px-6 py-12">
+        <Link
+          href="/"
+          className="mb-6 inline-flex items-center gap-1.5 text-sm font-bold text-black/60 hover:text-black dark:text-white/60 dark:hover:text-white"
+        >
+          <ArrowLeft className="h-4 w-4" />Back to ChatAndTip
+        </Link>
         <h1 className="text-3xl font-black">{title}</h1>
         {effectiveDate ? (
           <p className="mt-2 text-sm font-semibold text-black/50 dark:text-white/50">Effective date: {effectiveDate}</p>

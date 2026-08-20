@@ -2,6 +2,7 @@ import Image from "next/image"
 import Link from "next/link"
 import type { ReactNode } from "react"
 import { Bell, CalendarClock, Compass, FileText, Flame, Info, LifeBuoy, MessageCircle, PlusSquare, ShieldCheck, UserRound, WalletCards } from "lucide-react"
+import { MobileMenu } from "@/components/customer/mobile-menu"
 import { ModeToggle } from "@/components/customer/mode-toggle"
 
 const nav = [
@@ -39,10 +40,15 @@ export function CustomerShell({
     <main className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
       <header className="sticky top-0 z-30 border-b border-black/10 bg-white/90 backdrop-blur-xl dark:border-white/10 dark:bg-black/90">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-2.5 font-extrabold">
-            <Image src="/chatandtip-logo.jpg" alt="" width={54} height={34} className="h-9 w-14 object-contain" priority />
-            <span>ChatAndTip</span>
-          </Link>
+          <div className="flex items-center gap-2">
+            <div className="lg:hidden">
+              <MobileMenu />
+            </div>
+            <Link href="/" className="flex items-center gap-2.5 font-extrabold">
+              <Image src="/chatandtip-logo.jpg" alt="" width={54} height={34} className="h-9 w-14 object-contain" priority />
+              <span>ChatAndTip</span>
+            </Link>
+          </div>
           <div className="flex items-center gap-2">
             <Link href="/wallet" className="hidden items-center gap-2 rounded-full border border-black/20 px-4 py-2 text-sm font-bold text-black/80 sm:flex dark:border-white/20 dark:text-white/80">
               <WalletCards className="h-4 w-4" /> Wallet

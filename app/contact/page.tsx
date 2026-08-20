@@ -1,8 +1,10 @@
 "use client"
 
 import Image from "next/image"
+import Link from "next/link"
 import { useState } from "react"
 import {
+  ArrowLeft,
   CheckCircle2,
   Clock,
   Loader2,
@@ -77,6 +79,9 @@ export default function ContactPage() {
       <div className="relative mx-auto grid w-full max-w-5xl min-w-0 gap-10 lg:grid-cols-[1.05fr_1fr] lg:gap-16">
         {/* ── Left: brand / info panel ───────────────────────── */}
         <div className="flex min-w-0 flex-col justify-center">
+          <Link href="/" className="mb-6 inline-flex w-fit items-center gap-1.5 text-sm font-bold text-neutral-500 hover:text-neutral-900">
+            <ArrowLeft className="h-4 w-4" />Back to ChatAndTip
+          </Link>
           <div className="flex items-center gap-3">
             <Image
               src="/chatandtip-logo-v2.png"

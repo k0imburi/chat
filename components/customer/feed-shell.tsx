@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react"
+import { MobileMenu } from "@/components/customer/mobile-menu"
 import { ModeToggle } from "@/components/customer/mode-toggle"
 
 const nav = [
@@ -50,6 +51,9 @@ export function FeedShell({
 
       {/* ── Mobile-only floating header ──────────────────────────── */}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex h-14 items-center justify-between px-4 md:hidden">
+        <div className="pointer-events-auto flex items-center gap-2">
+          <MobileMenu variant="onDark" />
+        </div>
         <Link href="/" className="pointer-events-auto flex items-center gap-2 font-extrabold drop-shadow-lg">
           <div className="overflow-hidden rounded-xl bg-white/90 px-1 py-0.5">
             <Image
