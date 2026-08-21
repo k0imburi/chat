@@ -1,16 +1,13 @@
-import { LegalPage, LegalH2, LegalP, LegalUl, isEmbedded } from "@/components/legal-page"
+import { LegalPage, LegalH2, LegalP, LegalUl } from "@/components/legal-page"
 
 export const metadata = {
   title: "Privacy Policy — ChatAndTip",
   description: "How ChatAndTip collects, uses, discloses, and protects your information.",
 }
 
-export default async function PrivacyPage({ searchParams }: {
-  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>
-}) {
-  const embedded = await isEmbedded(searchParams)
+export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" effectiveDate="2 March 2026" embedded={embedded}>
+    <LegalPage title="Privacy Policy" effectiveDate="2 March 2026">
       <LegalP>
         This Privacy Policy explains how ChatAndTip (&quot;ChatAndTip,&quot; &quot;we,&quot; &quot;us,&quot; or
         &quot;our&quot;) collects, uses, discloses, and protects information when you use our mobile application

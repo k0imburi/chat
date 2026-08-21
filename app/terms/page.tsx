@@ -1,16 +1,13 @@
-import { LegalPage, LegalH2, LegalP, LegalUl, isEmbedded } from "@/components/legal-page"
+import { LegalPage, LegalH2, LegalP, LegalUl } from "@/components/legal-page"
 
 export const metadata = {
   title: "Terms and Conditions — ChatAndTip",
   description: "The terms that govern your use of ChatAndTip.",
 }
 
-export default async function TermsPage({ searchParams }: {
-  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>
-}) {
-  const embedded = await isEmbedded(searchParams)
+export default function TermsPage() {
   return (
-    <LegalPage title="Terms and Conditions" effectiveDate="2 March 2026" embedded={embedded}>
+    <LegalPage title="Terms and Conditions" effectiveDate="2 March 2026">
       <section className="space-y-3">
         <LegalH2>1. Eligibility and Nature of the Platform</LegalH2>
         <LegalP>
