@@ -1,13 +1,16 @@
-import { LegalPage, LegalP } from "@/components/legal-page"
+import { LegalPage, LegalP, isEmbedded } from "@/components/legal-page"
 
 export const metadata = {
   title: "About Us — ChatAndTip",
   description: "ChatAndTip is a creator-engagement platform for discovering, connecting with, and supporting creators worldwide.",
 }
 
-export default function AboutPage() {
+export default async function AboutPage({ searchParams }: {
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
+  const embedded = await isEmbedded(searchParams)
   return (
-    <LegalPage title="About Us">
+    <LegalPage title="About Us" embedded={embedded}>
       <LegalP>
         ChatAndTip is a creator-engagement platform built to help people discover, connect with, and support Creators
         from all over the world. Whether you&apos;re browsing posts, exchanging messages, or booking a live voice or
