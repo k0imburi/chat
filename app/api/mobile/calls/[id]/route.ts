@@ -42,6 +42,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const event = {
       type: answered ? "call_answered" : "call_invite_ended",
       inviteId: invite.id,
+      // The booking travels with the event because the two devices on one call
+      // do not reliably share an invite id (ring() keys the invite on whoever
+      // called it), so the app matches an end signal on either. Without this
+      // the push transport could only ever match the invite.
+      bookingId: invite.bookingId,
       status: action === "end" ? "ended" : status.toLowerCase(),
     }
     await sendCallStateFcm(installations.flatMap((row) => row.fcmToken ? [row.fcmToken] : []), event)
