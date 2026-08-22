@@ -321,20 +321,32 @@ export async function endDueSessions(db: Prisma.TransactionClient | typeof prism
       notifyBooking(b.customerId, b.creatorId, "Session ended", "This session has ended.", b.id, b.customer.email),
       notifyBooking(b.creatorId, b.customerId, "Session ended", "This session has ended.", b.id, b.creator.email),
     ])
-    if (outcome.invite) {
-      const userIds = [outcome.invite.callerId, outcome.invite.calleeId]
-      const installations = await prisma.deviceInstallation.findMany({
-        where: { userId: { in: userIds }, isActive: true, fcmToken: { not: null } },
-        select: { fcmToken: true },
+    // Broadcast on the BOOKING, whether or not an answered invite exists.
+    //
+    // This used to be wrapped in `if (outcome.invite)`, where invite was an
+    // ANSWERED one. When both parties join a booked call from My Calls — the
+    // normal path — each side calls ring() and gets its own invite, and neither
+    // ever reaches ANSWERED, because that only happens when someone accepts a
+    // CallKit ring. So the lookup came back null and the slot ending broadcast
+    // nothing at all, leaving each device's own local countdown as the only
+    // thing that could close the call screen. A device that joined after
+    // scheduledEnd never arms that countdown (see _scheduleSlotEnd), so its
+    // screen stayed up indefinitely with nothing to end it.
+    //
+    // The booking is the identifier both devices always share, and the app
+    // matches an end signal on it, so this reaches both sides either way.
+    const userIds = [b.customerId, b.creatorId]
+    const installations = await prisma.deviceInstallation.findMany({
+      where: { userId: { in: userIds }, isActive: true, fcmToken: { not: null } },
+      select: { fcmToken: true },
+    })
+    await sendCallStateFcm(installations.flatMap((row) => row.fcmToken ? [row.fcmToken] : []), {
+      type: "call_invite_ended", inviteId: outcome.invite?.id ?? "", bookingId: b.id, status: "ended",
+    })
+    for (const userId of userIds) {
+      emitChatRealtimeToUser(userId, {
+        channel: "call", type: "call_ended", inviteId: outcome.invite?.id ?? "", bookingId: b.id, status: "ended",
       })
-      await sendCallStateFcm(installations.flatMap((row) => row.fcmToken ? [row.fcmToken] : []), {
-        type: "call_invite_ended", inviteId: outcome.invite.id, status: "ended",
-      })
-      for (const userId of userIds) {
-        emitChatRealtimeToUser(userId, {
-          channel: "call", type: "call_ended", inviteId: outcome.invite.id, bookingId: b.id, status: "ended",
-        })
-      }
     }
     console.info("[calls:settled]", { bookingId: b.id, hadInvite: Boolean(outcome.invite) })
   }
