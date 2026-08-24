@@ -164,7 +164,7 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
   const booking = await prisma.$transaction(async (tx) => {
     const creator = await tx.user.findUnique({
       where: { id: input.creatorId },
-      select: { callsRestrictedUntil: true },
+      select: { callsRestrictedUntil: true, autoAcceptBookings: true },
     })
     if (creator?.callsRestrictedUntil && creator.callsRestrictedUntil > new Date()) {
       throw new Error("This creator is temporarily unavailable for calls")
@@ -185,17 +185,45 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
 
     await reserveBookingCredit(tx, customerId, input.type)
     try {
+      // Auto-accept: the creator has opted into confirming proposals without a
+      // manual tap, so this is created APPROVED rather than PROPOSED. Stamping
+      // approvedAt matters beyond bookkeeping — the join window, the reminder,
+      // and the no-show ladder all key off an approved booking, so a booking
+      // that skipped the manual step still has to look exactly like one that
+      // went through it.
+      const autoAccept = creator?.autoAcceptBookings === true
       return await tx.callBooking.create({ data: {
         customerId, creatorId: input.creatorId, type: input.type, timezone: input.timezone,
         scheduledStart: start, scheduledEnd: end, proposalExpiresAt: expires,
         channelId: `booking_${crypto.randomUUID().replaceAll("-", "")}`,
+        ...(autoAccept ? { status: "APPROVED" as const, approvedAt: new Date() } : {}),
       }, include: { customer: true, creator: true } })
     } catch (error) {
       await tx.creditAccount.update({ where: { userId: customerId }, data: { [reserved]: { decrement: 1 } } })
       throw error
     }
   }, { timeout: 20000, maxWait: 10000 })
-  await notifyBooking(booking.creatorId, booking.customerId, "New call proposal", `A ${input.type.toLowerCase()} call has been proposed. Go to my calls  section to view. `, booking.id, booking.creator.email)
+  // Both sides need to hear the outcome that actually happened. On
+  // auto-accept the customer is the one with news (their call is confirmed,
+  // not merely requested), and the creator is told a slot was taken rather
+  // than asked to act on it — telling either of them "proposed" would be
+  // wrong, since there is nothing left to approve.
+  if (booking.status === "APPROVED") {
+    await Promise.all([
+      notifyBooking(
+        booking.customerId, booking.creatorId, "Call confirmed",
+        `Your ${input.type.toLowerCase()} call is confirmed. See My Calls for the details.`,
+        booking.id, booking.customer.email,
+      ),
+      notifyBooking(
+        booking.creatorId, booking.customerId, "Call booked",
+        `A ${input.type.toLowerCase()} call was booked and auto-accepted. See My Calls for the details.`,
+        booking.id, booking.creator.email,
+      ),
+    ])
+  } else {
+    await notifyBooking(booking.creatorId, booking.customerId, "New call proposal", `A ${input.type.toLowerCase()} call has been proposed. Go to my calls  section to view. `, booking.id, booking.creator.email)
+  }
   return booking
 }
 

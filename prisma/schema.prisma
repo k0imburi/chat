@@ -234,6 +234,10 @@ model User {
   lastActiveAt          DateTime?
   earningSuspendedUntil DateTime?
   callsRestrictedUntil  DateTime?
+  // Creator preference: approve incoming booking proposals automatically
+  // instead of leaving them PROPOSED for a manual tap. Off by default, since
+  // auto-committing someone's time is not a safe assumption to make for them.
+  autoAcceptBookings    Boolean                @default(false)
   activeStrikeCount     Int                    @default(0)
   media                 UserMedia[]
   reportsMade           Report[]               @relation("ReportReporter")
