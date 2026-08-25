@@ -69,6 +69,63 @@ function timeLabel(iso: string) {
   })
 }
 
+/**
+ * Renders a locked reply the same way the app does: a genuinely blurred
+ * preview, not a generic skeleton. The server only ever sends a short
+ * preview snippet for a locked message (see buildLockedPreview in
+ * mobile-chats.ts) — the real text never reaches a client that isn't
+ * entitled to it — so this tiles that snippet into a few lines and blurs
+ * all but a short leading fragment, communicating "there is a substantial
+ * reply here" without rendering or downloading the protected content
+ * itself. Image/video locked messages get a blurred gradient placeholder
+ * instead, with a play icon for video.
+ */
+function LockedMessagePreview({ message, mine }: { message: ChatMessage; mine: boolean }) {
+  if (message.lockedContentType === "image" || message.lockedContentType === "video") {
+    return (
+      <div className="relative h-32 w-56 overflow-hidden rounded-lg bg-gradient-to-r from-neutral-600 via-neutral-400 to-neutral-600">
+        <div className="absolute inset-0 bg-black/20" style={{ backdropFilter: "blur(12px)" }} />
+        {message.lockedContentType === "video" ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-black/40">
+              <div className="ml-0.5 h-0 w-0 border-y-8 border-l-[14px] border-y-transparent border-l-white/70" />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  const visibleSnippet = (message.textMsg || "").replace(/[.…]+$/, "").trim()
+  const visiblePrefix = visibleSnippet.length <= 18 ? visibleSnippet : visibleSnippet.slice(0, 18).trimEnd()
+  const blurredBody = Array(6).fill(visiblePrefix || "···").join(" ")
+  const textColor = mine ? "text-white/78" : "text-black/78 dark:text-white/78"
+  const lineBg = mine ? "bg-white/15" : "bg-black/15 dark:bg-white/15"
+
+  return (
+    <div className="h-[88px] w-52 overflow-hidden">
+      <div className="flex items-baseline gap-1">
+        <span className={`whitespace-nowrap text-[13px] font-bold ${textColor}`}>{visiblePrefix}</span>
+        <span
+          className={`flex-1 truncate rounded text-[13px] ${textColor} ${lineBg}`}
+          style={{ filter: "blur(3px)" }}
+        >
+          {blurredBody}
+        </span>
+      </div>
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className={`mt-1.5 truncate rounded text-[13px] leading-[16px] ${textColor} ${lineBg}`}
+          style={{ filter: "blur(3px)" }}
+        >
+          {blurredBody}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function ChatThread({
   viewerId,
   otherUserId,
@@ -371,11 +428,7 @@ export function ChatThread({
                       <div className="mb-3 flex items-center gap-2 font-black">
                         <Lock className="h-4 w-4" /> Locked reply
                       </div>
-                      <div className="space-y-2">
-                        <div className="h-3 w-40 rounded-full bg-black/25 dark:bg-white/25" />
-                        <div className="h-3 w-32 rounded-full bg-black/18 dark:bg-white/18" />
-                        <div className="h-3 w-44 rounded-full bg-black/12 dark:bg-white/12" />
-                      </div>
+                      <LockedMessagePreview message={message} mine={mine} />
                       <button
                         onClick={() => unlock(message)}
                         className="mt-4 rounded-full border border-black/20 bg-black/10 px-4 py-1.5 text-xs font-bold text-black hover:bg-black/20 dark:border-white/20 dark:bg-white/10 dark:text-white dark:hover:bg-white/20"

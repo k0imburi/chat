@@ -145,6 +145,17 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
             </div>
 
             {!ownPost && viewer ? (
+              <Link href={`/inbox/${media.user.userId}`} className="flex flex-col items-center gap-1">
+                <div className="flex h-12 w-12 items-center justify-center">
+                  <svg viewBox="0 0 24 24" className="h-[26px] w-[26px] fill-none stroke-white stroke-2">
+                    <path d="M4 4h16v12H8l-4 4V4z" />
+                  </svg>
+                </div>
+                <span className="text-xs font-bold text-white/70">Message</span>
+              </Link>
+            ) : null}
+
+            {!ownPost && viewer ? (
               <ReportButton action={reportPost.bind(null, post.id)} />
             ) : null}
           </div>

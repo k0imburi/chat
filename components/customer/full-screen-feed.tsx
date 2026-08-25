@@ -244,6 +244,21 @@ function FullScreenPost({
           icon={<Share2 className="h-6 w-6 text-white" />}
         />
 
+        {/* Direct message — separate from comments, added alongside the same
+            split on the app: the comment button opens comments, this opens a
+            DM with the poster. Hidden on your own post, since there is
+            nobody else to message. */}
+        {viewerId && viewerId !== user.userId ? (
+          <Link href={`/inbox/${user.userId}`} className="flex flex-col items-center gap-1">
+            <div className="flex h-12 w-12 items-center justify-center">
+              <svg viewBox="0 0 24 24" className="h-[26px] w-[26px] fill-none stroke-white stroke-2">
+                <path d="M4 4h16v12H8l-4 4V4z" />
+              </svg>
+            </div>
+            <span className="text-xs font-bold text-white/70">Message</span>
+          </Link>
+        ) : null}
+
         {/* Mute (video only) */}
         {isVideo && (
           <button
