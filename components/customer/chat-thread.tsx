@@ -92,6 +92,7 @@ export function ChatThread({
   const [text, setText] = useState("")
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [insufficientBalance, setInsufficientBalance] = useState(false)
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [reactingTo, setReactingTo] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
@@ -209,6 +210,7 @@ export function ChatThread({
 
     setSending(true)
     setError(null)
+    setInsufficientBalance(false)
     const pendingReply = replyTo
     const pendingImage = imageFile
     setText("")
@@ -259,13 +261,24 @@ export function ChatThread({
 
   async function unlock(message: ChatMessage) {
     setError(null)
+    setInsufficientBalance(false)
     try {
       const res = await fetch(
         `/api/customer/chats/${encodeURIComponent(otherUserId)}/messages/${encodeURIComponent(message.id)}/unlock`,
         { method: "POST" },
       )
       const data = await res.json()
-      if (!res.ok) throw new Error(data.message || "Could not unlock this reply")
+      if (!res.ok) {
+        // Same code the app's client checks for — the route returns 402 +
+        // this code specifically so a client can distinguish "you're out of
+        // Keys/ChatCredits" from any other failure and offer the fix, rather
+        // than just reporting the error text.
+        if (data.code === "INSUFFICIENT_BALANCE") {
+          setInsufficientBalance(true)
+          return
+        }
+        throw new Error(data.message || "Could not unlock this reply")
+      }
       await refreshMessages()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not unlock this reply")
@@ -460,7 +473,28 @@ export function ChatThread({
             </div>
           ) : null}
 
-          {error ? (
+          {insufficientBalance ? (
+            <div className="flex items-center justify-between gap-3 border-t border-black/10 bg-amber-500/10 px-4 py-2 dark:border-white/10">
+              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                You&apos;re out of Keys and ChatCredits to unlock this reply.
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <Link
+                  href="/checkout"
+                  className="rounded-full bg-amber-600 px-3 py-1 text-xs font-bold text-white"
+                >
+                  Top up
+                </Link>
+                <button
+                  onClick={() => setInsufficientBalance(false)}
+                  className="text-amber-700 dark:text-amber-400"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : error ? (
             <div className="border-t border-black/10 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-600 dark:border-white/10 dark:text-rose-400">
               {error}
             </div>
