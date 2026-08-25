@@ -57,6 +57,23 @@ export async function getCheckoutUserFromRequest(request: Request) {
   return token ? readCheckoutToken(decodeURIComponent(token)) : null
 }
 
+// ── Web realtime bridge ──────────────────────────────────────────
+// The customer web's own session is a cookie (see customer-auth.ts), signed
+// with CUSTOMER_JWT_SECRET when set — which the websocket upgrade handler in
+// server.mjs cannot be assumed to accept, since it verifies with plain
+// JWT_SECRET and no audience check. Rather than couple the browser socket to
+// an assumption about which secret is configured, this mints a short-lived
+// token in the exact shape /ws/mobile already verifies (HS256, JWT_SECRET,
+// a `userId` claim), so the two auth schemes never have to agree on
+// anything beyond "the browser proved who it is via its own cookie first".
+export async function signRealtimeToken(userId: string) {
+  return new SignJWT({ userId, loginProvider: "web" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("2h")
+    .sign(secret)
+}
+
 export async function getMobileSessionFromRequest(request: Request) {
   const header = request.headers.get("authorization") || request.headers.get("Authorization")
   if (!header?.startsWith("Bearer ")) return null

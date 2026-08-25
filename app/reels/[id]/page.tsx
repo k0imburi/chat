@@ -53,12 +53,11 @@ export default async function PublicReelPage({ params }: { params: Promise<{ id:
     ? `@${media.user.username}`
     : media.user.fullname || "Creator"
 
-  const commentItems = media.comments.map((c) => ({
-    id: c.id,
-    text: c.text,
-    createdAt: c.createdAt,
-    author: { name: c.author.name, avatarUrl: c.author.avatarUrl ?? null },
-  }))
+  // Passed through as-is rather than projected down to {id, text, createdAt,
+  // author}: getComments already returns replyCount/likes/isLiked/parentId,
+  // and stripping them here is what left the web sheet with no replies or
+  // likes while the exact same backend already supported both for the app.
+  const commentItems = media.comments
 
   return (
     <FeedShell active="" signedIn={Boolean(viewer)}>
