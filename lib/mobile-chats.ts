@@ -417,7 +417,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       })
     }
 
-    const [messages, threadState, viewer] = await Promise.all([
+    const [messagesRaw, threadState, viewer] = await Promise.all([
       tx.chatMessage.findMany({
         where: {
           threadId: participant.threadId,
@@ -438,6 +438,13 @@ export async function getMessages(userId: string, otherUserId: string) {
       }),
       tx.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } }),
     ])
+
+    // Drop messages the viewer deleted from their own view — see
+    // deleteMessage. The other participant's copy is untouched.
+    const messages = messagesRaw.filter((m) => {
+      const deletedFor = Array.isArray(m.deletedForUserIds) ? (m.deletedForUserIds as string[]) : []
+      return !deletedFor.includes(userId)
+    })
 
     // The viewer's next reply needs a fresh Key unlock (and so enforces the
     // 100-char minimum in the composer) when the viewer is the
@@ -1080,15 +1087,22 @@ export async function deleteMessage(userId: string, otherUserId: string, message
   if (!message) throw new Error("Message not found")
   if (message.senderId !== userId) throw new Error("You can only delete your own messages")
 
-  await prisma.chatMessage.delete({ where: { id: messageId } })
+  // Soft delete, scoped to the deleting user only — the other participant
+  // sent/received this message as a real part of the conversation and keeps
+  // seeing it. Only the deleter's own view loses it.
+  const existing = Array.isArray(message.deletedForUserIds) ? (message.deletedForUserIds as string[]) : []
+  if (!existing.includes(userId)) {
+    await prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { deletedForUserIds: [...existing, userId] },
+    })
+  }
 
-  const event = {
+  emitChatRealtimeToUser(userId, {
     channel: "chat" as const,
     type: "message_deleted" as const,
     otherUserId,
     messageId,
     chatId: message.threadId,
-  }
-  emitChatRealtimeToUser(userId, event)
-  emitChatRealtimeToUser(otherUserId, event)
+  })
 }

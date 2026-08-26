@@ -836,6 +836,10 @@ model ChatMessage {
   // locked E2E-encrypted messages can still show a teaser server-side.
   previewText         String?
   broadcastCampaignId String?
+  // Per-user soft delete: userIds who deleted this message from THEIR OWN
+  // view. Deleting your own sent message never removes it for the other
+  // participant — only the deleting user's copy disappears.
+  deletedForUserIds   Json?
   sentAt              DateTime        @default(now())
   thread              ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
   sender              User            @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
