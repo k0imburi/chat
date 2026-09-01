@@ -10,6 +10,7 @@ const authorSelect = {
   id: true,
   fullName: true,
   avatarUrl: true,
+  gender: true,
   media: { where: { kind: MediaKind.PROFILE_VIDEO }, select: { thumbnailUrl: true, url: true }, take: 1 },
 } as const
 
@@ -17,6 +18,7 @@ type CommentAuthor = {
   id: string
   fullName: string
   avatarUrl: string | null
+  gender: string
   media: { thumbnailUrl: string | null; url: string }[]
 }
 
@@ -39,6 +41,7 @@ function serializeComment(
     createdAt: Date
     author: CommentAuthor
     _count: { replies: number }
+    isPinned: boolean
   },
   currentUserId: string,
   likedCommentIds: Set<string>,
@@ -50,11 +53,13 @@ function serializeComment(
     likes: comment.likes,
     replyCount: comment._count.replies,
     isLiked: likedCommentIds.has(comment.id),
+    isPinned: comment.isPinned,
     createdAt: comment.createdAt.toISOString(),
     author: {
       id: comment.author.id,
       name: comment.author.fullName,
       avatarUrl: resolveAvatarUrl(comment.author),
+      fallbackAsset: comment.author.gender.toUpperCase() === "M" ? "assets/male.png" : "assets/female.png",
       isByCurrentUser: comment.author.id === currentUserId,
     },
   }
@@ -69,7 +74,7 @@ export async function getComments(
     where: { mediaId, parentId: null },
     take: COMMENTS_PAGE_SIZE + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
     include: {
       author: { select: authorSelect },
       _count: { select: { replies: true } },
@@ -219,6 +224,46 @@ export async function deleteComment(commentId: string, requesterId: string) {
     where: { id: comment.mediaId },
     data: { commentCount: { decrement: 1 + replyCount } },
   })
+}
+
+export async function editComment(commentId: string, requesterId: string, text: string) {
+  const existing = await prisma.videoComment.findUnique({
+    where: { id: commentId },
+    select: { authorId: true },
+  })
+  if (!existing) throw new Error("Comment not found")
+  if (existing.authorId !== requesterId) throw new Error("Not authorised to edit this comment")
+
+  const comment = await prisma.videoComment.update({
+    where: { id: commentId },
+    data: { text },
+    include: {
+      author: { select: authorSelect },
+      _count: { select: { replies: true } },
+    },
+  })
+  return serializeComment(comment, requesterId, new Set())
+}
+
+export async function setCommentPinned(commentId: string, requesterId: string, pinned: boolean) {
+  const comment = await prisma.videoComment.findUnique({
+    where: { id: commentId },
+    select: { id: true, mediaId: true, parentId: true, media: { select: { userId: true } } },
+  })
+  if (!comment) throw new Error("Comment not found")
+  if (comment.media.userId !== requesterId) throw new Error("Not authorised to pin comments on this post")
+  if (comment.parentId) throw new Error("Only top-level comments can be pinned")
+
+  await prisma.$transaction(async (tx) => {
+    if (pinned) {
+      await tx.videoComment.updateMany({
+        where: { mediaId: comment.mediaId, isPinned: true },
+        data: { isPinned: false },
+      })
+    }
+    await tx.videoComment.update({ where: { id: commentId }, data: { isPinned: pinned } })
+  })
+  return { pinned }
 }
 
 export async function toggleCommentLike(commentId: string, userId: string) {

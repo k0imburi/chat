@@ -117,6 +117,8 @@ function serializeVideo(media?: UserMedia | null) {
       views: 0,
       likes: 0,
       commentCount: 0,
+      shareCount: 0,
+      bookmarkCount: 0,
       createdAt: null,
       isLiked: false,
       copyrightStatus: null as string | null,
@@ -141,6 +143,8 @@ function serializeVideo(media?: UserMedia | null) {
     views: media.views,
     likes: media.likes,
     commentCount: media.commentCount,
+    shareCount: media.shareCount,
+    bookmarkCount: media.saveCount,
     createdAt: media.createdAt.toISOString(),
     isLiked: false,
     copyrightStatus: media.copyrightStatus ?? null,
@@ -205,7 +209,8 @@ export function serializeMobileUser(user: UserWithMedia) {
     lastSwipeDate: user.lastSwipeDate?.toISOString() || null,
     status: mapStatus(user.status),
     loginProvider: mapMobileLoginProvider(user.loginProvider),
-    lastActive: user.lastActiveAt?.toISOString() || null,
+    showLastActivity: user.showLastActivity,
+    lastActive: user.showLastActivity ? user.lastActiveAt?.toISOString() || null : null,
     createdAt: user.createdAt.toISOString(),
   }
 }
@@ -547,6 +552,7 @@ export async function updateMobileUserProfile(
     swipeCount?: number
     lastSwipeDate?: string
     status?: string
+    showLastActivity?: boolean
   },
 ): Promise<UserWithMedia> {
   const existing = await prisma.user.findUnique({
@@ -576,6 +582,7 @@ export async function updateMobileUserProfile(
         swipeCount: input.swipeCount,
         lastSwipeDate: input.lastSwipeDate !== undefined ? normalizeDate(input.lastSwipeDate) : undefined,
         status: input.status as never,
+        showLastActivity: input.showLastActivity,
         deviceToken: input.deviceToken,
         deviceSystem: input.deviceSystem,
         country: input.country,

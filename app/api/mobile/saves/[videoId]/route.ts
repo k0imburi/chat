@@ -23,13 +23,29 @@ export async function POST(
   })
 
   if (existing) {
-    await prisma.savedVideo.delete({ where: { id: existing.id } })
-    return NextResponse.json({ success: true, saved: false })
+    const count = await prisma.$transaction(async (tx) => {
+      await tx.savedVideo.delete({ where: { id: existing.id } })
+      const updated = await tx.userMedia.update({
+        where: { id: videoId },
+        data: { saveCount: { decrement: 1 } },
+        select: { saveCount: true },
+      })
+      return Math.max(0, updated.saveCount)
+    })
+    return NextResponse.json({ success: true, saved: false, bookmarkCount: count })
   }
 
-  await prisma.savedVideo.create({
-    data: { userId: session.userId, mediaId: videoId },
+  const count = await prisma.$transaction(async (tx) => {
+    await tx.savedVideo.create({
+      data: { userId: session.userId, mediaId: videoId },
+    })
+    const updated = await tx.userMedia.update({
+      where: { id: videoId },
+      data: { saveCount: { increment: 1 } },
+      select: { saveCount: true },
+    })
+    return updated.saveCount
   })
 
-  return NextResponse.json({ success: true, saved: true })
+  return NextResponse.json({ success: true, saved: true, bookmarkCount: count })
 }

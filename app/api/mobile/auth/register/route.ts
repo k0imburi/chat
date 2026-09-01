@@ -5,6 +5,10 @@ import { signMobileSessionToken } from "@/lib/mobile-session"
 import { mapMobileLoginProvider, registerMobileUser, serializeMobileUser } from "@/lib/mobile-users"
 import { InvalidUsernameError, UsernameTakenError } from "@/lib/username-rules"
 import { logError } from "@/lib/log-error"
+import { broadcastCampaignNotifications } from "@/lib/mobile-notifications"
+import { prisma } from "@/lib/prisma"
+
+const WELCOME_MESSAGE = "Welcome to ChatAndTip 🎉 you are now a part of a community where people connect in a whole new way. Every conversation here is a chance to make someone's day a little brighter. Let's create something great together. The ChatAndTip Team"
 
 const schema = z.object({
   fullName: z.string().min(2),
@@ -44,6 +48,21 @@ export async function POST(request: Request) {
       phoneNumber: user.phoneNumber,
       loginProvider: mapMobileLoginProvider(user.loginProvider),
     })
+
+    const campaignId = `welcome:${user.id}`
+    const welcomeExists = await prisma.userNotification.findFirst({
+      where: { userId: user.id, type: "broadcast", metadata: { path: "$.campaignId", equals: campaignId } },
+      select: { id: true },
+    })
+    if (!welcomeExists) {
+      await broadcastCampaignNotifications({
+        title: "Welcome to ChatAndTip",
+        message: WELCOME_MESSAGE,
+        campaignId,
+        targetFilter: { userIds: [user.id] },
+        batchSize: 1,
+      })
+    }
 
     return NextResponse.json({
       success: true,

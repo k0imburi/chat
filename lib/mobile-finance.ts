@@ -125,7 +125,7 @@ export async function financeSummary(userId: string) {
 // earned, how much, who it was with (when resolvable), when it was received,
 // and when it matures/became available.
 export async function financeActivity(userId: string, opts?: { take?: number }) {
-  const take = Math.min(Math.max(opts?.take ?? 50, 1), 200)
+  const take = opts?.take == null ? undefined : Math.min(Math.max(opts.take, 1), 500)
   const [lots, settings] = await Promise.all([
     prisma.earningLot.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take }),
     prisma.appSettings.findUnique({ where: { id: 1 } }),

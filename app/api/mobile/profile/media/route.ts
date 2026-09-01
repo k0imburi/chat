@@ -25,6 +25,15 @@ const viewsSchema = z.object({
   mediaId: z.string(),
 })
 
+const updateSchema = z.object({
+  mediaId: z.string(),
+  title: z.string().max(300).optional(),
+  caption: z.string().max(2200).optional(),
+  description: z.string().max(2200).optional(),
+  titlePositionX: z.coerce.number().min(0).max(1).optional(),
+  titlePositionY: z.coerce.number().min(0).max(1).optional(),
+})
+
 export async function POST(request: Request) {
   const session = await getMobileSessionFromRequest(request)
   if (!session) {
@@ -99,6 +108,32 @@ export async function PATCH(request: Request) {
 
   try {
     const body = await request.json()
+    if (body.action === "share") {
+      const parsed = viewsSchema.parse(body)
+      const updated = await prisma.userMedia.update({
+        where: { id: parsed.mediaId },
+        data: { shareCount: { increment: 1 } },
+        select: { shareCount: true },
+      })
+      return NextResponse.json({ success: true, shareCount: updated.shareCount })
+    }
+
+    const isMetadataUpdate = ["title", "caption", "description", "titlePositionX", "titlePositionY"]
+      .some((field) => Object.prototype.hasOwnProperty.call(body, field))
+    if (isMetadataUpdate) {
+      const parsed = updateSchema.parse(body)
+      const { mediaId, ...data } = parsed
+      const result = await prisma.userMedia.updateMany({
+        where: { id: mediaId, userId: session.userId },
+        data,
+      })
+      if (!result.count) {
+        return NextResponse.json({ success: false, message: "Post not found" }, { status: 404 })
+      }
+      const user = await findMobileUserById(session.userId)
+      return NextResponse.json({ success: true, user: user ? serializeMobileUser(user) : null })
+    }
+
     const parsed = viewsSchema.parse(body)
     const viewOnly = body.viewOnly === true
 

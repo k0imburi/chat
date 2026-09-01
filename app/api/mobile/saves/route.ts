@@ -30,6 +30,8 @@ export async function GET(request: Request) {
     views: media.views,
     likes: media.likes,
     commentCount: media.commentCount,
+    shareCount: media.shareCount,
+    bookmarkCount: media.saveCount,
     createdAt: media.createdAt.toISOString(),
     user: {
       userId: media.user.id,
