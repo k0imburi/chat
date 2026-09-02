@@ -5,6 +5,7 @@ import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { findMobileUserById, serializeMobileUser } from "@/lib/mobile-users"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
+import { createUserNotification } from "@/lib/mobile-notifications"
 
 const createSchema = z.object({
   kind: z.nativeEnum(MediaKind),
@@ -108,6 +109,52 @@ export async function PATCH(request: Request) {
 
   try {
     const body = await request.json()
+    if (body.action === "repost") {
+      const parsed = viewsSchema.parse(body)
+      const result = await prisma.$transaction(async (tx) => {
+        const media = await tx.userMedia.findUnique({
+          where: { id: parsed.mediaId },
+          select: { id: true, userId: true },
+        })
+        if (!media) throw new Error("Post not found")
+
+        const existing = await tx.mediaRepost.findUnique({
+          where: { userId_mediaId: { userId: session.userId, mediaId: parsed.mediaId } },
+        })
+        if (existing) {
+          await tx.mediaRepost.delete({ where: { id: existing.id } })
+          const updated = await tx.userMedia.update({
+            where: { id: parsed.mediaId },
+            data: { repostCount: { decrement: 1 } },
+            select: { repostCount: true },
+          })
+          return { reposted: false, repostCount: Math.max(0, updated.repostCount), ownerId: media.userId }
+        }
+
+        await tx.mediaRepost.create({
+          data: { userId: session.userId, mediaId: parsed.mediaId },
+        })
+        const updated = await tx.userMedia.update({
+          where: { id: parsed.mediaId },
+          data: { repostCount: { increment: 1 } },
+          select: { repostCount: true },
+        })
+        return { reposted: true, repostCount: updated.repostCount, ownerId: media.userId }
+      })
+
+      if (result.reposted && result.ownerId !== session.userId) {
+        await createUserNotification({
+          userId: result.ownerId,
+          senderId: session.userId,
+          type: "repost",
+          title: "Post reposted",
+          message: "reposted your post",
+          metadata: { mediaId: parsed.mediaId, ownerId: result.ownerId },
+        })
+      }
+      return NextResponse.json({ success: true, ...result })
+    }
+
     if (body.action === "share") {
       const parsed = viewsSchema.parse(body)
       const updated = await prisma.userMedia.update({

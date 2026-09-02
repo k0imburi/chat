@@ -14,7 +14,7 @@ function idHashFraction(s: string): number {
 }
 
 export async function getDiscoverFeed(currentUserId: string) {
-  const [currentUser, followRows, seenRows, savedRows] = await Promise.all([
+  const [currentUser, followRows, seenRows, savedRows, repostRows] = await Promise.all([
     prisma.user.findUnique({
       where: { id: currentUserId },
       include: {
@@ -37,6 +37,10 @@ export async function getDiscoverFeed(currentUserId: string) {
       where: { userId: currentUserId },
       select: { mediaId: true },
     }),
+    prisma.mediaRepost.findMany({
+      where: { userId: currentUserId },
+      select: { mediaId: true },
+    }),
   ])
 
   if (!currentUser) {
@@ -45,6 +49,7 @@ export async function getDiscoverFeed(currentUserId: string) {
 
   const seenMediaIds = new Set(seenRows.map((row) => row.mediaId))
   const savedMediaIds = new Set(savedRows.map((row) => row.mediaId))
+  const repostedMediaIds = new Set(repostRows.map((row) => row.mediaId))
   const followedIds = followRows.map((r) => r.followedId)
 
   const blockedIds = new Set<string>([
@@ -84,7 +89,7 @@ export async function getDiscoverFeed(currentUserId: string) {
   // Build one feed entry per gallery post, scored by the hot algorithm.
   const entries = filteredUsers
     .map((user) => {
-      const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds)
+      const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds, repostedMediaIds)
       const videos = (Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []
@@ -133,7 +138,7 @@ export async function getDiscoverFeed(currentUserId: string) {
 }
 
 export async function getTrendingFeed(currentUserId?: string) {
-  const [users, savedRows, likedRows] = await Promise.all([
+  const [users, savedRows, likedRows, repostRows] = await Promise.all([
     prisma.user.findMany({
       where: {
         status: { notIn: ["BLOCKED", "HIDDEN"] },
@@ -146,17 +151,21 @@ export async function getTrendingFeed(currentUserId?: string) {
     currentUserId
       ? prisma.videoLike.findMany({ where: { senderId: currentUserId }, select: { mediaId: true } })
       : Promise.resolve([]),
+    currentUserId
+      ? prisma.mediaRepost.findMany({ where: { userId: currentUserId }, select: { mediaId: true } })
+      : Promise.resolve([]),
   ])
 
   const savedMediaIds = new Set(savedRows.map((row) => row.mediaId))
   const likedMediaIds = new Set(
     likedRows.map((row) => row.mediaId).filter((value): value is string => Boolean(value)),
   )
+  const repostedMediaIds = new Set(repostRows.map((row) => row.mediaId))
 
   const now = Date.now()
   const entries = users
     .flatMap((user) => {
-      const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds)
+      const serialized = serializeMobileUserWithLikes(user, likedMediaIds, savedMediaIds, repostedMediaIds)
       const videos = (Array.isArray(serialized.gallery)
         ? (serialized.gallery as Array<Record<string, unknown>>)
         : []

@@ -287,6 +287,7 @@ model User {
   paymentAttempts       PaymentAttempt[]
   livenessVerification  LivenessVerification?
   savedVideos           SavedVideo[]
+  mediaReposts          MediaRepost[]
   e2eKey                UserKey?
   deviceInstallations   DeviceInstallation[]
   outgoingCallInvites   CallInvite[]           @relation("CallInviteCaller")
@@ -328,40 +329,54 @@ model VerificationCode {
 }
 
 model UserMedia {
-  id             String         @id @default(cuid())
-  userId         String
-  kind           MediaKind
-  title          String?
-  titlePositionX Float?         @default(0.5)
-  titlePositionY Float?         @default(0.5)
-  caption        String?        @db.Text
-  description    String?        @db.Text
-  objectKey      String?
-  url            String
-  images         Json?
-  thumbnailUrl   String?
-  mimeType       String?
-  sizeBytes      Int?
-  views          Int            @default(0)
-  likes          Int            @default(0)
-  commentCount   Int            @default(0)
-  shareCount     Int            @default(0)
-  saveCount      Int            @default(0)
+  id              String         @id @default(cuid())
+  userId          String
+  kind            MediaKind
+  title           String?
+  titlePositionX  Float?         @default(0.5)
+  titlePositionY  Float?         @default(0.5)
+  caption         String?        @db.Text
+  description     String?        @db.Text
+  objectKey       String?
+  url             String
+  images          Json?
+  thumbnailUrl    String?
+  mimeType        String?
+  sizeBytes       Int?
+  views           Int            @default(0)
+  likes           Int            @default(0)
+  commentCount    Int            @default(0)
+  shareCount      Int            @default(0)
+  repostCount     Int            @default(0)
+  saveCount       Int            @default(0)
   // Copyright moderation: null = visible. UNDER_REVIEW / APPEALED / REMOVED
   // hide the post from everyone except its owner until an admin decides.
   copyrightStatus String?
   // General content reports (not copyright): null = visible. UNDER_REVIEW
   // hides the post from everyone except its owner pending admin review.
-  reportStatus   String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  likeRecords    VideoLike[]
-  comments       VideoComment[]
-  savedBy        SavedVideo[]
-  reports        Report[]
+  reportStatus    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likeRecords     VideoLike[]
+  comments        VideoComment[]
+  savedBy         SavedVideo[]
+  reposts         MediaRepost[]
+  reports         Report[]
 
   @@index([userId, kind])
+}
+
+model MediaRepost {
+  id        String    @id @default(cuid())
+  userId    String
+  mediaId   String
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media     UserMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, mediaId])
+  @@index([mediaId, createdAt])
 }
 
 model Report {
@@ -398,13 +413,13 @@ model PaymentPlan {
 }
 
 model NotificationCampaign {
-  id          String              @id @default(cuid())
-  title       String?
-  message     String              @db.Text
-  channel     NotificationChannel @default(IN_APP)
-  status      NotificationStatus  @default(DRAFT)
-  scheduledAt DateTime?
-  sentAt      DateTime?
+  id           String              @id @default(cuid())
+  title        String?
+  message      String              @db.Text
+  channel      NotificationChannel @default(IN_APP)
+  status       NotificationStatus  @default(DRAFT)
+  scheduledAt  DateTime?
+  sentAt       DateTime?
   metadata     Json?
   targetFilter Json?
   createdAt    DateTime            @default(now())
@@ -495,10 +510,10 @@ model CreditAccount {
 // threshold. CARD uses a stored Paystack authorization to charge silently;
 // MPESA sends a one-tap STK the user approves (M-Pesa can't charge silently).
 model AutoTopupConfig {
-  id               String   @id @default(cuid())
-  userId           String   @unique
-  enabled          Boolean  @default(false)
-  method           String   @default("MPESA") // "CARD" | "MPESA"
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  enabled          Boolean   @default(false)
+  method           String    @default("MPESA") // "CARD" | "MPESA"
   mpesaPhone       String?
   // Saved Paystack card authorization for off-session (silent) charges.
   paystackAuthCode String?
@@ -506,20 +521,20 @@ model AutoTopupConfig {
   cardBrand        String?
   // Per-category rules: refill by `refill` units when balance < `threshold`.
   // 0/0 means "don't watch this category".
-  keyThreshold     Int      @default(0)
-  keyRefill        Int      @default(0)
-  chatThreshold    Int      @default(0)
-  chatRefill       Int      @default(0)
-  voiceThreshold   Int      @default(0)
-  voiceRefill      Int      @default(0)
-  videoThreshold   Int      @default(0)
-  videoRefill      Int      @default(0)
+  keyThreshold     Int       @default(0)
+  keyRefill        Int       @default(0)
+  chatThreshold    Int       @default(0)
+  chatRefill       Int       @default(0)
+  voiceThreshold   Int       @default(0)
+  voiceRefill      Int       @default(0)
+  videoThreshold   Int       @default(0)
+  videoRefill      Int       @default(0)
   lastTriggeredAt  DateTime?
   lastFailureAt    DateTime?
   lastFailureText  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Immutable audit trail of every credit movement. `idempotencyKey` prevents
@@ -546,24 +561,24 @@ model CreditLedger {
 // A credit-purchase cart linked to an MPESA STK request. On callback success
 // the cart's quantities are allocated via allocateCredits (idempotent on id).
 model CreditPurchase {
-  id                String          @id @default(cuid())
-  userId            String
-  checkoutRequestId String?         @unique
-  stripeSessionId   String?         @unique
-  googlePlayPurchaseToken String?   @unique
-  phone             String
-  items             Json
-  totalKes          Decimal         @db.Decimal(12, 2)
-  status            String          @default("PENDING") // PENDING | SUCCESS | FAILED
-  allocated         Boolean         @default(false)
-  provider          String          @default("MPESA")
-  paymentAttemptId  String?         @unique
-  pricingSnapshot   Json?
-  exchangeRate      Decimal?        @db.Decimal(12, 4)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  paymentAttempt    PaymentAttempt? @relation(fields: [paymentAttemptId], references: [id], onDelete: SetNull)
+  id                      String          @id @default(cuid())
+  userId                  String
+  checkoutRequestId       String?         @unique
+  stripeSessionId         String?         @unique
+  googlePlayPurchaseToken String?         @unique
+  phone                   String
+  items                   Json
+  totalKes                Decimal         @db.Decimal(12, 2)
+  status                  String          @default("PENDING") // PENDING | SUCCESS | FAILED
+  allocated               Boolean         @default(false)
+  provider                String          @default("MPESA")
+  paymentAttemptId        String?         @unique
+  pricingSnapshot         Json?
+  exchangeRate            Decimal?        @db.Decimal(12, 4)
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+  user                    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentAttempt          PaymentAttempt? @relation(fields: [paymentAttemptId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
 }
@@ -918,14 +933,14 @@ model CallBooking {
 }
 
 model CreatorStrike {
-  id        String    @id @default(cuid())
-  creatorId String
-  bookingId String?   @unique
-  reason    String
-  createdAt DateTime  @default(now())
-  expiresAt DateTime?
+  id         String    @id @default(cuid())
+  creatorId  String
+  bookingId  String?   @unique
+  reason     String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
   consumedAt DateTime?
-  creator   User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creator    User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
 
   @@index([creatorId, createdAt])
 }
@@ -951,21 +966,21 @@ model CreatorFine {
 }
 
 model EarningLot {
-  id          String           @id @default(cuid())
+  id          String             @id @default(cuid())
   userId      String
   source      EarningSource
   sourceId    String
-  amount      Decimal          @db.Decimal(12, 2)
-  currency    String           @default("KES")
-  status      EarningLotStatus @default(PENDING)
-  settledAt   DateTime         @default(now())
+  amount      Decimal            @db.Decimal(12, 2)
+  currency    String             @default("KES")
+  status      EarningLotStatus   @default(PENDING)
+  settledAt   DateTime           @default(now())
   availableAt DateTime
   heldReason  String?
   payoutId    String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  payout      CreatorPayout?   @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payout      CreatorPayout?     @relation(fields: [payoutId], references: [id], onDelete: SetNull)
   allocations PayoutAllocation[]
 
   @@unique([source, sourceId, userId])
@@ -1106,23 +1121,23 @@ model MpesaPaymentRequest {
 }
 
 model WithdrawalRequest {
-  id              String        @id @default(cuid())
+  id              String         @id @default(cuid())
   userId          String
-  amount          Decimal       @db.Decimal(10, 2)
-  grossAmountUsd  Decimal?      @db.Decimal(12, 2)
-  feeAmountUsd    Decimal?      @db.Decimal(12, 2)
-  netAmountUsd    Decimal?      @db.Decimal(12, 2)
-  exchangeRate    Decimal?      @db.Decimal(12, 4)
-  netAmountKes    Decimal?      @db.Decimal(12, 2)
+  amount          Decimal        @db.Decimal(10, 2)
+  grossAmountUsd  Decimal?       @db.Decimal(12, 2)
+  feeAmountUsd    Decimal?       @db.Decimal(12, 2)
+  netAmountUsd    Decimal?       @db.Decimal(12, 2)
+  exchangeRate    Decimal?       @db.Decimal(12, 4)
+  netAmountKes    Decimal?       @db.Decimal(12, 2)
   quoteExpiresAt  DateTime?
   method          String
   destination     String
-  status          String        @default("pending")
+  status          String         @default("pending")
   metadata        Json?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  creatorPayoutId String?       @unique
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creatorPayoutId String?        @unique
   creatorPayout   CreatorPayout? @relation(fields: [creatorPayoutId], references: [id], onDelete: SetNull)
 }
 
@@ -1190,112 +1205,112 @@ model Asset {
 }
 
 model AppSettings {
-  id                         Int      @id @default(1)
-  appName                    String   @default("ChatAndTip")
-  maxVideosUpload            Int      @default(10)
-  contactEmail               String?
-  contactPhone               String?
-  address                    String?
-  currency                   String   @default("USD")
-  minimumTip                 Decimal  @default(0) @db.Decimal(10, 2)
-  transactionFeePercent      Decimal  @default(0) @db.Decimal(5, 2)
-  withdrawalFeePercent       Decimal  @default(0) @db.Decimal(5, 2)
-  usdToKesRate               Decimal  @default(0) @db.Decimal(10, 2)
-  freeMemberSwipeLimit       Int      @default(20)
-  showDiscoverAdAfterSwipes  Int      @default(5)
-  allowVideoModeration       Boolean  @default(false)
-  showAds                    Boolean  @default(false)
-  allowFreeAccess            Boolean  @default(false)
-  allowVideoCall             Boolean  @default(true)
-  allowVoiceCall             Boolean  @default(true)
-  allowSendImages            Boolean  @default(true)
-  adminEmail                 String?
-  jwtExpiry                  String   @default("7d")
-  mpesaConsumerKey           String?
-  mpesaConsumerSecret        String?
-  mpesaPasskey               String?
-  mpesaShortcode             String?
-  mpesaStoreNumber           String?
-  mpesaShortcodeType         String   @default("CustomerPayBillOnline")
-  mpesaEnvironment           String   @default("sandbox")
+  id                           Int      @id @default(1)
+  appName                      String   @default("ChatAndTip")
+  maxVideosUpload              Int      @default(10)
+  contactEmail                 String?
+  contactPhone                 String?
+  address                      String?
+  currency                     String   @default("USD")
+  minimumTip                   Decimal  @default(0) @db.Decimal(10, 2)
+  transactionFeePercent        Decimal  @default(0) @db.Decimal(5, 2)
+  withdrawalFeePercent         Decimal  @default(0) @db.Decimal(5, 2)
+  usdToKesRate                 Decimal  @default(0) @db.Decimal(10, 2)
+  freeMemberSwipeLimit         Int      @default(20)
+  showDiscoverAdAfterSwipes    Int      @default(5)
+  allowVideoModeration         Boolean  @default(false)
+  showAds                      Boolean  @default(false)
+  allowFreeAccess              Boolean  @default(false)
+  allowVideoCall               Boolean  @default(true)
+  allowVoiceCall               Boolean  @default(true)
+  allowSendImages              Boolean  @default(true)
+  adminEmail                   String?
+  jwtExpiry                    String   @default("7d")
+  mpesaConsumerKey             String?
+  mpesaConsumerSecret          String?
+  mpesaPasskey                 String?
+  mpesaShortcode               String?
+  mpesaStoreNumber             String?
+  mpesaShortcodeType           String   @default("CustomerPayBillOnline")
+  mpesaEnvironment             String   @default("sandbox")
   // Native M-PESA (our own STK-push integration, distinct from M-PESA-via-
   // Paystack below). Previously gated only by credential completeness with
   // no explicit on/off switch — this makes it independently toggleable.
-  mpesaEnabled               Boolean  @default(false)
+  mpesaEnabled                 Boolean  @default(false)
   // Stripe (delivers Google Pay + cards in the hosted checkout). Managed here
   // so payments can be turned on from the dashboard without a redeploy.
-  stripeEnabled              Boolean  @default(false)
-  stripeSecretKey            String?
-  stripeWebhookSecret        String?
+  stripeEnabled                Boolean  @default(false)
+  stripeSecretKey              String?
+  stripeWebhookSecret          String?
   // Paystack (Google Pay + M-PESA + cards, settles in KES). Primary web/app
   // top-up gateway. Also dashboard-managed.
-  paystackEnabled            Boolean  @default(false)
-  paystackSecretKey          String?
-  paystackPublicKey          String?
+  paystackEnabled              Boolean  @default(false)
+  paystackSecretKey            String?
+  paystackPublicKey            String?
   // Independently toggleable Paystack channels — lets card and M-PESA-via-
   // Paystack be turned on/off separately from each other and from the
   // overall paystackEnabled switch above.
-  paystackCardEnabled        Boolean  @default(true)
-  paystackMpesaEnabled       Boolean  @default(true)
+  paystackCardEnabled          Boolean  @default(true)
+  paystackMpesaEnabled         Boolean  @default(true)
   // Flutterwave (Google Pay only — Paystack has no Google Pay support at
   // all). v4 API: OAuth2 client-credentials auth, so we store a client
   // id/secret pair rather than a single secret key. Base URL is dashboard-
   // editable because v4 is a new API and Flutterwave's sandbox/production
   // hosts have moved between docs revisions — safer than hardcoding it.
-  flutterwaveEnabled         Boolean  @default(false)
-  flutterwaveClientId        String?
-  flutterwaveClientSecret    String?
-  flutterwaveSecretHash      String?
-  flutterwaveBaseUrl         String   @default("https://developersandbox-api.flutterwave.com")
-  flutterwaveCurrency        String   @default("KES")
+  flutterwaveEnabled           Boolean  @default(false)
+  flutterwaveClientId          String?
+  flutterwaveClientSecret      String?
+  flutterwaveSecretHash        String?
+  flutterwaveBaseUrl           String   @default("https://developersandbox-api.flutterwave.com")
+  flutterwaveCurrency          String   @default("KES")
   // Google Play Billing (Android only) — the actual Play Store compliance
   // path for digital goods, distinct from Google Pay (a payment method, not
   // a store policy). Service account JSON is how the server verifies/
   // consumes purchases via the Android Publisher API; it's large, hence Text
   // rather than the VARCHAR(191) used for other secrets here.
-  googlePlayEnabled              Boolean @default(false)
-  googlePlayPackageName          String  @default("com.chatandtip.app")
-  googlePlayServiceAccountJson   String? @db.Text
-  paypalClientId             String?
-  paypalClientSecret         String?
-  r2AccountId                String?
-  r2AccessKeyId              String?
-  r2SecretAccessKey          String?
-  r2BucketName               String?
-  r2PrivateBucketName        String?
-  r2PublicBaseUrl            String?
-  r2Region                   String   @default("auto")
-  r2Endpoint                 String?
-  emailEnabled               Boolean  @default(false)
-  smtpHost                   String?
-  smtpPort                   Int      @default(587)
-  smtpSecure                 Boolean  @default(false)
-  smtpUser                   String?
-  smtpPassword               String?
-  smtpFromAddress            String?
-  smtpFromName               String?
-  smsEnabled                 Boolean  @default(false)
-  smsApiUrl                  String   @default("https://smsportal.hostpinnacle.co.ke/SMSApi/send")
-  smsUserId                  String?
-  smsPassword                String?
-  smsSenderId                String?
-  otpLength                  Int      @default(6)
-  otpExpiryMinutes           Int      @default(10)
-  passwordResetExpiryMinutes Int      @default(15)
-  awsAccessKeyId             String?
-  awsSecretAccessKey         String?
-  awsRegion                  String   @default("us-east-1")
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
+  googlePlayEnabled            Boolean  @default(false)
+  googlePlayPackageName        String   @default("com.chatandtip.app")
+  googlePlayServiceAccountJson String?  @db.Text
+  paypalClientId               String?
+  paypalClientSecret           String?
+  r2AccountId                  String?
+  r2AccessKeyId                String?
+  r2SecretAccessKey            String?
+  r2BucketName                 String?
+  r2PrivateBucketName          String?
+  r2PublicBaseUrl              String?
+  r2Region                     String   @default("auto")
+  r2Endpoint                   String?
+  emailEnabled                 Boolean  @default(false)
+  smtpHost                     String?
+  smtpPort                     Int      @default(587)
+  smtpSecure                   Boolean  @default(false)
+  smtpUser                     String?
+  smtpPassword                 String?
+  smtpFromAddress              String?
+  smtpFromName                 String?
+  smsEnabled                   Boolean  @default(false)
+  smsApiUrl                    String   @default("https://smsportal.hostpinnacle.co.ke/SMSApi/send")
+  smsUserId                    String?
+  smsPassword                  String?
+  smsSenderId                  String?
+  otpLength                    Int      @default(6)
+  otpExpiryMinutes             Int      @default(10)
+  passwordResetExpiryMinutes   Int      @default(15)
+  awsAccessKeyId               String?
+  awsSecretAccessKey           String?
+  awsRegion                    String   @default("us-east-1")
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
 }
 
 model SavedVideo {
-  id        String    @id @default(cuid())
-  userId    String
-  mediaId   String
-  savedAt   DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  media     UserMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  id      String    @id @default(cuid())
+  userId  String
+  mediaId String
+  savedAt DateTime  @default(now())
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media   UserMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
 
   @@unique([userId, mediaId])
   @@index([userId, savedAt])

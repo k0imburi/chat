@@ -118,6 +118,8 @@ function serializeVideo(media?: UserMedia | null) {
       likes: 0,
       commentCount: 0,
       shareCount: 0,
+      repostCount: 0,
+      isReposted: false,
       bookmarkCount: 0,
       createdAt: null,
       isLiked: false,
@@ -144,6 +146,8 @@ function serializeVideo(media?: UserMedia | null) {
     likes: media.likes,
     commentCount: media.commentCount,
     shareCount: media.shareCount,
+    repostCount: media.repostCount,
+    isReposted: false,
     bookmarkCount: media.saveCount,
     createdAt: media.createdAt.toISOString(),
     isLiked: false,
@@ -227,6 +231,7 @@ export function serializeMobileUserWithLikes(
   user: UserWithMedia,
   likedMediaIds: Set<string>,
   savedMediaIds: Set<string> = new Set(),
+  repostedMediaIds: Set<string> = new Set(),
 ) {
   const serialized = serializeMobileUser(user) as Record<string, unknown>
   const profileVideo = serialized.profileVideo as Record<string, unknown>
@@ -234,6 +239,7 @@ export function serializeMobileUserWithLikes(
     ...video,
     isLiked: likedMediaIds.has(String(video.id || "")),
     isSaved: savedMediaIds.has(String(video.id || "")),
+    isReposted: repostedMediaIds.has(String(video.id || "")),
   }))
 
   return {
@@ -242,6 +248,7 @@ export function serializeMobileUserWithLikes(
       ...profileVideo,
       isLiked: likedMediaIds.has(String(profileVideo.id || "")),
       isSaved: savedMediaIds.has(String(profileVideo.id || "")),
+      isReposted: repostedMediaIds.has(String(profileVideo.id || "")),
     },
     gallery,
   }
