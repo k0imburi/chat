@@ -67,6 +67,7 @@ enum ChatMessageType {
   TEXT
   IMAGE
   VIDEO
+  DOCUMENT
   SYSTEM
   TIP
 }
@@ -843,6 +844,10 @@ model ChatMessage {
   videoObjectKey      String?
   thumbnailUrl        String?
   thumbnailObjectKey  String?
+  documentObjectKey   String?
+  documentName        String?
+  documentMimeType    String?
+  documentSizeBytes   Int?
   replyToId           String?
   replyToText         String?         @db.Text
   replyToSenderId     String?

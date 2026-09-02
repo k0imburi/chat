@@ -56,7 +56,9 @@ function serializeChatSummary(participant: ChatParticipantWithThread, receiver: 
     chatUserId: receiver.id,
     senderId: lastMessage.senderId,
     msgType: parseChatMessageType(lastMessage.type),
-    lastMsg: contentIsLocked ? "Locked reply" : lastMessage.text || "",
+    lastMsg: contentIsLocked
+      ? "Locked reply"
+      : lastMessage.text || (lastMessage.type === ChatMessageType.DOCUMENT ? "Document" : ""),
     sentAt: lastMessage.sentAt.toISOString(),
     unread: participant.unreadCount,
     broadcastOnly: participant.thread.broadcastOnly,
@@ -94,6 +96,10 @@ function serializeChatMessage(message: {
   videoObjectKey?: string | null
   thumbnailUrl?: string | null
   thumbnailObjectKey?: string | null
+  documentObjectKey?: string | null
+  documentName?: string | null
+  documentMimeType?: string | null
+  documentSizeBytes?: number | null
   replyToId: string | null
   replyToText: string | null
   replyToSenderId: string | null
@@ -107,7 +113,9 @@ function serializeChatMessage(message: {
     message.locked && options?.viewerId && message.senderId !== options.viewerId,
   )
   const rawText = message.text || ""
-  const lockedContentType = message.videoUrl || message.videoObjectKey
+  const lockedContentType = message.documentObjectKey
+    ? "document"
+    : message.videoUrl || message.videoObjectKey
     ? "video"
     : message.imageUrl || message.imageObjectKey
       ? "image"
@@ -129,6 +137,10 @@ function serializeChatMessage(message: {
     imageUrl: hideContent ? "" : message.imageUrl || "",
     videoUrl: hideContent ? "" : message.videoUrl || "",
     thumbnailUrl: hideContent ? "" : message.thumbnailUrl || "",
+    documentUrl: "",
+    documentName: hideContent ? "" : message.documentName || "",
+    documentMimeType: hideContent ? "" : message.documentMimeType || "",
+    documentSizeBytes: hideContent ? 0 : message.documentSizeBytes || 0,
     replyToId: message.replyToId || "",
     replyToText: hideContent ? "" : message.replyToText || "",
     replyToSenderId: message.replyToSenderId || "",
@@ -161,6 +173,9 @@ async function serializeChatMessageForViewer(
   }
   if (!serialized.locked && message.thumbnailObjectKey) {
     serialized.thumbnailUrl = await getSignedPrivateR2DownloadUrl(message.thumbnailObjectKey, mediaUrlTtlSeconds)
+  }
+  if (!serialized.locked && message.documentObjectKey) {
+    serialized.documentUrl = await getSignedPrivateR2DownloadUrl(message.documentObjectKey, mediaUrlTtlSeconds)
   }
   return serialized
 }
@@ -550,6 +565,10 @@ export async function sendMessage(input: {
   videoObjectKey?: string
   thumbnailUrl?: string
   thumbnailObjectKey?: string
+  documentObjectKey?: string
+  documentName?: string
+  documentMimeType?: string
+  documentSizeBytes?: number
   replyToId?: string
   replyToText?: string
   replyToSenderId?: string
@@ -563,6 +582,11 @@ export async function sendMessage(input: {
   const videoObjectKey = input.videoObjectKey?.trim() || ""
   const thumbnailUrl = input.thumbnailUrl?.trim() || ""
   const thumbnailObjectKey = input.thumbnailObjectKey?.trim() || ""
+  const documentObjectKey = input.documentObjectKey?.trim() || ""
+  const documentName = input.documentName?.trim().slice(0, 255) || "Document"
+  const documentMimeType = input.documentMimeType?.trim().slice(0, 191) || "application/octet-stream"
+  const documentSizeBytes = Math.max(0, input.documentSizeBytes ?? 0)
+  const hasDocument = Boolean(documentObjectKey)
   const hasImage = Boolean(imageUrl || imageObjectKey)
   const hasVideo = Boolean(videoUrl || videoObjectKey)
 
@@ -575,18 +599,24 @@ export async function sendMessage(input: {
     hasVideo,
   })
 
-  if (!textMsg && !hasImage && !hasVideo) {
+  if (!textMsg && !hasImage && !hasVideo && !hasDocument) {
     throw new Error("Message content is required")
   }
-  if (hasImage && hasVideo) {
-    throw new Error("Send a message with either a photo or a video, not both")
+  if ([hasImage, hasVideo, hasDocument].filter(Boolean).length > 1) {
+    throw new Error("Send one attachment type per message")
   }
 
   const { me, other } = await ensureUsersCanChat(input.senderId, input.receiverId)
 
   const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
     const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
-    const messageType = hasVideo ? ChatMessageType.VIDEO : hasImage ? ChatMessageType.IMAGE : ChatMessageType.TEXT
+    const messageType = hasDocument
+      ? ChatMessageType.DOCUMENT
+      : hasVideo
+        ? ChatMessageType.VIDEO
+        : hasImage
+          ? ChatMessageType.IMAGE
+          : ChatMessageType.TEXT
 
     // A creator's first reply stays locked until the initiator opens the
     // conversation. Once unlocked, the chat behaves like SMS: the initiator
@@ -694,13 +724,13 @@ export async function sendMessage(input: {
     // Only the creator reply that starts a locked conversation enforces the
     // 100-character minimum. Once the window is open, normal messages have
     // no length requirement. Media replies (photo/video) are exempt too.
-    if (needsKeyUnlock && !hasImage && !hasVideo && effectiveLength < 100) {
+    if (needsKeyUnlock && !hasImage && !hasVideo && !hasDocument && effectiveLength < 100) {
       console.warn("[chat:send] blocked by locked-reply minimum", {
         threadId,
         senderId: input.senderId,
         effectiveLength,
       })
-      throw new Error("Paid replies must be at least 100 characters")
+      throw new Error("Minimum 100 characters for the first response")
     }
 
     console.info("[chat:send] policy", {
@@ -728,6 +758,10 @@ export async function sendMessage(input: {
         videoObjectKey: videoObjectKey || null,
         thumbnailUrl: thumbnailUrl || null,
         thumbnailObjectKey: thumbnailObjectKey || null,
+        documentObjectKey: documentObjectKey || null,
+        documentName: hasDocument ? documentName : null,
+        documentMimeType: hasDocument ? documentMimeType : null,
+        documentSizeBytes: hasDocument ? documentSizeBytes : null,
         replyToId: input.replyToId || null,
         replyToText: input.replyToText || null,
         replyToSenderId: input.replyToSenderId || null,
@@ -819,7 +853,9 @@ export async function sendMessage(input: {
     userId: input.receiverId,
     senderId: input.senderId,
     title: me.fullName,
-    message: result.locked ? "Sent you a locked reply" : textMsg || "Sent you a photo",
+    message: result.locked
+      ? "Sent you a locked reply"
+      : textMsg || (hasDocument ? "Sent you a document" : hasVideo ? "Sent you a video" : "Sent you a photo"),
     type: "message",
     metadata: {
       threadUserId: input.senderId,
