@@ -256,10 +256,14 @@ export async function setCommentPinned(commentId: string, requesterId: string, p
 
   await prisma.$transaction(async (tx) => {
     if (pinned) {
-      await tx.videoComment.updateMany({
-        where: { mediaId: comment.mediaId, isPinned: true },
-        data: { isPinned: false },
+      const pinnedCount = await tx.videoComment.count({
+        where: {
+          mediaId: comment.mediaId,
+          isPinned: true,
+          id: { not: commentId },
+        },
       })
+      if (pinnedCount >= 3) throw new Error("You can pin up to 3 comments")
     }
     await tx.videoComment.update({ where: { id: commentId }, data: { isPinned: pinned } })
   })
