@@ -18,7 +18,7 @@ type ChatParticipantWithThread = Prisma.ChatParticipantGetPayload<{
       include: {
         messages: {
           orderBy: { sentAt: "desc" }
-          take: 1
+          take: 50
         }
       }
     }
@@ -43,7 +43,12 @@ function normalizeReactions(value: unknown) {
 }
 
 function serializeChatSummary(participant: ChatParticipantWithThread, receiver: UserWithMedia) {
-  const lastMessage = participant.thread.messages[0]
+  const lastMessage = participant.thread.messages.find((message) => {
+    const deletedFor = Array.isArray(message.deletedForUserIds)
+      ? (message.deletedForUserIds as string[])
+      : []
+    return !deletedFor.includes(participant.userId)
+  })
   if (!lastMessage) return null
   const contentIsLocked = Boolean(lastMessage.locked && lastMessage.senderId !== participant.userId)
 
@@ -232,7 +237,7 @@ async function getChatSummaryForUser(
           include: {
             messages: {
               orderBy: { sentAt: "desc" },
-              take: 1,
+              take: 50,
             },
           },
         },
@@ -312,7 +317,7 @@ export async function getChats(userId: string) {
         include: {
           messages: {
             orderBy: { sentAt: "desc" },
-            take: 1,
+            take: 50,
           },
         },
       },
@@ -1104,5 +1109,23 @@ export async function deleteMessage(userId: string, otherUserId: string, message
     otherUserId,
     messageId,
     chatId: message.threadId,
+    data: { id: messageId, messageId, chatId: message.threadId },
   })
+
+  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId)
+  if (chatSummary) {
+    emitChatRealtimeToUser(userId, {
+      channel: "chat" as const,
+      type: "chat_updated" as const,
+      otherUserId,
+      data: chatSummary,
+    })
+  } else {
+    emitChatRealtimeToUser(userId, {
+      channel: "chat" as const,
+      type: "chat_cleared" as const,
+      otherUserId,
+      clearedAt: new Date().toISOString(),
+    })
+  }
 }
