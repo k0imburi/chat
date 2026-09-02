@@ -234,7 +234,7 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
     userId: input.receiverId,
     senderId: input.senderId,
     title: "New tip",
-    message: `${senderName} sent you a ${tierName} tip 🎁`,
+    message: "sent you a " + tierName + " tip",
     type: "tip",
     metadata: { tipId: result.tip.id, tier: input.tier, senderName },
   })
