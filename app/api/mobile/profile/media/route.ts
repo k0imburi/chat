@@ -147,8 +147,8 @@ export async function PATCH(request: Request) {
           userId: result.ownerId,
           senderId: session.userId,
           type: "repost",
-          title: "Post reposted",
-          message: "reposted your post",
+          title: "Post reshared",
+          message: "Reshared your post",
           metadata: { mediaId: parsed.mediaId, ownerId: result.ownerId },
         })
       }
