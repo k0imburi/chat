@@ -1,11 +1,11 @@
-import { MediaKind } from "@prisma/client"
-import { NextResponse } from "next/server"
-import { z } from "zod"
-import { getMobileSessionFromRequest } from "@/lib/mobile-session"
-import { findMobileUserById, serializeMobileUser } from "@/lib/mobile-users"
-import { prisma } from "@/lib/prisma"
-import { logError } from "@/lib/log-error"
-import { createUserNotification } from "@/lib/mobile-notifications"
+import { MediaKind } from "@prisma/client";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { getMobileSessionFromRequest } from "@/lib/mobile-session";
+import { findMobileUserById, serializeMobileUser } from "@/lib/mobile-users";
+import { prisma } from "@/lib/prisma";
+import { logError } from "@/lib/log-error";
+import { createUserNotification } from "@/lib/mobile-notifications";
 
 const createSchema = z.object({
   kind: z.nativeEnum(MediaKind),
@@ -20,11 +20,12 @@ const createSchema = z.object({
   description: z.string().max(2200).optional(),
   mimeType: z.string().optional(),
   sizeBytes: z.coerce.number().optional(),
-})
+});
 
 const viewsSchema = z.object({
   mediaId: z.string(),
-})
+  reposted: z.boolean().optional(),
+});
 
 const updateSchema = z.object({
   mediaId: z.string(),
@@ -33,114 +34,183 @@ const updateSchema = z.object({
   description: z.string().max(2200).optional(),
   titlePositionX: z.coerce.number().min(0).max(1).optional(),
   titlePositionY: z.coerce.number().min(0).max(1).optional(),
-})
+});
 
 export async function POST(request: Request) {
-  const session = await getMobileSessionFromRequest(request)
+  const session = await getMobileSessionFromRequest(request);
   if (!session) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
+    return NextResponse.json(
+      { success: false, message: "Unauthorized" },
+      { status: 401 },
+    );
   }
 
   try {
-    const parsed = createSchema.parse(await request.json())
-    const url = parsed.videoUrl || parsed.url || parsed.images?.[0]
+    const parsed = createSchema.parse(await request.json());
+    const url = parsed.videoUrl || parsed.url || parsed.images?.[0];
     if (!url) {
-      return NextResponse.json({ success: false, message: "A media URL is required" }, { status: 400 })
+      return NextResponse.json(
+        { success: false, message: "A media URL is required" },
+        { status: 400 },
+      );
     }
     // Only persist images when there is more than one (a true carousel post).
-    const images = parsed.images && parsed.images.length > 1 ? parsed.images : undefined
+    const images =
+      parsed.images && parsed.images.length > 1 ? parsed.images : undefined;
 
-    const isMainProfileKind = parsed.kind === MediaKind.PROFILE_VIDEO || parsed.kind === MediaKind.PROFILE_IMAGE
+    const isMainProfileKind =
+      parsed.kind === MediaKind.PROFILE_VIDEO ||
+      parsed.kind === MediaKind.PROFILE_IMAGE;
     const existingProfile = isMainProfileKind
       ? await prisma.userMedia.findFirst({
-          where: { userId: session.userId, kind: { in: [MediaKind.PROFILE_VIDEO, MediaKind.PROFILE_IMAGE] } },
+          where: {
+            userId: session.userId,
+            kind: { in: [MediaKind.PROFILE_VIDEO, MediaKind.PROFILE_IMAGE] },
+          },
         })
-      : null
+      : null;
 
     const savedMedia = existingProfile
       ? await prisma.userMedia.update({
-        where: { id: existingProfile.id },
-        data: {
-          kind: parsed.kind,
-          url,
-          thumbnailUrl: parsed.thumbnailUrl || url,
-          title: parsed.title,
-          titlePositionX: parsed.titlePositionX,
-          titlePositionY: parsed.titlePositionY,
-          caption: parsed.caption,
-          description: parsed.description,
-          mimeType: parsed.mimeType,
-          sizeBytes: parsed.sizeBytes,
-        },
-      })
+          where: { id: existingProfile.id },
+          data: {
+            kind: parsed.kind,
+            url,
+            thumbnailUrl: parsed.thumbnailUrl || url,
+            title: parsed.title,
+            titlePositionX: parsed.titlePositionX,
+            titlePositionY: parsed.titlePositionY,
+            caption: parsed.caption,
+            description: parsed.description,
+            mimeType: parsed.mimeType,
+            sizeBytes: parsed.sizeBytes,
+          },
+        })
       : await prisma.userMedia.create({
-        data: {
-          userId: session.userId,
-          kind: parsed.kind,
-          url,
-          images,
-          thumbnailUrl: parsed.thumbnailUrl || url,
-          title: parsed.title,
-          titlePositionX: parsed.titlePositionX,
-          titlePositionY: parsed.titlePositionY,
-          caption: parsed.caption,
-          description: parsed.description,
-          mimeType: parsed.mimeType,
-          sizeBytes: parsed.sizeBytes,
-        },
-      })
+          data: {
+            userId: session.userId,
+            kind: parsed.kind,
+            url,
+            images,
+            thumbnailUrl: parsed.thumbnailUrl || url,
+            title: parsed.title,
+            titlePositionX: parsed.titlePositionX,
+            titlePositionY: parsed.titlePositionY,
+            caption: parsed.caption,
+            description: parsed.description,
+            mimeType: parsed.mimeType,
+            sizeBytes: parsed.sizeBytes,
+          },
+        });
 
-    const user = await findMobileUserById(session.userId)
-    return NextResponse.json({ success: true, mediaId: savedMedia.id, user: user ? serializeMobileUser(user) : null })
+    const user = await findMobileUserById(session.userId);
+    return NextResponse.json({
+      success: true,
+      mediaId: savedMedia.id,
+      user: user ? serializeMobileUser(user) : null,
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
+      return NextResponse.json(
+        {
+          success: false,
+          message: error.issues[0]?.message ?? "Invalid request",
+        },
+        { status: 400 },
+      );
     }
-    logError("/api/mobile/profile/media", error)
-    return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to save media" }, { status: 500 })
+    logError("/api/mobile/profile/media", error);
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          error instanceof Error ? error.message : "Failed to save media",
+      },
+      { status: 500 },
+    );
   }
 }
 
 export async function PATCH(request: Request) {
-  const session = await getMobileSessionFromRequest(request)
+  const session = await getMobileSessionFromRequest(request);
   if (!session) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
+    return NextResponse.json(
+      { success: false, message: "Unauthorized" },
+      { status: 401 },
+    );
   }
 
   try {
-    const body = await request.json()
+    const body = await request.json();
     if (body.action === "repost") {
-      const parsed = viewsSchema.parse(body)
+      const parsed = viewsSchema.parse(body);
       const result = await prisma.$transaction(async (tx) => {
         const media = await tx.userMedia.findUnique({
           where: { id: parsed.mediaId },
           select: { id: true, userId: true },
-        })
-        if (!media) throw new Error("Post not found")
+        });
+        if (!media) throw new Error("Post not found");
 
+        const desired =
+          typeof parsed.reposted === "boolean" ? parsed.reposted : undefined;
         const existing = await tx.mediaRepost.findUnique({
-          where: { userId_mediaId: { userId: session.userId, mediaId: parsed.mediaId } },
-        })
-        if (existing) {
-          await tx.mediaRepost.delete({ where: { id: existing.id } })
-          const updated = await tx.userMedia.update({
+          where: {
+            userId_mediaId: { userId: session.userId, mediaId: parsed.mediaId },
+          },
+        });
+        const shouldRepost = desired ?? !existing;
+
+        if (!shouldRepost) {
+          if (existing) {
+            await tx.mediaRepost.delete({ where: { id: existing.id } });
+            const updated = await tx.userMedia.update({
+              where: { id: parsed.mediaId },
+              data: { repostCount: { decrement: 1 } },
+              select: { repostCount: true },
+            });
+            return {
+              reposted: false,
+              repostCount: Math.max(0, updated.repostCount),
+              ownerId: media.userId,
+            };
+          }
+          const current = await tx.userMedia.findUnique({
             where: { id: parsed.mediaId },
-            data: { repostCount: { decrement: 1 } },
             select: { repostCount: true },
-          })
-          return { reposted: false, repostCount: Math.max(0, updated.repostCount), ownerId: media.userId }
+          });
+          return {
+            reposted: false,
+            repostCount: Math.max(0, current?.repostCount ?? 0),
+            ownerId: media.userId,
+          };
+        }
+
+        if (existing) {
+          const current = await tx.userMedia.findUnique({
+            where: { id: parsed.mediaId },
+            select: { repostCount: true },
+          });
+          return {
+            reposted: true,
+            repostCount: Math.max(0, current?.repostCount ?? 0),
+            ownerId: media.userId,
+          };
         }
 
         await tx.mediaRepost.create({
           data: { userId: session.userId, mediaId: parsed.mediaId },
-        })
+        });
         const updated = await tx.userMedia.update({
           where: { id: parsed.mediaId },
           data: { repostCount: { increment: 1 } },
           select: { repostCount: true },
-        })
-        return { reposted: true, repostCount: updated.repostCount, ownerId: media.userId }
-      })
+        });
+        return {
+          reposted: true,
+          repostCount: updated.repostCount,
+          ownerId: media.userId,
+        };
+      });
 
       if (result.reposted && result.ownerId !== session.userId) {
         await createUserNotification({
@@ -150,44 +220,58 @@ export async function PATCH(request: Request) {
           title: "Post reshared",
           message: "Reshared your post",
           metadata: { mediaId: parsed.mediaId, ownerId: result.ownerId },
-        })
+        });
       }
-      return NextResponse.json({ success: true, ...result })
+      return NextResponse.json({ success: true, ...result });
     }
 
     if (body.action === "share") {
-      const parsed = viewsSchema.parse(body)
+      const parsed = viewsSchema.parse(body);
       const updated = await prisma.userMedia.update({
         where: { id: parsed.mediaId },
         data: { shareCount: { increment: 1 } },
         select: { shareCount: true },
-      })
-      return NextResponse.json({ success: true, shareCount: updated.shareCount })
+      });
+      return NextResponse.json({
+        success: true,
+        shareCount: updated.shareCount,
+      });
     }
 
-    const isMetadataUpdate = ["title", "caption", "description", "titlePositionX", "titlePositionY"]
-      .some((field) => Object.prototype.hasOwnProperty.call(body, field))
+    const isMetadataUpdate = [
+      "title",
+      "caption",
+      "description",
+      "titlePositionX",
+      "titlePositionY",
+    ].some((field) => Object.prototype.hasOwnProperty.call(body, field));
     if (isMetadataUpdate) {
-      const parsed = updateSchema.parse(body)
-      const { mediaId, ...data } = parsed
+      const parsed = updateSchema.parse(body);
+      const { mediaId, ...data } = parsed;
       const result = await prisma.userMedia.updateMany({
         where: { id: mediaId, userId: session.userId },
         data,
-      })
+      });
       if (!result.count) {
-        return NextResponse.json({ success: false, message: "Post not found" }, { status: 404 })
+        return NextResponse.json(
+          { success: false, message: "Post not found" },
+          { status: 404 },
+        );
       }
-      const user = await findMobileUserById(session.userId)
-      return NextResponse.json({ success: true, user: user ? serializeMobileUser(user) : null })
+      const user = await findMobileUserById(session.userId);
+      return NextResponse.json({
+        success: true,
+        user: user ? serializeMobileUser(user) : null,
+      });
     }
 
-    const parsed = viewsSchema.parse(body)
-    const viewOnly = body.viewOnly === true
+    const parsed = viewsSchema.parse(body);
+    const viewOnly = body.viewOnly === true;
 
     await prisma.userMedia.update({
       where: { id: parsed.mediaId },
       data: { views: { increment: 1 } },
-    })
+    });
 
     // Record that this user has seen the post so the discover feed can
     // prioritise fresh content. Best-effort — never block the view count.
@@ -198,37 +282,59 @@ export async function PATCH(request: Request) {
         },
         create: { userId: session.userId, mediaId: parsed.mediaId },
         update: { seenAt: new Date() },
-      })
+      });
     } catch {
       // ignore — seen tracking is non-critical
     }
 
     if (viewOnly) {
-      return NextResponse.json({ success: true })
+      return NextResponse.json({ success: true });
     }
 
-    const user = await findMobileUserById(session.userId)
-    return NextResponse.json({ success: true, user: user ? serializeMobileUser(user) : null })
+    const user = await findMobileUserById(session.userId);
+    return NextResponse.json({
+      success: true,
+      user: user ? serializeMobileUser(user) : null,
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ success: false, message: error.issues[0]?.message ?? "Invalid request" }, { status: 400 })
+      return NextResponse.json(
+        {
+          success: false,
+          message: error.issues[0]?.message ?? "Invalid request",
+        },
+        { status: 400 },
+      );
     }
-    logError("/api/mobile/profile/media", error)
-    return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Failed to update media" }, { status: 500 })
+    logError("/api/mobile/profile/media", error);
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          error instanceof Error ? error.message : "Failed to update media",
+      },
+      { status: 500 },
+    );
   }
 }
 
 export async function DELETE(request: Request) {
-  const session = await getMobileSessionFromRequest(request)
+  const session = await getMobileSessionFromRequest(request);
   if (!session) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
+    return NextResponse.json(
+      { success: false, message: "Unauthorized" },
+      { status: 401 },
+    );
   }
 
-  const url = new URL(request.url)
-  const mediaId = url.searchParams.get("mediaId")
+  const url = new URL(request.url);
+  const mediaId = url.searchParams.get("mediaId");
 
   if (!mediaId) {
-    return NextResponse.json({ success: false, message: "mediaId is required" }, { status: 400 })
+    return NextResponse.json(
+      { success: false, message: "mediaId is required" },
+      { status: 400 },
+    );
   }
 
   await prisma.userMedia.deleteMany({
@@ -236,11 +342,11 @@ export async function DELETE(request: Request) {
       id: mediaId,
       userId: session.userId,
     },
-  })
+  });
 
-  const user = await findMobileUserById(session.userId)
+  const user = await findMobileUserById(session.userId);
   return NextResponse.json({
     success: true,
     user: user ? serializeMobileUser(user) : null,
-  })
+  });
 }
