@@ -170,16 +170,32 @@ export async function getDiscoverFeed(currentUserId: string) {
     const video = ownerGallery.find(
       (item) => String(item.id || "") === repost.mediaId,
     );
-    if (!video || existingEntryIds.has(repost.mediaId)) continue;
+    if (!video) continue;
+    const reshareAttribution = {
+      resharedById: repost.user.id,
+      resharedByName: repost.user.fullName || repost.user.username || "Someone",
+      resharedAt: repost.createdAt.toISOString(),
+    };
+    const existingEntry = entries.find(
+      (entry) => String(entry.video.id || "") === repost.mediaId,
+    );
+    if (existingEntry) {
+      existingEntry.video = { ...existingEntry.video, ...reshareAttribution };
+      existingEntry._followed = true;
+      existingEntry._sameLang = true;
+      existingEntry._createdAt = Math.max(
+        existingEntry._createdAt,
+        repost.createdAt.getTime(),
+      );
+      continue;
+    }
+    if (existingEntryIds.has(repost.mediaId)) continue;
     const { gallery: _gallery, ...ownerProfile } = serializedOwner;
     entries.push({
       user: ownerProfile,
       video: {
         ...video,
-        resharedById: repost.user.id,
-        resharedByName:
-          repost.user.fullName || repost.user.username || "Someone",
-        resharedAt: repost.createdAt.toISOString(),
+        ...reshareAttribution,
       },
       _followed: true,
       _sameLang: true,
