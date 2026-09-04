@@ -213,12 +213,18 @@ export async function PATCH(request: Request) {
       });
 
       if (result.reposted && result.ownerId !== session.userId) {
+        const actor = await prisma.user.findUnique({
+          where: { id: session.userId },
+          select: { fullName: true, username: true },
+        });
+        const actorName =
+          actor?.fullName?.trim() || actor?.username?.trim() || "Someone";
         await createUserNotification({
           userId: result.ownerId,
           senderId: session.userId,
           type: "repost",
-          title: "Post reshared",
-          message: "Reshared your post",
+          title: actorName,
+          message: `${actorName} reshared your post`,
           metadata: { mediaId: parsed.mediaId, ownerId: result.ownerId },
         });
       }
