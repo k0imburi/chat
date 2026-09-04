@@ -212,7 +212,7 @@ export async function getDiscoverFeed(currentUserId: string) {
   if (entryMediaIds.length) {
     const recentReposts = await prisma.mediaRepost.findMany({
       where: { mediaId: { in: [...new Set(entryMediaIds)] } },
-      include: { user: true },
+      include: { user: { include: { media: true } } },
       orderBy: { createdAt: "desc" },
       take: entryMediaIds.length * 4,
     });
@@ -220,11 +220,25 @@ export async function getDiscoverFeed(currentUserId: string) {
     for (const repost of recentReposts) {
       const list = repostersByMedia.get(repost.mediaId) || [];
       if (list.length >= 2) continue;
+      const profileMedia = repost.user.media
+        .filter(
+          (item) =>
+            item.kind === "PROFILE_IMAGE" || item.kind === "PROFILE_VIDEO",
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+      const rawAvatar =
+        repost.user.avatarUrl ||
+        profileMedia?.thumbnailUrl ||
+        profileMedia?.url ||
+        "";
+      const avatarUrl = rawAvatar
+        ? `${rawAvatar}${rawAvatar.includes("?") ? "&" : "?"}v=${repost.user.updatedAt.getTime()}`
+        : "";
       list.push({
         id: repost.user.id,
         name: repost.user.fullName || repost.user.username || "Someone",
         username: repost.user.username || "",
-        avatarUrl: repost.user.avatarUrl || "",
+        avatarUrl,
         fallbackAsset:
           repost.user.gender?.toUpperCase() === "M"
             ? "assets/male.png"

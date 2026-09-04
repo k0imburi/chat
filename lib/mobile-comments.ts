@@ -1,10 +1,15 @@
 import "server-only";
 
-import { MediaKind, UserRole } from "@prisma/client";
+import { MediaKind, Prisma, UserRole } from "@prisma/client";
 import { createUserNotification } from "@/lib/mobile-notifications";
 import { prisma } from "@/lib/prisma";
 
 const COMMENTS_PAGE_SIZE = 20;
+
+const profileMediaKinds: MediaKind[] = [
+  MediaKind.PROFILE_IMAGE,
+  MediaKind.PROFILE_VIDEO,
+];
 
 const authorSelect = {
   id: true,
@@ -13,11 +18,12 @@ const authorSelect = {
   gender: true,
   updatedAt: true,
   media: {
-    where: { kind: MediaKind.PROFILE_VIDEO },
-    select: { thumbnailUrl: true, url: true },
+    where: { kind: { in: profileMediaKinds } },
+    select: { thumbnailUrl: true, url: true, kind: true },
+    orderBy: { createdAt: "desc" as const },
     take: 1,
   },
-} as const;
+} satisfies Prisma.UserSelect;
 
 type CommentAuthor = {
   id: string;
@@ -25,7 +31,7 @@ type CommentAuthor = {
   avatarUrl: string | null;
   gender: string;
   updatedAt: Date;
-  media: { thumbnailUrl: string | null; url: string }[];
+  media: { thumbnailUrl: string | null; url: string; kind: MediaKind }[];
 };
 
 function resolveAvatarUrl(author: CommentAuthor): string {

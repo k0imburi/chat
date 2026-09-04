@@ -854,7 +854,7 @@ export async function sendMessage(input: {
     senderId: input.senderId,
     title: me.fullName,
     message: result.locked
-      ? "Sent you a locked reply"
+      ? "Sent you a reply"
       : textMsg || (hasDocument ? "Sent you a document" : hasVideo ? "Sent you a video" : "Sent you a photo"),
     type: "message",
     metadata: {
