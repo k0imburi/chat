@@ -1,47 +1,54 @@
-import "server-only"
+import "server-only";
 
-import { MediaKind, UserRole } from "@prisma/client"
-import { createUserNotification } from "@/lib/mobile-notifications"
-import { prisma } from "@/lib/prisma"
+import { MediaKind, UserRole } from "@prisma/client";
+import { createUserNotification } from "@/lib/mobile-notifications";
+import { prisma } from "@/lib/prisma";
 
-const COMMENTS_PAGE_SIZE = 20
+const COMMENTS_PAGE_SIZE = 20;
 
 const authorSelect = {
   id: true,
   fullName: true,
   avatarUrl: true,
   gender: true,
-  media: { where: { kind: MediaKind.PROFILE_VIDEO }, select: { thumbnailUrl: true, url: true }, take: 1 },
-} as const
+  updatedAt: true,
+  media: {
+    where: { kind: MediaKind.PROFILE_VIDEO },
+    select: { thumbnailUrl: true, url: true },
+    take: 1,
+  },
+} as const;
 
 type CommentAuthor = {
-  id: string
-  fullName: string
-  avatarUrl: string | null
-  gender: string
-  media: { thumbnailUrl: string | null; url: string }[]
-}
+  id: string;
+  fullName: string;
+  avatarUrl: string | null;
+  gender: string;
+  updatedAt: Date;
+  media: { thumbnailUrl: string | null; url: string }[];
+};
 
 function resolveAvatarUrl(author: CommentAuthor): string {
-  // Mirror serializeMobileUser: avatarUrl → thumbnailUrl → url (video URL as last resort)
-  return (
+  const raw =
     author.avatarUrl ||
     author.media[0]?.thumbnailUrl ||
     author.media[0]?.url ||
-    ""
-  )
+    "";
+  if (!raw) return "";
+  const separator = raw.includes("?") ? "&" : "?";
+  return `${raw}${separator}v=${author.updatedAt.getTime()}`;
 }
 
 function serializeComment(
   comment: {
-    id: string
-    text: string
-    parentId: string | null
-    likes: number
-    createdAt: Date
-    author: CommentAuthor
-    _count: { replies: number }
-    isPinned: boolean
+    id: string;
+    text: string;
+    parentId: string | null;
+    likes: number;
+    createdAt: Date;
+    author: CommentAuthor;
+    _count: { replies: number };
+    isPinned: boolean;
   },
   currentUserId: string,
   likedCommentIds: Set<string>,
@@ -59,10 +66,13 @@ function serializeComment(
       id: comment.author.id,
       name: comment.author.fullName,
       avatarUrl: resolveAvatarUrl(comment.author),
-      fallbackAsset: comment.author.gender.toUpperCase() === "M" ? "assets/male.png" : "assets/female.png",
+      fallbackAsset:
+        comment.author.gender.toUpperCase() === "M"
+          ? "assets/male.png"
+          : "assets/female.png",
       isByCurrentUser: comment.author.id === currentUserId,
     },
-  }
+  };
 }
 
 export async function getComments(
@@ -79,28 +89,27 @@ export async function getComments(
       author: { select: authorSelect },
       _count: { select: { replies: true } },
     },
-  })
+  });
 
-  const hasMore = rawComments.length > COMMENTS_PAGE_SIZE
-  const comments = hasMore ? rawComments.slice(0, COMMENTS_PAGE_SIZE) : rawComments
+  const hasMore = rawComments.length > COMMENTS_PAGE_SIZE;
+  const comments = hasMore
+    ? rawComments.slice(0, COMMENTS_PAGE_SIZE)
+    : rawComments;
 
-  const commentIds = comments.map((c) => c.id)
+  const commentIds = comments.map((c) => c.id);
   const likedRows = await prisma.commentLike.findMany({
     where: { commentId: { in: commentIds }, userId: currentUserId },
     select: { commentId: true },
-  })
-  const likedIds = new Set(likedRows.map((r) => r.commentId))
+  });
+  const likedIds = new Set(likedRows.map((r) => r.commentId));
 
   return {
     comments: comments.map((c) => serializeComment(c, currentUserId, likedIds)),
     nextCursor: hasMore ? comments[comments.length - 1].id : null,
-  }
+  };
 }
 
-export async function getReplies(
-  parentId: string,
-  currentUserId: string,
-) {
+export async function getReplies(parentId: string, currentUserId: string) {
   const rawReplies = await prisma.videoComment.findMany({
     where: { parentId },
     orderBy: { createdAt: "asc" },
@@ -108,16 +117,16 @@ export async function getReplies(
       author: { select: authorSelect },
       _count: { select: { replies: true } },
     },
-  })
+  });
 
-  const replyIds = rawReplies.map((r) => r.id)
+  const replyIds = rawReplies.map((r) => r.id);
   const likedRows = await prisma.commentLike.findMany({
     where: { commentId: { in: replyIds }, userId: currentUserId },
     select: { commentId: true },
-  })
-  const likedIds = new Set(likedRows.map((r) => r.commentId))
+  });
+  const likedIds = new Set(likedRows.map((r) => r.commentId));
 
-  return rawReplies.map((r) => serializeComment(r, currentUserId, likedIds))
+  return rawReplies.map((r) => serializeComment(r, currentUserId, likedIds));
 }
 
 export async function createComment(
@@ -129,8 +138,8 @@ export async function createComment(
   const media = await prisma.userMedia.findUnique({
     where: { id: mediaId },
     select: { userId: true },
-  })
-  if (!media) throw new Error("Video not found")
+  });
+  if (!media) throw new Error("Video not found");
 
   const comment = await prisma.videoComment.create({
     data: { mediaId, authorId, text, parentId: parentId ?? null },
@@ -138,19 +147,23 @@ export async function createComment(
       author: { select: authorSelect },
       _count: { select: { replies: true } },
     },
-  })
+  });
 
   await prisma.userMedia.update({
     where: { id: mediaId },
     data: { commentCount: { increment: 1 } },
-  })
+  });
 
   // Notify the video owner (skip self-comments and guard against duplicate delivery)
   if (media.userId !== authorId) {
     const alreadyNotified = await prisma.userNotification.findFirst({
-      where: { userId: media.userId, type: "comment", metadata: { path: "$.commentId", equals: comment.id } },
+      where: {
+        userId: media.userId,
+        type: "comment",
+        metadata: { path: "$.commentId", equals: comment.id },
+      },
       select: { id: true },
-    })
+    });
     if (!alreadyNotified) {
       await createUserNotification({
         userId: media.userId,
@@ -159,7 +172,7 @@ export async function createComment(
         title: `${comment.author.fullName} commented on your post`,
         message: text,
         metadata: { videoId: mediaId, commentId: comment.id },
-      })
+      });
     }
   }
 
@@ -169,12 +182,20 @@ export async function createComment(
     const parent = await prisma.videoComment.findUnique({
       where: { id: parentId },
       select: { authorId: true },
-    })
-    if (parent && parent.authorId !== authorId && parent.authorId !== media.userId) {
+    });
+    if (
+      parent &&
+      parent.authorId !== authorId &&
+      parent.authorId !== media.userId
+    ) {
       const alreadyNotified = await prisma.userNotification.findFirst({
-        where: { userId: parent.authorId, type: "comment_reply", metadata: { path: "$.commentId", equals: comment.id } },
+        where: {
+          userId: parent.authorId,
+          type: "comment_reply",
+          metadata: { path: "$.commentId", equals: comment.id },
+        },
         select: { id: true },
-      })
+      });
       if (!alreadyNotified) {
         await createUserNotification({
           userId: parent.authorId,
@@ -183,56 +204,66 @@ export async function createComment(
           title: `${comment.author.fullName} replied to your comment`,
           message: text,
           metadata: { videoId: mediaId, commentId: comment.id, parentId },
-        })
+        });
       }
     }
   }
 
-  return serializeComment(comment, authorId, new Set())
+  return serializeComment(comment, authorId, new Set());
 }
 
 export async function deleteComment(commentId: string, requesterId: string) {
   const comment = await prisma.videoComment.findUnique({
     where: { id: commentId },
     select: { authorId: true, mediaId: true, parentId: true },
-  })
-  if (!comment) throw new Error("Comment not found")
+  });
+  if (!comment) throw new Error("Comment not found");
 
   const media = await prisma.userMedia.findUnique({
     where: { id: comment.mediaId },
     select: { userId: true },
-  })
+  });
 
-  const isAuthor = comment.authorId === requesterId
-  const isVideoOwner = media?.userId === requesterId
+  const isAuthor = comment.authorId === requesterId;
+  const isVideoOwner = media?.userId === requesterId;
 
   if (!isAuthor && !isVideoOwner) {
     const requester = await prisma.user.findUnique({
       where: { id: requesterId },
       select: { role: true },
-    })
-    if (requester?.role !== UserRole.ADMIN && requester?.role !== UserRole.SUPER_ADMIN) {
-      throw new Error("Not authorised to delete this comment")
+    });
+    if (
+      requester?.role !== UserRole.ADMIN &&
+      requester?.role !== UserRole.SUPER_ADMIN
+    ) {
+      throw new Error("Not authorised to delete this comment");
     }
   }
 
   // Count comment + all its replies before deleting (for commentCount decrement)
-  const replyCount = await prisma.videoComment.count({ where: { parentId: commentId } })
-  await prisma.videoComment.delete({ where: { id: commentId } })
+  const replyCount = await prisma.videoComment.count({
+    where: { parentId: commentId },
+  });
+  await prisma.videoComment.delete({ where: { id: commentId } });
 
   await prisma.userMedia.update({
     where: { id: comment.mediaId },
     data: { commentCount: { decrement: 1 + replyCount } },
-  })
+  });
 }
 
-export async function editComment(commentId: string, requesterId: string, text: string) {
+export async function editComment(
+  commentId: string,
+  requesterId: string,
+  text: string,
+) {
   const existing = await prisma.videoComment.findUnique({
     where: { id: commentId },
     select: { authorId: true },
-  })
-  if (!existing) throw new Error("Comment not found")
-  if (existing.authorId !== requesterId) throw new Error("Not authorised to edit this comment")
+  });
+  if (!existing) throw new Error("Comment not found");
+  if (existing.authorId !== requesterId)
+    throw new Error("Not authorised to edit this comment");
 
   const comment = await prisma.videoComment.update({
     where: { id: commentId },
@@ -241,18 +272,29 @@ export async function editComment(commentId: string, requesterId: string, text: 
       author: { select: authorSelect },
       _count: { select: { replies: true } },
     },
-  })
-  return serializeComment(comment, requesterId, new Set())
+  });
+  return serializeComment(comment, requesterId, new Set());
 }
 
-export async function setCommentPinned(commentId: string, requesterId: string, pinned: boolean) {
+export async function setCommentPinned(
+  commentId: string,
+  requesterId: string,
+  pinned: boolean,
+) {
   const comment = await prisma.videoComment.findUnique({
     where: { id: commentId },
-    select: { id: true, mediaId: true, parentId: true, media: { select: { userId: true } } },
-  })
-  if (!comment) throw new Error("Comment not found")
-  if (comment.media.userId !== requesterId) throw new Error("Not authorised to pin comments on this post")
-  if (comment.parentId) throw new Error("Only top-level comments can be pinned")
+    select: {
+      id: true,
+      mediaId: true,
+      parentId: true,
+      media: { select: { userId: true } },
+    },
+  });
+  if (!comment) throw new Error("Comment not found");
+  if (comment.media.userId !== requesterId)
+    throw new Error("Not authorised to pin comments on this post");
+  if (comment.parentId)
+    throw new Error("Only top-level comments can be pinned");
 
   await prisma.$transaction(async (tx) => {
     if (pinned) {
@@ -262,41 +304,49 @@ export async function setCommentPinned(commentId: string, requesterId: string, p
           isPinned: true,
           id: { not: commentId },
         },
-      })
-      if (pinnedCount >= 3) throw new Error("You can pin up to 3 comments")
+      });
+      if (pinnedCount >= 3) throw new Error("You can pin up to 3 comments");
     }
-    await tx.videoComment.update({ where: { id: commentId }, data: { isPinned: pinned } })
-  })
-  return { pinned }
+    await tx.videoComment.update({
+      where: { id: commentId },
+      data: { isPinned: pinned },
+    });
+  });
+  return { pinned };
 }
 
 export async function toggleCommentLike(commentId: string, userId: string) {
   const existing = await prisma.commentLike.findUnique({
     where: { commentId_userId: { commentId, userId } },
-  })
+  });
 
   if (existing) {
-    await prisma.commentLike.delete({ where: { commentId_userId: { commentId, userId } } })
+    await prisma.commentLike.delete({
+      where: { commentId_userId: { commentId, userId } },
+    });
     await prisma.videoComment.update({
       where: { id: commentId },
       data: { likes: { decrement: 1 } },
-    })
-    const updated = await prisma.videoComment.findUnique({ where: { id: commentId }, select: { likes: true } })
-    return { liked: false, likes: updated?.likes ?? 0 }
+    });
+    const updated = await prisma.videoComment.findUnique({
+      where: { id: commentId },
+      select: { likes: true },
+    });
+    return { liked: false, likes: updated?.likes ?? 0 };
   }
 
-  await prisma.commentLike.create({ data: { commentId, userId } })
+  await prisma.commentLike.create({ data: { commentId, userId } });
   const liked = await prisma.videoComment.update({
     where: { id: commentId },
     data: { likes: { increment: 1 } },
     select: { likes: true, authorId: true, mediaId: true },
-  })
+  });
 
   if (liked.authorId !== userId) {
     const liker = await prisma.user.findUnique({
       where: { id: userId },
       select: { fullName: true },
-    })
+    });
     await createUserNotification({
       userId: liked.authorId,
       senderId: userId,
@@ -304,8 +354,8 @@ export async function toggleCommentLike(commentId: string, userId: string) {
       title: liker?.fullName?.split(" ").at(0) || "Someone",
       message: "liked your comment",
       metadata: { videoId: liked.mediaId, commentId },
-    })
+    });
   }
 
-  return { liked: true, likes: liked.likes }
+  return { liked: true, likes: liked.likes };
 }

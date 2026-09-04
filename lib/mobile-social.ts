@@ -1,18 +1,21 @@
-import "server-only"
+import "server-only";
 
-import { Prisma, SwipeDirection, UserRole, UserStatus } from "@prisma/client"
-import { createUserNotification } from "@/lib/mobile-notifications"
-import { prisma } from "@/lib/prisma"
-import { serializeMobileUser } from "@/lib/mobile-users"
-import { emitChatRealtimeToUser, emitChatRealtimeToUsers } from "@/lib/realtime"
+import { Prisma, SwipeDirection, UserRole, UserStatus } from "@prisma/client";
+import { createUserNotification } from "@/lib/mobile-notifications";
+import { prisma } from "@/lib/prisma";
+import { serializeMobileUser } from "@/lib/mobile-users";
+import {
+  emitChatRealtimeToUser,
+  emitChatRealtimeToUsers,
+} from "@/lib/realtime";
 
 type UserWithMedia = Prisma.UserGetPayload<{
-  include: { media: true }
-}>
+  include: { media: true };
+}>;
 
 function assertNotSameUser(userId1: string, userId2: string, action: string) {
   if (userId1 === userId2) {
-    throw new Error(`You cannot ${action} yourself`)
+    throw new Error(`You cannot ${action} yourself`);
   }
 }
 
@@ -23,32 +26,35 @@ async function getMobileUserOrThrow(userId: string) {
       role: UserRole.USER,
     },
     include: { media: true },
-  })
+  });
 
   if (!user) {
-    throw new Error("User not found")
+    throw new Error("User not found");
   }
 
-  return user as UserWithMedia
+  return user as UserWithMedia;
 }
 
 function normalizeMatchPair(userId1: string, userId2: string) {
   return userId1 < userId2
     ? { userAId: userId1, userBId: userId2, currentSide: "A" as const }
-    : { userAId: userId2, userBId: userId1, currentSide: "B" as const }
+    : { userAId: userId2, userBId: userId1, currentSide: "B" as const };
 }
 
-function toSocialEntry(user: UserWithMedia, options: { isNew?: boolean; createdAt?: Date | null }) {
+function toSocialEntry(
+  user: UserWithMedia,
+  options: { isNew?: boolean; createdAt?: Date | null },
+) {
   return {
     userId: user.id,
     isNew: options.isNew ?? false,
     createdAt: options.createdAt?.toISOString() ?? null,
     user: serializeMobileUser(user),
-  }
+  };
 }
 
 async function getUsersByIds(userIds: string[]) {
-  if (userIds.length === 0) return []
+  if (userIds.length === 0) return [];
 
   const users = await prisma.user.findMany({
     where: {
@@ -56,24 +62,24 @@ async function getUsersByIds(userIds: string[]) {
       role: UserRole.USER,
     },
     include: { media: true },
-  })
+  });
 
-  const byId = new Map(users.map((user) => [user.id, user as UserWithMedia]))
-  return userIds.map((id) => byId.get(id)).filter(Boolean) as UserWithMedia[]
+  const byId = new Map(users.map((user) => [user.id, user as UserWithMedia]));
+  return userIds.map((id) => byId.get(id)).filter(Boolean) as UserWithMedia[];
 }
 
 export async function toggleVideoLike(input: {
-  currentUserId: string
-  ownerId: string
-  videoId: string
+  currentUserId: string;
+  ownerId: string;
+  videoId: string;
 }) {
-  assertNotSameUser(input.currentUserId, input.ownerId, "like")
-  const refreshedAt = new Date().toISOString()
+  assertNotSameUser(input.currentUserId, input.ownerId, "like");
+  const refreshedAt = new Date().toISOString();
 
   await Promise.all([
     getMobileUserOrThrow(input.currentUserId),
     getMobileUserOrThrow(input.ownerId),
-  ])
+  ]);
 
   const result = await prisma.$transaction(async (tx) => {
     const media = await tx.userMedia.findFirst({
@@ -81,10 +87,10 @@ export async function toggleVideoLike(input: {
         id: input.videoId,
         userId: input.ownerId,
       },
-    })
+    });
 
     if (!media) {
-      throw new Error("Video not found")
+      throw new Error("Video not found");
     }
 
     const existingLike = await tx.videoLike.findFirst({
@@ -93,21 +99,21 @@ export async function toggleVideoLike(input: {
         receiverId: input.ownerId,
         mediaId: input.videoId,
       },
-    })
+    });
 
     if (existingLike) {
       await tx.videoLike.delete({
         where: { id: existingLike.id },
-      })
+      });
 
       await tx.userMedia.update({
         where: { id: media.id },
         data: { likes: { decrement: media.likes > 0 ? 1 : 0 } },
-      })
+      });
 
       return {
         liked: false,
-      }
+      };
     }
 
     await tx.videoLike.create({
@@ -117,23 +123,23 @@ export async function toggleVideoLike(input: {
         mediaId: input.videoId,
         isNew: true,
       },
-    })
+    });
 
     await tx.userMedia.update({
       where: { id: media.id },
       data: { likes: { increment: 1 } },
-    })
+    });
 
     return {
       liked: true,
-    }
-  })
+    };
+  });
 
   if (result.liked) {
     const sender = await prisma.user.findUnique({
       where: { id: input.currentUserId },
       select: { fullName: true },
-    })
+    });
 
     await createUserNotification({
       userId: input.ownerId,
@@ -142,20 +148,20 @@ export async function toggleVideoLike(input: {
       message: "liked your post",
       type: "like",
       metadata: { videoId: input.videoId },
-    })
+    });
   }
 
   emitChatRealtimeToUser(input.ownerId, {
     channel: "likes",
     type: "likes_refresh",
     refreshedAt,
-  })
+  });
 
-  return result
+  return result;
 }
 
 export async function getReceivedLikes(userId: string) {
-  await getMobileUserOrThrow(userId)
+  await getMobileUserOrThrow(userId);
 
   const likes = await prisma.videoLike.findMany({
     where: { receiverId: userId },
@@ -165,29 +171,35 @@ export async function getReceivedLikes(userId: string) {
       },
     },
     orderBy: { createdAt: "desc" },
-  })
+  });
 
-  const grouped = new Map<string, { user: UserWithMedia; createdAt: Date; isNew: boolean }>()
+  const grouped = new Map<
+    string,
+    { user: UserWithMedia; createdAt: Date; isNew: boolean }
+  >();
 
   for (const like of likes) {
-    const existing = grouped.get(like.senderId)
+    const existing = grouped.get(like.senderId);
     if (!existing) {
       grouped.set(like.senderId, {
         user: like.sender as UserWithMedia,
         createdAt: like.createdAt,
         isNew: like.isNew,
-      })
-      continue
+      });
+      continue;
     }
 
     if (like.isNew) {
-      existing.isNew = true
+      existing.isNew = true;
     }
   }
 
   return Array.from(grouped.values()).map((entry) =>
-    toSocialEntry(entry.user, { isNew: entry.isNew, createdAt: entry.createdAt }),
-  )
+    toSocialEntry(entry.user, {
+      isNew: entry.isNew,
+      createdAt: entry.createdAt,
+    }),
+  );
 }
 
 export async function markLikeViewed(receiverId: string, senderId: string) {
@@ -200,15 +212,15 @@ export async function markLikeViewed(receiverId: string, senderId: string) {
     data: {
       isNew: false,
     },
-  })
+  });
 
   emitChatRealtimeToUser(receiverId, {
     channel: "likes",
     type: "likes_refresh",
     refreshedAt: new Date().toISOString(),
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
 export async function getLikedVideoIds(userId: string) {
@@ -220,13 +232,13 @@ export async function getLikedVideoIds(userId: string) {
     select: {
       mediaId: true,
     },
-  })
+  });
 
-  return likes.map((item) => item.mediaId).filter(Boolean)
+  return likes.map((item) => item.mediaId).filter(Boolean);
 }
 
 export async function getMatches(userId: string) {
-  await getMobileUserOrThrow(userId)
+  await getMobileUserOrThrow(userId);
 
   const matches = await prisma.userMatch.findMany({
     where: {
@@ -237,90 +249,93 @@ export async function getMatches(userId: string) {
       userB: { include: { media: true } },
     },
     orderBy: { createdAt: "desc" },
-  })
+  });
 
   return matches.map((match) => {
-    const isCurrentA = match.userAId === userId
-    const otherUser = (isCurrentA ? match.userB : match.userA) as UserWithMedia
+    const isCurrentA = match.userAId === userId;
+    const otherUser = (isCurrentA ? match.userB : match.userA) as UserWithMedia;
 
     return toSocialEntry(otherUser, {
       isNew: isCurrentA ? match.isNewForA : match.isNewForB,
       createdAt: match.createdAt,
-    })
-  })
+    });
+  });
 }
 
 export async function markMatchViewed(userId: string, otherUserId: string) {
-  const normalized = normalizeMatchPair(userId, otherUserId)
+  const normalized = normalizeMatchPair(userId, otherUserId);
   const match = await prisma.userMatch.findFirst({
     where: {
       userAId: normalized.userAId,
       userBId: normalized.userBId,
     },
-  })
+  });
 
   if (!match) {
-    return { success: true }
+    return { success: true };
   }
 
   await prisma.userMatch.update({
     where: { id: match.id },
-    data: normalized.currentSide === "A" ? { isNewForA: false } : { isNewForB: false },
-  })
+    data:
+      normalized.currentSide === "A"
+        ? { isNewForA: false }
+        : { isNewForB: false },
+  });
 
   emitChatRealtimeToUser(userId, {
     channel: "matches",
     type: "matches_refresh",
     refreshedAt: new Date().toISOString(),
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
 export async function deleteMatch(userId: string, otherUserId: string) {
-  const normalized = normalizeMatchPair(userId, otherUserId)
+  const normalized = normalizeMatchPair(userId, otherUserId);
   const match = await prisma.userMatch.findFirst({
     where: {
       userAId: normalized.userAId,
       userBId: normalized.userBId,
     },
-  })
+  });
 
   if (!match) {
-    return { success: true }
+    return { success: true };
   }
 
   await prisma.userMatch.delete({
     where: { id: match.id },
-  })
+  });
 
   emitChatRealtimeToUsers([userId, otherUserId], {
     channel: "matches",
     type: "matches_refresh",
     refreshedAt: new Date().toISOString(),
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
 export async function saveSwipe(input: {
-  senderId: string
-  receiverId: string
-  direction?: SwipeDirection
+  senderId: string;
+  receiverId: string;
+  direction?: SwipeDirection;
 }) {
-  assertNotSameUser(input.senderId, input.receiverId, "swipe")
+  assertNotSameUser(input.senderId, input.receiverId, "swipe");
 
   await Promise.all([
     getMobileUserOrThrow(input.senderId),
     getMobileUserOrThrow(input.receiverId),
-  ])
+  ]);
 
   const existing = await prisma.userSwipe.findFirst({
     where: {
       senderId: input.senderId,
       receiverId: input.receiverId,
     },
-  })
+  });
 
   if (existing) {
     return prisma.userSwipe.update({
@@ -329,7 +344,7 @@ export async function saveSwipe(input: {
         direction: input.direction ?? SwipeDirection.RIGHT,
         createdAt: new Date(),
       },
-    })
+    });
   }
 
   return prisma.userSwipe.create({
@@ -338,7 +353,7 @@ export async function saveSwipe(input: {
       receiverId: input.receiverId,
       direction: input.direction ?? SwipeDirection.RIGHT,
     },
-  })
+  });
 }
 
 export async function getSwipedUsers(userId: string) {
@@ -347,22 +362,22 @@ export async function getSwipedUsers(userId: string) {
       senderId: userId,
     },
     orderBy: { createdAt: "desc" },
-  })
+  });
 
   return swipes.map((swipe) => ({
     userId: swipe.receiverId,
     direction: swipe.direction,
     createdAt: swipe.createdAt.toISOString(),
-  }))
+  }));
 }
 
 export async function blockUser(currentUserId: string, otherUserId: string) {
-  assertNotSameUser(currentUserId, otherUserId, "block")
+  assertNotSameUser(currentUserId, otherUserId, "block");
 
   await Promise.all([
     getMobileUserOrThrow(currentUserId),
     getMobileUserOrThrow(otherUserId),
-  ])
+  ]);
 
   await prisma.$transaction(async (tx) => {
     const existingBlock = await tx.userBlock.findFirst({
@@ -370,7 +385,7 @@ export async function blockUser(currentUserId: string, otherUserId: string) {
         blockerId: currentUserId,
         blockedId: otherUserId,
       },
-    })
+    });
 
     if (!existingBlock) {
       await tx.userBlock.create({
@@ -378,7 +393,7 @@ export async function blockUser(currentUserId: string, otherUserId: string) {
           blockerId: currentUserId,
           blockedId: otherUserId,
         },
-      })
+      });
     }
 
     await tx.follow.deleteMany({
@@ -388,7 +403,7 @@ export async function blockUser(currentUserId: string, otherUserId: string) {
           { followerId: otherUserId, followedId: currentUserId },
         ],
       },
-    })
+    });
 
     await tx.videoLike.deleteMany({
       where: {
@@ -397,30 +412,30 @@ export async function blockUser(currentUserId: string, otherUserId: string) {
           { senderId: otherUserId, receiverId: currentUserId },
         ],
       },
-    })
+    });
 
-    const normalized = normalizeMatchPair(currentUserId, otherUserId)
+    const normalized = normalizeMatchPair(currentUserId, otherUserId);
     await tx.userMatch.deleteMany({
       where: {
         userAId: normalized.userAId,
         userBId: normalized.userBId,
       },
-    })
-  })
+    });
+  });
 
-  const refreshedAt = new Date().toISOString()
+  const refreshedAt = new Date().toISOString();
   emitChatRealtimeToUsers([currentUserId, otherUserId], {
     channel: "likes",
     type: "likes_refresh",
     refreshedAt,
-  })
+  });
   emitChatRealtimeToUsers([currentUserId, otherUserId], {
     channel: "matches",
     type: "matches_refresh",
     refreshedAt,
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
 export async function unblockUser(currentUserId: string, otherUserId: string) {
@@ -429,9 +444,9 @@ export async function unblockUser(currentUserId: string, otherUserId: string) {
       blockerId: currentUserId,
       blockedId: otherUserId,
     },
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
 export async function isBlocked(userId1: string, userId2: string) {
@@ -440,9 +455,9 @@ export async function isBlocked(userId1: string, userId2: string) {
       blockerId: userId1,
       blockedId: userId2,
     },
-  })
+  });
 
-  return { blocked: Boolean(block) }
+  return { blocked: Boolean(block) };
 }
 
 export async function getBlockedUsers(userId: string) {
@@ -454,31 +469,37 @@ export async function getBlockedUsers(userId: string) {
       },
     },
     orderBy: { createdAt: "desc" },
-  })
+  });
 
   return blocks.map((block) =>
-    toSocialEntry(block.blocked as UserWithMedia, { createdAt: block.createdAt }),
-  )
+    toSocialEntry(block.blocked as UserWithMedia, {
+      createdAt: block.createdAt,
+    }),
+  );
 }
 
 export async function followUser(input: {
-  followerId: string
-  followedId: string
-  follow: boolean
+  followerId: string;
+  followedId: string;
+  follow: boolean;
 }) {
-  assertNotSameUser(input.followerId, input.followedId, "follow")
+  assertNotSameUser(input.followerId, input.followedId, "follow");
 
-  await Promise.all([
+  const [, followedUser] = await Promise.all([
     getMobileUserOrThrow(input.followerId),
     getMobileUserOrThrow(input.followedId),
-  ])
+  ]);
+
+  if (followedUser.externalId === "system:chatandtip") {
+    throw new Error("You cannot follow the ChatAndTip broadcast account");
+  }
 
   const followId = {
     followerId_followedId: {
       followerId: input.followerId,
       followedId: input.followedId,
     },
-  }
+  };
 
   if (input.follow) {
     await prisma.follow.upsert({
@@ -488,29 +509,32 @@ export async function followUser(input: {
         followerId: input.followerId,
         followedId: input.followedId,
       },
-    })
+    });
   } else {
     await prisma.follow.deleteMany({
       where: {
         followerId: input.followerId,
         followedId: input.followedId,
       },
-    })
+    });
   }
 
   const [followersCount, followingCount] = await Promise.all([
     prisma.follow.count({ where: { followedId: input.followedId } }),
     prisma.follow.count({ where: { followerId: input.followerId } }),
-  ])
+  ]);
 
   return {
     following: input.follow,
     followersCount,
     followingCount,
-  }
+  };
 }
 
-export async function checkFollowStatus(followerId: string, followedId: string) {
+export async function checkFollowStatus(
+  followerId: string,
+  followedId: string,
+) {
   const follow = await prisma.follow.findUnique({
     where: {
       followerId_followedId: {
@@ -518,9 +542,9 @@ export async function checkFollowStatus(followerId: string, followedId: string) 
         followedId,
       },
     },
-  })
+  });
 
-  return { following: Boolean(follow) }
+  return { following: Boolean(follow) };
 }
 
 export async function getFollowers(userId: string) {
@@ -528,10 +552,10 @@ export async function getFollowers(userId: string) {
     where: { followedId: userId },
     orderBy: { createdAt: "desc" },
     select: { followerId: true },
-  })
+  });
 
-  const users = await getUsersByIds(follows.map((item) => item.followerId))
-  return users.map((user) => serializeMobileUser(user))
+  const users = await getUsersByIds(follows.map((item) => item.followerId));
+  return users.map((user) => serializeMobileUser(user));
 }
 
 export async function getFollowing(userId: string) {
@@ -539,10 +563,10 @@ export async function getFollowing(userId: string) {
     where: { followerId: userId },
     orderBy: { createdAt: "desc" },
     select: { followedId: true },
-  })
+  });
 
-  const users = await getUsersByIds(follows.map((item) => item.followedId))
-  return users.map((user) => serializeMobileUser(user))
+  const users = await getUsersByIds(follows.map((item) => item.followedId));
+  return users.map((user) => serializeMobileUser(user));
 }
 
 export async function getSuggestedFollowers(userId: string) {
@@ -563,15 +587,15 @@ export async function getSuggestedFollowers(userId: string) {
       where: { blockedId: userId },
       select: { blockerId: true },
     }),
-  ])
+  ]);
 
-  const followerIds = myFollowers.map((item) => item.followerId)
-  const followingIds = new Set(myFollowing.map((item) => item.followedId))
+  const followerIds = myFollowers.map((item) => item.followerId);
+  const followingIds = new Set(myFollowing.map((item) => item.followedId));
   const blockedIds = new Set([
     ...myBlocks.map((item) => item.blockedId),
     ...blockedBy.map((item) => item.blockerId),
     userId,
-  ])
+  ]);
 
   const mutualCandidates = followerIds.length
     ? await prisma.follow.findMany({
@@ -581,7 +605,7 @@ export async function getSuggestedFollowers(userId: string) {
         orderBy: { createdAt: "desc" },
         select: { followedId: true },
       })
-    : []
+    : [];
 
   const candidateIds = Array.from(
     new Set(
@@ -589,10 +613,13 @@ export async function getSuggestedFollowers(userId: string) {
         .map((item) => item.followedId)
         .filter((id) => !followingIds.has(id) && !blockedIds.has(id)),
     ),
-  )
+  );
 
-  let users = await getUsersByIds(candidateIds)
-  users = users.filter((user) => user.status !== UserStatus.BLOCKED && user.status !== UserStatus.HIDDEN)
+  let users = await getUsersByIds(candidateIds);
+  users = users.filter(
+    (user) =>
+      user.status !== UserStatus.BLOCKED && user.status !== UserStatus.HIDDEN,
+  );
 
   if (users.length === 0) {
     users = (await prisma.user.findMany({
@@ -607,20 +634,20 @@ export async function getSuggestedFollowers(userId: string) {
       include: { media: true },
       orderBy: { createdAt: "desc" },
       take: 10,
-    })) as UserWithMedia[]
+    })) as UserWithMedia[];
   }
 
-  return users.slice(0, 10).map((user) => serializeMobileUser(user))
+  return users.slice(0, 10).map((user) => serializeMobileUser(user));
 }
 
 export async function getFollowCounts(userId: string) {
   const [followersCount, followingCount] = await Promise.all([
     prisma.follow.count({ where: { followedId: userId } }),
     prisma.follow.count({ where: { followerId: userId } }),
-  ])
+  ]);
 
   return {
     followersCount,
     followingCount,
-  }
+  };
 }

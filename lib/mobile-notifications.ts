@@ -1,55 +1,197 @@
-import "server-only"
+import "server-only";
 
-import fs from "node:fs"
-import path from "node:path"
-import { Prisma, UserRole } from "@prisma/client"
-import { prisma } from "@/lib/prisma"
-import { serializeMobileUser } from "@/lib/mobile-users"
-import { emitChatRealtimeToUser } from "@/lib/realtime"
-import { env } from "@/lib/env"
-import { sendFcmPush } from "@/lib/fcm"
+import fs from "node:fs";
+import path from "node:path";
+import { Prisma, UserRole } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { serializeMobileUser } from "@/lib/mobile-users";
+import { emitChatRealtimeToUser } from "@/lib/realtime";
+import { env } from "@/lib/env";
+import { sendFcmPush } from "@/lib/fcm";
 
 // Cache-busted so replacing the logo file actually shows up — browsers, CDNs,
 // and the mobile app's image cache all key on the URL, and the file gets
 // overwritten in place under the same filename, so without a version query
 // param an already-cached client keeps showing the old logo forever.
 function systemUserAvatarUrl(): string {
-  const base = (env.APP_URL || "https://chatandtip.com").replace(/\/$/, "")
-  let version = ""
+  const base = (env.APP_URL || "https://chatandtip.com").replace(/\/$/, "");
+  let version = "";
   try {
-    const stat = fs.statSync(path.join(process.cwd(), "public", "chatandtip-logo.jpg"))
-    version = `?v=${Math.round(stat.mtimeMs)}`
+    const stat = fs.statSync(
+      path.join(process.cwd(), "public", "chatandtip-logo.jpg"),
+    );
+    version = `?v=${Math.round(stat.mtimeMs)}`;
   } catch {
     // Missing at runtime shouldn't happen — fall back to no cache-busting.
   }
-  return `${base}/chatandtip-logo.jpg${version}`
+  return `${base}/chatandtip-logo.jpg${version}`;
 }
 
 type UserWithMedia = Prisma.UserGetPayload<{
-  include: { media: true }
-}>
+  include: { media: true };
+}>;
 
 function normalizeMetadata(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {}
+    return {};
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
+}
+
+const GROUPABLE_ACTIVITY_TYPES = new Set([
+  "like",
+  "comment",
+  "comment_reply",
+  "comment_like",
+  "repost",
+]);
+
+function mediaIdFromMetadata(metadata: Record<string, unknown>) {
+  const raw = metadata.mediaId ?? metadata.videoId;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : "";
+}
+
+async function enrichMetadataWithMediaPreview(
+  metadata: Record<string, unknown>,
+) {
+  const mediaId = mediaIdFromMetadata(metadata);
+  if (!mediaId || typeof metadata.thumbnailUrl === "string") return metadata;
+  const media = await prisma.userMedia.findUnique({
+    where: { id: mediaId },
+    select: { thumbnailUrl: true, url: true },
+  });
+  if (!media) return metadata;
+  return {
+    ...metadata,
+    mediaId,
+    thumbnailUrl: media.thumbnailUrl || media.url || "",
+  };
+}
+
+async function enrichSerializedNotificationPreviews(items: Array<any>) {
+  const missingIds = Array.from(
+    new Set(
+      items
+        .map((item) => mediaIdFromMetadata(normalizeMetadata(item.metadata)))
+        .filter(
+          (id) =>
+            id &&
+            typeof normalizeMetadata(
+              items.find(
+                (item) =>
+                  mediaIdFromMetadata(normalizeMetadata(item.metadata)) === id,
+              )?.metadata,
+            ).thumbnailUrl !== "string",
+        ),
+    ),
+  );
+  if (!missingIds.length) return items;
+  const mediaRows = await prisma.userMedia.findMany({
+    where: { id: { in: missingIds } },
+    select: { id: true, thumbnailUrl: true, url: true },
+  });
+  const previewById = new Map(
+    mediaRows.map((media) => [media.id, media.thumbnailUrl || media.url || ""]),
+  );
+  return items.map((item) => {
+    const metadata = normalizeMetadata(item.metadata);
+    const mediaId = mediaIdFromMetadata(metadata);
+    const thumbnailUrl = mediaId ? previewById.get(mediaId) : "";
+    if (!thumbnailUrl || typeof metadata.thumbnailUrl === "string") return item;
+    return { ...item, metadata: { ...metadata, mediaId, thumbnailUrl } };
+  });
+}
+
+function actorName(item: any) {
+  const senderUser = item.senderUser as
+    Record<string, unknown> | null | undefined;
+  const name =
+    senderUser?.fullname || senderUser?.fullName || item.title || "Someone";
+  return String(name).replace(/^@/, "").trim() || "Someone";
+}
+
+function activityVerb(type: string) {
+  if (type === "like") return "liked your post";
+  if (type === "comment") return "commented on your post";
+  if (type === "comment_reply") return "replied to your comment";
+  if (type === "comment_like") return "liked your comment";
+  if (type === "repost") return "Reshared your post";
+  return "updated your post";
+}
+
+function groupSerializedNotifications(items: Array<any>) {
+  const grouped = new Map<string, Array<any>>();
+  const output: Array<any> = [];
+
+  for (const item of items) {
+    const type = String(item.type || "alert");
+    const metadata = normalizeMetadata(item.metadata);
+    const mediaId = mediaIdFromMetadata(metadata);
+    if (!GROUPABLE_ACTIVITY_TYPES.has(type) || !mediaId) {
+      output.push(item);
+      continue;
+    }
+    const key = `${type}:${mediaId}`;
+    const list = grouped.get(key) || [];
+    if (!list.length) output.push(item);
+    list.push(item);
+    grouped.set(key, list);
+  }
+
+  return output.map((item) => {
+    const type = String(item.type || "alert");
+    const metadata = normalizeMetadata(item.metadata);
+    const mediaId = mediaIdFromMetadata(metadata);
+    const list = grouped.get(`${type}:${mediaId}`) || [];
+    if (list.length <= 1) return item;
+
+    const actors = list
+      .map((entry) => ({
+        id: String(entry.senderId || ""),
+        name: actorName(entry),
+        user: entry.senderUser || null,
+      }))
+      .filter((actor, index, all) =>
+        actor.id
+          ? all.findIndex((a) => a.id === actor.id) === index
+          : index === all.findIndex((a) => a.name === actor.name),
+      );
+    const first = actors[0]?.name || "Someone";
+    const second = actors[1]?.name;
+    const others = Math.max(0, actors.length - 2);
+    const title = second
+      ? `${first}, ${second}${others > 0 ? ` and ${others} others` : ""} ${activityVerb(type)}`
+      : `${first} and ${Math.max(1, actors.length - 1)} others ${activityVerb(type)}`;
+
+    return {
+      ...item,
+      title,
+      message: "",
+      isRead: list.every((entry) => entry.isRead === true),
+      metadata: {
+        ...metadata,
+        groupedNotificationIds: list.map((entry) => entry.id),
+        activityCount: list.length,
+        groupedActors: actors.slice(0, 3),
+      },
+    };
+  });
 }
 
 export function serializeMobileNotification(notification: {
-  id: string
-  senderId: string | null
-  title: string | null
-  message: string
-  type: string
-  isRead: boolean
-  createdAt: Date
-  updatedAt: Date
-  metadata: unknown
-  sender?: UserWithMedia | null
+  id: string;
+  senderId: string | null;
+  title: string | null;
+  message: string;
+  type: string;
+  isRead: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  metadata: unknown;
+  sender?: UserWithMedia | null;
 }) {
-  const metadata = normalizeMetadata(notification.metadata)
+  const metadata = normalizeMetadata(notification.metadata);
 
   return {
     id: notification.id,
@@ -62,20 +204,22 @@ export function serializeMobileNotification(notification: {
     updatedAt: notification.updatedAt.toISOString(),
     videoIndex: Number(metadata.videoIndex ?? 0),
     metadata,
-    senderUser: notification.sender ? serializeMobileUser(notification.sender as UserWithMedia) : null,
-  }
+    senderUser: notification.sender
+      ? serializeMobileUser(notification.sender as UserWithMedia)
+      : null,
+  };
 }
 
 export async function createUserNotification(input: {
-  userId: string
-  senderId?: string | null
-  title?: string | null
-  message: string
-  type?: string
-  metadata?: Record<string, unknown>
+  userId: string;
+  senderId?: string | null;
+  title?: string | null;
+  message: string;
+  type?: string;
+  metadata?: Record<string, unknown>;
   // Broadcasts already send their own optimized push in a batch loop — they
   // pass skipPush to avoid a duplicate push here.
-  skipPush?: boolean
+  skipPush?: boolean;
 }) {
   const notification = await prisma.userNotification.create({
     data: {
@@ -84,22 +228,24 @@ export async function createUserNotification(input: {
       title: input.title || null,
       message: input.message,
       type: input.type || "alert",
-      metadata: (input.metadata || {}) as Prisma.InputJsonValue,
+      metadata: (await enrichMetadataWithMediaPreview(
+        input.metadata || {},
+      )) as Prisma.InputJsonValue,
     },
     include: {
       sender: {
         include: { media: true },
       },
     },
-  })
+  });
 
-  const serialized = serializeMobileNotification(notification as never)
+  const serialized = serializeMobileNotification(notification as never);
 
   emitChatRealtimeToUser(input.userId, {
     channel: "notifications",
     type: "notification_created",
     data: serialized,
-  })
+  });
 
   // Push to the recipient's device so OFFLINE users are alerted too (bookings,
   // likes, comments, tips, etc.). Best-effort — never block on it. FCM data
@@ -110,34 +256,36 @@ export async function createUserNotification(input: {
         const recipient = await prisma.user.findUnique({
           where: { id: input.userId },
           select: { deviceToken: true },
-        })
-        if (!recipient?.deviceToken) return
-        const pushData: Record<string, string> = { type: input.type || "alert" }
+        });
+        if (!recipient?.deviceToken) return;
+        const pushData: Record<string, string> = {
+          type: input.type || "alert",
+        };
         for (const [k, v] of Object.entries(input.metadata || {})) {
-          if (v != null) pushData[k] = String(v)
+          if (v != null) pushData[k] = String(v);
         }
         await sendFcmPush(recipient.deviceToken, {
           title: input.title || "ChatAndTip",
           body: input.message,
           data: pushData,
-        })
+        });
       } catch {
         // ignore — push is best-effort
       }
-    })()
+    })();
   }
 
-  return serialized
+  return serialized;
 }
 
 export async function listUserNotifications(input: {
-  userId: string
-  page?: number
-  limit?: number
+  userId: string;
+  page?: number;
+  limit?: number;
 }) {
-  const page = Math.max(1, input.page || 1)
-  const limit = Math.min(50, Math.max(1, input.limit || 20))
-  const skip = (page - 1) * limit
+  const page = Math.max(1, input.page || 1);
+  const limit = Math.min(50, Math.max(1, input.limit || 20));
+  const skip = (page - 1) * limit;
 
   const [notifications, total] = await Promise.all([
     prisma.userNotification.findMany({
@@ -154,27 +302,35 @@ export async function listUserNotifications(input: {
     prisma.userNotification.count({
       where: { userId: input.userId },
     }),
-  ])
+  ]);
+
+  const serialized = notifications.map((notification) =>
+    serializeMobileNotification(notification as never),
+  );
+  const withPreviews = await enrichSerializedNotificationPreviews(serialized);
 
   return {
-    data: notifications.map((notification) => serializeMobileNotification(notification as never)),
+    data: groupSerializedNotifications(withPreviews),
     page,
     limit,
     hasMore: skip + notifications.length < total,
     total,
-  }
+  };
 }
 
-export async function markNotificationRead(userId: string, notificationId: string) {
+export async function markNotificationRead(
+  userId: string,
+  notificationId: string,
+) {
   const notification = await prisma.userNotification.findFirst({
     where: {
       id: notificationId,
       userId,
     },
-  })
+  });
 
   if (!notification) {
-    throw new Error("Notification not found")
+    throw new Error("Notification not found");
   }
 
   const updated = await prisma.userNotification.update({
@@ -185,14 +341,17 @@ export async function markNotificationRead(userId: string, notificationId: strin
         include: { media: true },
       },
     },
-  })
+  });
 
-  const metadata = normalizeMetadata(notification.metadata)
-  if (notification.type === "broadcast" && typeof metadata.threadId === "string") {
+  const metadata = normalizeMetadata(notification.metadata);
+  if (
+    notification.type === "broadcast" &&
+    typeof metadata.threadId === "string"
+  ) {
     await prisma.chatParticipant.updateMany({
       where: { threadId: metadata.threadId, userId },
       data: { unreadCount: 0 },
-    })
+    });
   }
 
   emitChatRealtimeToUser(userId, {
@@ -200,48 +359,51 @@ export async function markNotificationRead(userId: string, notificationId: strin
     type: "notification_updated",
     notificationId,
     data: serializeMobileNotification(updated as never),
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
-export async function deleteSingleNotification(userId: string, notificationId: string) {
+export async function deleteSingleNotification(
+  userId: string,
+  notificationId: string,
+) {
   const result = await prisma.userNotification.deleteMany({
     where: { id: notificationId, userId },
-  })
-  return { success: true, deleted: result.count }
+  });
+  return { success: true, deleted: result.count };
 }
 
 export async function deleteAllNotifications(userId: string) {
   const result = await prisma.userNotification.deleteMany({
     where: { userId },
-  })
+  });
 
   emitChatRealtimeToUser(userId, {
     channel: "notifications",
     type: "notifications_cleared",
     clearedAt: new Date().toISOString(),
-  })
+  });
 
-  return { success: true, deleted: result.count }
+  return { success: true, deleted: result.count };
 }
 
 type TargetFilter = {
-  roles?: ('USER' | 'CREATOR')[]
-  gender?: string[]
-  verified?: boolean
-  createdAfter?: string
-  userIds?: string[]
-}
+  roles?: ("USER" | "CREATOR")[];
+  gender?: string[];
+  verified?: boolean;
+  createdAfter?: string;
+  userIds?: string[];
+};
 
 export async function broadcastCampaignNotifications(input: {
-  title?: string | null
-  message: string
-  campaignId: string
-  channel?: string
-  afterUserId?: string
-  batchSize?: number
-  targetFilter?: TargetFilter | null
+  title?: string | null;
+  message: string;
+  campaignId: string;
+  channel?: string;
+  afterUserId?: string;
+  batchSize?: number;
+  targetFilter?: TargetFilter | null;
 }) {
   const systemUser = await prisma.user.upsert({
     where: { externalId: "system:chatandtip" },
@@ -255,14 +417,18 @@ export async function broadcastCampaignNotifications(input: {
       verified: true,
       avatarUrl: systemUserAvatarUrl(),
     },
-    update: { fullName: "ChatAndTip", verified: true, avatarUrl: systemUserAvatarUrl() },
+    update: {
+      fullName: "ChatAndTip",
+      verified: true,
+      avatarUrl: systemUserAvatarUrl(),
+    },
     include: { media: true },
-  })
+  });
 
-  const tf = input.targetFilter
+  const tf = input.targetFilter;
   const roleFilter = tf?.roles?.length
     ? tf.roles.map((r) => UserRole[r as keyof typeof UserRole])
-    : [UserRole.USER]
+    : [UserRole.USER];
 
   const users = await prisma.user.findMany({
     where: {
@@ -275,18 +441,20 @@ export async function broadcastCampaignNotifications(input: {
       },
       ...(tf?.gender?.length ? { gender: { in: tf.gender } } : {}),
       ...(tf?.verified !== undefined ? { verified: tf.verified } : {}),
-      ...(tf?.createdAfter ? { createdAt: { gte: new Date(tf.createdAfter) } } : {}),
+      ...(tf?.createdAfter
+        ? { createdAt: { gte: new Date(tf.createdAfter) } }
+        : {}),
     },
     select: { id: true, deviceToken: true },
     orderBy: { id: "asc" },
     take: Math.min(500, Math.max(1, input.batchSize || 200)),
-  })
+  });
 
   if (!users.length) {
-    return { created: 0 }
+    return { created: 0 };
   }
 
-  const sentAt = new Date()
+  const sentAt = new Date();
   for (const user of users) {
     const delivery = await prisma.$transaction(async (tx) => {
       let participant = await tx.chatParticipant.findFirst({
@@ -296,7 +464,7 @@ export async function broadcastCampaignNotifications(input: {
           thread: { kind: "BROADCAST" },
         },
         include: { thread: true },
-      })
+      });
       if (!participant) {
         const thread = await tx.chatThread.create({
           data: {
@@ -310,11 +478,11 @@ export async function broadcastCampaignNotifications(input: {
               ],
             },
           },
-        })
+        });
         participant = await tx.chatParticipant.findFirstOrThrow({
           where: { threadId: thread.id, userId: user.id },
           include: { thread: true },
-        })
+        });
       }
 
       const message = await tx.chatMessage.create({
@@ -327,17 +495,21 @@ export async function broadcastCampaignNotifications(input: {
           broadcastCampaignId: input.campaignId,
           sentAt,
         },
-      })
+      });
       await tx.chatThread.update({
         where: { id: participant.threadId },
-        data: { lastMessageText: input.message, lastMessageType: "SYSTEM", lastMessageAt: sentAt },
-      })
+        data: {
+          lastMessageText: input.message,
+          lastMessageType: "SYSTEM",
+          lastMessageAt: sentAt,
+        },
+      });
       const recipient = await tx.chatParticipant.update({
         where: { id: participant.id },
         data: { unreadCount: { increment: 1 }, archived: false },
-      })
-      return { message, unread: recipient.unreadCount }
-    })
+      });
+      return { message, unread: recipient.unreadCount };
+    });
 
     await createUserNotification({
       userId: user.id,
@@ -345,9 +517,14 @@ export async function broadcastCampaignNotifications(input: {
       title: input.title || "ChatAndTip",
       message: input.message,
       type: "broadcast",
-      metadata: { campaignId: input.campaignId, threadId: delivery.message.threadId, targetType: "broadcast", channel: input.channel || "IN_APP" },
+      metadata: {
+        campaignId: input.campaignId,
+        threadId: delivery.message.threadId,
+        targetType: "broadcast",
+        channel: input.channel || "IN_APP",
+      },
       skipPush: true, // broadcast loop sends its own FCM push below
-    })
+    });
 
     // FCM push for offline users — fire-and-forget, doesn't block the loop
     if (user.deviceToken) {
@@ -355,7 +532,7 @@ export async function broadcastCampaignNotifications(input: {
         title: input.title || "ChatAndTip",
         body: input.message,
         data: { type: "broadcast", campaignId: input.campaignId },
-      }).catch(() => {})
+      }).catch(() => {});
     }
 
     emitChatRealtimeToUser(user.id, {
@@ -372,8 +549,8 @@ export async function broadcastCampaignNotifications(input: {
         receiver: serializeMobileUser(systemUser),
         broadcastOnly: true,
       },
-    })
+    });
   }
 
-  return { created: users.length, lastUserId: users.at(-1)?.id || null }
+  return { created: users.length, lastUserId: users.at(-1)?.id || null };
 }

@@ -206,6 +206,40 @@ export async function getDiscoverFeed(currentUserId: string) {
     existingEntryIds.add(repost.mediaId);
   }
 
+  const entryMediaIds = entries
+    .map((entry) => String((entry.video as Record<string, unknown>).id || ""))
+    .filter(Boolean);
+  if (entryMediaIds.length) {
+    const recentReposts = await prisma.mediaRepost.findMany({
+      where: { mediaId: { in: [...new Set(entryMediaIds)] } },
+      include: { user: true },
+      orderBy: { createdAt: "desc" },
+      take: entryMediaIds.length * 4,
+    });
+    const repostersByMedia = new Map<string, Array<Record<string, unknown>>>();
+    for (const repost of recentReposts) {
+      const list = repostersByMedia.get(repost.mediaId) || [];
+      if (list.length >= 2) continue;
+      list.push({
+        id: repost.user.id,
+        name: repost.user.fullName || repost.user.username || "Someone",
+        username: repost.user.username || "",
+        avatarUrl: repost.user.avatarUrl || "",
+        fallbackAsset:
+          repost.user.gender?.toUpperCase() === "M"
+            ? "assets/male.png"
+            : "assets/female.png",
+      });
+      repostersByMedia.set(repost.mediaId, list);
+    }
+    for (const entry of entries) {
+      const video = entry.video as Record<string, unknown>;
+      const id = String(video.id || "");
+      const reposters = repostersByMedia.get(id);
+      if (reposters?.length) video.recentReposters = reposters;
+    }
+  }
+
   // Discover ordering: followed creators first (unseen → newest first), then
   // everyone else in a fresh random order each load. This keeps the feed
   // personal at the top, never dead-ends when follows run out, and is always
