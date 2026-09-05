@@ -36,6 +36,11 @@ const updateSchema = z.object({
   titlePositionY: z.coerce.number().min(0).max(1).optional(),
 });
 
+const visibilitySchema = z.object({
+  mediaId: z.string(),
+  hidden: z.boolean(),
+});
+
 export async function POST(request: Request) {
   const session = await getMobileSessionFromRequest(request);
   if (!session) {
@@ -142,14 +147,30 @@ export async function PATCH(request: Request) {
 
   try {
     const body = await request.json();
+    if (body.action === "visibility") {
+      const parsed = visibilitySchema.parse(body);
+      const result = await prisma.userMedia.updateMany({
+        where: { id: parsed.mediaId, userId: session.userId },
+        data: { isHiddenByOwner: parsed.hidden },
+      });
+      if (!result.count) {
+        return NextResponse.json(
+          { success: false, message: "Post not found" },
+          { status: 404 },
+        );
+      }
+      return NextResponse.json({ success: true, hidden: parsed.hidden });
+    }
+
     if (body.action === "repost") {
       const parsed = viewsSchema.parse(body);
       const result = await prisma.$transaction(async (tx) => {
         const media = await tx.userMedia.findUnique({
           where: { id: parsed.mediaId },
-          select: { id: true, userId: true },
+          select: { id: true, userId: true, isHiddenByOwner: true },
         });
         if (!media) throw new Error("Post not found");
+        if (media.isHiddenByOwner) throw new Error("This post is hidden");
 
         const desired =
           typeof parsed.reposted === "boolean" ? parsed.reposted : undefined;

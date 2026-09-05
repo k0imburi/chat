@@ -16,13 +16,15 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!media || !media.user.isActive || ["BLOCKED", "HIDDEN"].includes(media.user.status)) {
     return NextResponse.json({ success: false, message: "This post is no longer available" }, { status: 404 })
   }
-  // Copyright-flagged and reported posts are visible only to their owner.
-  if ((media.copyrightStatus || media.reportStatus) && media.userId !== session.userId) {
+  // Moderated and owner-hidden posts are visible only to their owner.
+  if ((media.copyrightStatus || media.reportStatus || media.isHiddenByOwner) && media.userId !== session.userId) {
     return NextResponse.json({ success: false, message: "This post is no longer available" }, { status: 404 })
   }
 
   const user = await serializeMobileUserWithCounts(media.user)
-  let gallery = user.gallery
+  let gallery = session.userId === media.userId
+    ? user.gallery
+    : user.gallery.filter((item) => !item.isHiddenByOwner)
   let targetIndex = gallery.findIndex((item) => item.id === id)
   if (user.profileVideo.id === id) {
     gallery = [user.profileVideo, ...gallery]

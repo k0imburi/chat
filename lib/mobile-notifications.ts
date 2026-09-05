@@ -260,6 +260,10 @@ export async function createUserNotification(input: {
         if (!recipient?.deviceToken) return;
         const pushData: Record<string, string> = {
           type: input.type || "alert",
+          notificationId: notification.id,
+          senderId: input.senderId || "",
+          title: input.title || "ChatAndTip",
+          message: input.message,
         };
         for (const [k, v] of Object.entries(input.metadata || {})) {
           if (v != null) pushData[k] = String(v);
@@ -531,7 +535,13 @@ export async function broadcastCampaignNotifications(input: {
       sendFcmPush(user.deviceToken, {
         title: input.title || "ChatAndTip",
         body: input.message,
-        data: { type: "broadcast", campaignId: input.campaignId },
+        data: {
+          type: "broadcast",
+          campaignId: input.campaignId,
+          title: input.title || "ChatAndTip",
+          message: input.message,
+          threadId: delivery.message.threadId,
+        },
       }).catch(() => {});
     }
 

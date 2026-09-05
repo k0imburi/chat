@@ -30,6 +30,7 @@ const schema = z.object({
   lastSwipeDate: z.string().optional(),
   status: z.string().optional(),
   showLastActivity: z.boolean().optional(),
+  allowPostDownloads: z.boolean().optional(),
   avatarUrl: z.string().url().optional(),
   profileVideo: z
     .object({

@@ -125,6 +125,7 @@ function serializeVideo(media?: UserMedia | null) {
       isLiked: false,
       copyrightStatus: null as string | null,
       reportStatus: null as string | null,
+      isHiddenByOwner: false,
     }
   }
 
@@ -153,6 +154,7 @@ function serializeVideo(media?: UserMedia | null) {
     isLiked: false,
     copyrightStatus: media.copyrightStatus ?? null,
     reportStatus: media.reportStatus ?? null,
+    isHiddenByOwner: media.isHiddenByOwner,
   }
 }
 
@@ -171,6 +173,7 @@ export function serializeMobileUser(user: UserWithMedia) {
     profileVideo: serializeVideo(profileVideo),
     fullname: user.fullName,
     username: user.username || "",
+    allowPostDownloads: user.allowPostDownloads,
     gender: user.gender,
     // Display names, plus the list the profile shows under "Languages spoken".
     language: languageDisplayList(user.language).join(", "),
@@ -274,15 +277,14 @@ export async function findMobileUsersByIds(userIds: string[]) {
 }
 
 // Search active users by username or full name (case-insensitive prefix/contains).
-// Excludes the searcher and non-USER accounts; caps results for a snappy list.
-export async function searchMobileUsers(query: string, excludeUserId?: string, take = 30) {
+// Includes the searcher, excludes non-USER accounts, and caps results for a snappy list.
+export async function searchMobileUsers(query: string, take = 30) {
   const q = query.trim()
   if (q.length < 2) return [] as UserWithMedia[]
   return (await prisma.user.findMany({
     where: {
       role: UserRole.USER,
       status: { notIn: [UserStatus.BLOCKED, UserStatus.HIDDEN] },
-      ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
       OR: [
         { username: { contains: q } },
         { fullName: { contains: q } },

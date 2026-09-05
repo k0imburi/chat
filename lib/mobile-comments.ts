@@ -55,6 +55,7 @@ function serializeComment(
     author: CommentAuthor;
     _count: { replies: number };
     isPinned: boolean;
+    isHidden: boolean;
   },
   currentUserId: string,
   likedCommentIds: Set<string>,
@@ -67,6 +68,7 @@ function serializeComment(
     replyCount: comment._count.replies,
     isLiked: likedCommentIds.has(comment.id),
     isPinned: comment.isPinned,
+    isHidden: comment.isHidden,
     createdAt: comment.createdAt.toISOString(),
     author: {
       id: comment.author.id,
@@ -87,7 +89,15 @@ export async function getComments(
   cursor?: string,
 ) {
   const rawComments = await prisma.videoComment.findMany({
-    where: { mediaId, parentId: null },
+    where: {
+      mediaId,
+      parentId: null,
+      OR: [
+        { isHidden: false },
+        { authorId: currentUserId },
+        { media: { userId: currentUserId } },
+      ],
+    },
     take: COMMENTS_PAGE_SIZE + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
@@ -117,7 +127,14 @@ export async function getComments(
 
 export async function getReplies(parentId: string, currentUserId: string) {
   const rawReplies = await prisma.videoComment.findMany({
-    where: { parentId },
+    where: {
+      parentId,
+      OR: [
+        { isHidden: false },
+        { authorId: currentUserId },
+        { media: { userId: currentUserId } },
+      ],
+    },
     orderBy: { createdAt: "asc" },
     include: {
       author: { select: authorSelect },
@@ -319,6 +336,25 @@ export async function setCommentPinned(
     });
   });
   return { pinned };
+}
+
+export async function setCommentHidden(
+  commentId: string,
+  requesterId: string,
+  hidden: boolean,
+) {
+  const comment = await prisma.videoComment.findUnique({
+    where: { id: commentId },
+    select: { media: { select: { userId: true } } },
+  });
+  if (!comment) throw new Error("Comment not found");
+  if (comment.media.userId !== requesterId)
+    throw new Error("Not authorised to hide comments on this post");
+  await prisma.videoComment.update({
+    where: { id: commentId },
+    data: { isHidden: hidden },
+  });
+  return { hidden };
 }
 
 export async function toggleCommentLike(commentId: string, userId: string) {

@@ -16,8 +16,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   // Copyright-flagged and reported posts are visible only to their owner.
   if (session?.userId !== id && Array.isArray(serialized.gallery)) {
     serialized.gallery = serialized.gallery.filter((v) => {
-      const item = v as { copyrightStatus?: string | null; reportStatus?: string | null }
-      return !item.copyrightStatus && !item.reportStatus
+      const item = v as { copyrightStatus?: string | null; reportStatus?: string | null; isHiddenByOwner?: boolean }
+      return !item.copyrightStatus && !item.reportStatus && !item.isHiddenByOwner
     })
   }
 

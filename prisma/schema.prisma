@@ -234,6 +234,7 @@ model User {
   updatedAt             DateTime               @updatedAt
   lastActiveAt          DateTime?
   showLastActivity      Boolean                @default(true)
+  allowPostDownloads    Boolean                @default(true)
   earningSuspendedUntil DateTime?
   callsRestrictedUntil  DateTime?
   // Creator preference: approve incoming booking proposals automatically
@@ -350,6 +351,7 @@ model UserMedia {
   shareCount      Int            @default(0)
   repostCount     Int            @default(0)
   saveCount       Int            @default(0)
+  isHiddenByOwner Boolean        @default(false)
   // Copyright moderation: null = visible. UNDER_REVIEW / APPEALED / REMOVED
   // hide the post from everyone except its owner until an admin decides.
   copyrightStatus String?
@@ -713,6 +715,7 @@ model VideoComment {
   parentId  String?
   likes     Int            @default(0)
   isPinned  Boolean        @default(false)
+  isHidden  Boolean        @default(false)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   media     UserMedia      @relation(fields: [mediaId], references: [id], onDelete: Cascade)
@@ -723,6 +726,7 @@ model VideoComment {
 
   @@index([mediaId, createdAt])
   @@index([mediaId, isPinned, createdAt])
+  @@index([mediaId, isHidden, isPinned, createdAt])
   @@index([parentId])
   @@index([authorId])
 }

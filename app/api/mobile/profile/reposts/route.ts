@@ -12,14 +12,18 @@ export async function GET(request: Request) {
     );
   }
 
+  const { searchParams } = new URL(request.url);
+  const targetUserId = searchParams.get("userId") || session.userId;
   const reposts = await prisma.mediaRepost.findMany({
-    where: { userId: session.userId },
+    where: { userId: targetUserId },
     orderBy: { createdAt: "desc" },
     include: { media: { include: { user: { include: { media: true } } } } },
   });
 
   const data = reposts
-    .filter(({ media }) => !media.copyrightStatus && !media.reportStatus)
+    .filter(({ media }) =>
+      !media.copyrightStatus && !media.reportStatus && !media.isHiddenByOwner
+    )
     .map(({ media, createdAt }) => {
       const profileMedia = media.user.media
         .filter(

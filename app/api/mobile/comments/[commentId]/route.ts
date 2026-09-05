@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
-import { getReplies, deleteComment, editComment, setCommentPinned } from "@/lib/mobile-comments"
+import { getReplies, deleteComment, editComment, setCommentPinned, setCommentHidden } from "@/lib/mobile-comments"
 import { logError } from "@/lib/log-error"
 
 export async function GET(
@@ -48,6 +48,7 @@ export async function DELETE(
 const patchSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("edit"), text: z.string().trim().min(1).max(1000) }),
   z.object({ action: z.literal("pin"), pinned: z.boolean() }),
+  z.object({ action: z.literal("hide"), hidden: z.boolean() }),
 ])
 
 export async function PATCH(
@@ -65,6 +66,10 @@ export async function PATCH(
     if (parsed.action === "edit") {
       const comment = await editComment(commentId, session.userId, parsed.text)
       return NextResponse.json({ success: true, comment })
+    }
+    if (parsed.action === "hide") {
+      const result = await setCommentHidden(commentId, session.userId, parsed.hidden)
+      return NextResponse.json({ success: true, ...result })
     }
     const result = await setCommentPinned(commentId, session.userId, parsed.pinned)
     return NextResponse.json({ success: true, ...result })

@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     if (q.length < 2) {
       return NextResponse.json({ success: true, data: [] })
     }
-    const users = await searchMobileUsers(q, session.userId)
+    const users = await searchMobileUsers(q)
     return NextResponse.json({ success: true, data: users.map((u) => serializeMobileUser(u)) })
   } catch (error) {
     logError("/api/mobile/users/search", error)
