@@ -539,21 +539,34 @@ export async function checkFollowStatus(
   followerId: string,
   followedId: string,
 ) {
-  const follow = await prisma.follow.findUnique({
+  const [follow, followedUser] = await Promise.all([
+    prisma.follow.findUnique({
     where: {
       followerId_followedId: {
         followerId,
         followedId,
       },
     },
-  });
+    }),
+    prisma.user.findUnique({
+      where: { id: followedId },
+      select: { externalId: true },
+    }),
+  ]);
 
-  return { following: Boolean(follow) };
+  return {
+    following: followedUser?.externalId === "system:chatandtip"
+      ? false
+      : Boolean(follow),
+  };
 }
 
 export async function getFollowers(userId: string) {
   const follows = await prisma.follow.findMany({
-    where: { followedId: userId },
+    where: {
+      followedId: userId,
+      follower: { externalId: { not: "system:chatandtip" } },
+    },
     orderBy: { createdAt: "desc" },
     select: { followerId: true },
   });
@@ -564,7 +577,10 @@ export async function getFollowers(userId: string) {
 
 export async function getFollowing(userId: string) {
   const follows = await prisma.follow.findMany({
-    where: { followerId: userId },
+    where: {
+      followerId: userId,
+      followed: { externalId: { not: "system:chatandtip" } },
+    },
     orderBy: { createdAt: "desc" },
     select: { followedId: true },
   });
@@ -622,6 +638,7 @@ export async function getSuggestedFollowers(userId: string) {
   let users = await getUsersByIds(candidateIds);
   users = users.filter(
     (user) =>
+      user.externalId !== "system:chatandtip" &&
       user.status !== UserStatus.BLOCKED && user.status !== UserStatus.HIDDEN,
   );
 
@@ -632,6 +649,7 @@ export async function getSuggestedFollowers(userId: string) {
           notIn: Array.from(blockedIds).concat(Array.from(followingIds)),
         },
         role: UserRole.USER,
+        externalId: { not: "system:chatandtip" },
         isActive: true,
         status: { notIn: [UserStatus.BLOCKED, UserStatus.HIDDEN] },
       },
@@ -646,8 +664,18 @@ export async function getSuggestedFollowers(userId: string) {
 
 export async function getFollowCounts(userId: string) {
   const [followersCount, followingCount] = await Promise.all([
-    prisma.follow.count({ where: { followedId: userId } }),
-    prisma.follow.count({ where: { followerId: userId } }),
+    prisma.follow.count({
+      where: {
+        followedId: userId,
+        follower: { externalId: { not: "system:chatandtip" } },
+      },
+    }),
+    prisma.follow.count({
+      where: {
+        followerId: userId,
+        followed: { externalId: { not: "system:chatandtip" } },
+      },
+    }),
   ]);
 
   return {
