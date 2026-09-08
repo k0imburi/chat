@@ -45,7 +45,10 @@ export async function sendFcmPush(token: string, payload: FcmPayload): Promise<b
       token,
       notification: { title: payload.title, body: payload.body },
       data: payload.data,
-      android: { priority: "high" },
+      android: {
+        priority: "high",
+        notification: { icon: "ic_launcher", channelId: "chatandtip" },
+      },
       apns: { payload: { aps: { sound: "default", badge: 1 } } },
     })
     return true
@@ -71,7 +74,10 @@ export async function sendFcmMulticast(tokens: string[], payload: FcmPayload): P
         tokens: batch,
         notification: { title: payload.title, body: payload.body },
         data: payload.data,
-        android: { priority: "high" },
+        android: {
+          priority: "high",
+          notification: { icon: "ic_launcher", channelId: "chatandtip" },
+        },
         apns: { payload: { aps: { sound: "default", badge: 1 } } },
       })
       sent += result.successCount
