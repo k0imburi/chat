@@ -273,6 +273,9 @@ export async function createUserNotification(input: {
         await sendFcmPush(recipient.deviceToken, {
           title: input.title || "ChatAndTip",
           body: input.message,
+          androidIcon: input.type === "tip"
+            ? tipNotificationIcon(input.metadata?.tier)
+            : undefined,
           data: pushData,
         });
       } catch {
@@ -282,6 +285,15 @@ export async function createUserNotification(input: {
   }
 
   return serialized;
+}
+
+function tipNotificationIcon(tier: unknown) {
+  switch (String(tier || "").toUpperCase()) {
+    case "GEM": return "notification_gem";
+    case "DIAMOND": return "notification_diamond";
+    case "PEBBLE": return "notification_pebble";
+    default: return "notification_tip";
+  }
 }
 
 export async function listUserNotifications(input: {
