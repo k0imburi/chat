@@ -46,6 +46,19 @@ export async function getAutoTopupConfig(userId: string) {
   return prisma.autoTopupConfig.findUnique({ where: { userId } })
 }
 
+export function validateAutoTopupQuantities(input: {
+  keyThreshold?: number; keyRefill?: number; chatThreshold?: number; chatRefill?: number
+  voiceThreshold?: number; voiceRefill?: number; videoThreshold?: number; videoRefill?: number
+}) {
+  const values = Object.entries(input)
+  for (const [field, value] of values) {
+    if (value === undefined) continue
+    if (!Number.isFinite(value) || !Number.isInteger(value)) throw new Error(`${field} must be a whole number`)
+    const minimum = field === "chatRefill" ? 5 : 1
+    if (value < minimum) throw new Error(`${field} must be at least ${minimum}`)
+  }
+}
+
 export async function upsertAutoTopupConfig(
   userId: string,
   input: {
@@ -62,6 +75,7 @@ export async function upsertAutoTopupConfig(
     videoRefill?: number
   },
 ) {
+  validateAutoTopupQuantities(input)
   const existing = await prisma.autoTopupConfig.findUnique({ where: { userId } })
   const method = input.method ?? existing?.method ?? "MPESA"
   const enabled = input.enabled ?? existing?.enabled ?? false
@@ -80,14 +94,14 @@ export async function upsertAutoTopupConfig(
   if (input.enabled !== undefined) data.enabled = input.enabled
   if (input.method !== undefined) data.method = input.method
   if (input.mpesaPhone !== undefined) data.mpesaPhone = input.mpesaPhone ? normalizePhone(input.mpesaPhone) : null
-  if (input.keyThreshold !== undefined) data.keyThreshold = Math.max(0, Math.floor(input.keyThreshold))
-  if (input.keyRefill !== undefined) data.keyRefill = Math.max(0, Math.floor(input.keyRefill))
-  if (input.chatThreshold !== undefined) data.chatThreshold = Math.max(0, Math.floor(input.chatThreshold))
-  if (input.chatRefill !== undefined) data.chatRefill = Math.max(0, Math.floor(input.chatRefill))
-  if (input.voiceThreshold !== undefined) data.voiceThreshold = Math.max(0, Math.floor(input.voiceThreshold))
-  if (input.voiceRefill !== undefined) data.voiceRefill = Math.max(0, Math.floor(input.voiceRefill))
-  if (input.videoThreshold !== undefined) data.videoThreshold = Math.max(0, Math.floor(input.videoThreshold))
-  if (input.videoRefill !== undefined) data.videoRefill = Math.max(0, Math.floor(input.videoRefill))
+  if (input.keyThreshold !== undefined) data.keyThreshold = input.keyThreshold
+  if (input.keyRefill !== undefined) data.keyRefill = input.keyRefill
+  if (input.chatThreshold !== undefined) data.chatThreshold = input.chatThreshold
+  if (input.chatRefill !== undefined) data.chatRefill = input.chatRefill
+  if (input.voiceThreshold !== undefined) data.voiceThreshold = input.voiceThreshold
+  if (input.voiceRefill !== undefined) data.voiceRefill = input.voiceRefill
+  if (input.videoThreshold !== undefined) data.videoThreshold = input.videoThreshold
+  if (input.videoRefill !== undefined) data.videoRefill = input.videoRefill
 
   return prisma.autoTopupConfig.upsert({
     where: { userId },

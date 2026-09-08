@@ -2,6 +2,7 @@ import "server-only"
 
 import { SignJWT, jwtVerify } from "jose"
 import { env } from "@/lib/env"
+import { prisma } from "@/lib/prisma"
 
 const secret = new TextEncoder().encode(env.JWT_SECRET)
 
@@ -79,7 +80,16 @@ export async function getMobileSessionFromRequest(request: Request) {
   if (!header?.startsWith("Bearer ")) return null
 
   try {
-    return await readMobileSessionToken(header.slice("Bearer ".length))
+    const session = await readMobileSessionToken(header.slice("Bearer ".length))
+    if (!session.userId) return null
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { isActive: true, status: true, deactivatedAt: true, accountPurgedAt: true },
+    })
+    if (!user?.isActive || user.deactivatedAt || user.accountPurgedAt || user.status === "HIDDEN" || user.status === "BLOCKED") {
+      return null
+    }
+    return session
   } catch {
     return null
   }

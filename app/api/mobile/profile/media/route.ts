@@ -108,6 +108,28 @@ export async function POST(request: Request) {
           },
         });
 
+    if (!existingProfile && (parsed.kind === MediaKind.GALLERY_VIDEO || parsed.kind === MediaKind.IMAGE)) {
+      const [actor, followers] = await Promise.all([
+        prisma.user.findUnique({ where: { id: session.userId }, select: { fullName: true, username: true } }),
+        prisma.follow.findMany({
+          where: { followedId: session.userId, follower: { isActive: true, status: { notIn: ["BLOCKED", "HIDDEN"] } } },
+          select: { followerId: true },
+        }),
+      ]);
+      const actorName = actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
+      await Promise.all(followers.map(({ followerId }) => createUserNotification({
+        userId: followerId,
+        senderId: session.userId,
+        type: "postvideo",
+        title: actorName,
+        message: `${actorName} posted a new post. Tap to view it`,
+        metadata: {
+          mediaId: savedMedia.id,
+          thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
+        },
+      })));
+    }
+
     const user = await findMobileUserById(session.userId);
     return NextResponse.json({
       success: true,

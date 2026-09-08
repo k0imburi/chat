@@ -10,6 +10,7 @@ import {
 } from "@/lib/mobile-users"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
+import { reactivateAccountForLogin } from "@/lib/account-deactivation"
 
 const schema = z.object({
   email: z.string().email(),
@@ -19,12 +20,13 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     const parsed = schema.parse(await request.json())
-    const user = await findMobileUserByEmail(parsed.email)
+    let user = await findMobileUserByEmail(parsed.email)
 
     if (!user || !(await verifyMobileUserPassword(user, parsed.password))) {
       return NextResponse.json({ success: false, message: "Invalid credentials" }, { status: 401 })
     }
 
+    user = await reactivateAccountForLogin(user)
     assertMobileUserCanAuthenticate(user)
 
     await prisma.user.update({

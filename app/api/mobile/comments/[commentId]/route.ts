@@ -34,8 +34,8 @@ export async function DELETE(
 
   try {
     const { commentId } = await params
-    await deleteComment(commentId, session.userId)
-    return NextResponse.json({ success: true })
+    const result = await deleteComment(commentId, session.userId)
+    return NextResponse.json({ success: true, ...result })
   } catch (error) {
     logError("/api/mobile/comments/[commentId] DELETE", error)
     return NextResponse.json(

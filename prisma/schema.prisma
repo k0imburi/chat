@@ -235,6 +235,9 @@ model User {
   lastActiveAt          DateTime?
   showLastActivity      Boolean                @default(true)
   allowPostDownloads    Boolean                @default(true)
+  deactivatedAt         DateTime?
+  scheduledDeletionAt   DateTime?
+  accountPurgedAt       DateTime?
   earningSuspendedUntil DateTime?
   callsRestrictedUntil  DateTime?
   // Creator preference: approve incoming booking proposals automatically
@@ -295,6 +298,7 @@ model User {
   outgoingCallInvites   CallInvite[]           @relation("CallInviteCaller")
   incomingCallInvites   CallInvite[]           @relation("CallInviteCallee")
 
+  @@index([scheduledDeletionAt, accountPurgedAt])
   @@map("users")
 }
 

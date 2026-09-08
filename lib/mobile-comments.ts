@@ -16,6 +16,8 @@ const authorSelect = {
   fullName: true,
   avatarUrl: true,
   gender: true,
+  verified: true,
+  externalId: true,
   updatedAt: true,
   media: {
     where: { kind: { in: profileMediaKinds } },
@@ -30,6 +32,8 @@ type CommentAuthor = {
   fullName: string;
   avatarUrl: string | null;
   gender: string;
+  verified: boolean;
+  externalId: string | null;
   updatedAt: Date;
   media: { thumbnailUrl: string | null; url: string; kind: MediaKind }[];
 };
@@ -79,6 +83,8 @@ function serializeComment(
           ? "assets/male.png"
           : "assets/female.png",
       isByCurrentUser: comment.author.id === currentUserId,
+      isVerified: comment.author.verified,
+      isBroadcaster: comment.author.externalId === "system:chatandtip",
     },
   };
 }
@@ -88,24 +94,28 @@ export async function getComments(
   currentUserId: string,
   cursor?: string,
 ) {
-  const rawComments = await prisma.videoComment.findMany({
-    where: {
-      mediaId,
-      parentId: null,
-      OR: [
-        { isHidden: false },
-        { authorId: currentUserId },
-        { media: { userId: currentUserId } },
-      ],
-    },
-    take: COMMENTS_PAGE_SIZE + 1,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
-    include: {
-      author: { select: authorSelect },
-      _count: { select: { replies: true } },
-    },
-  });
+  const visibleWhere = {
+    mediaId,
+    OR: [
+      { isHidden: false },
+      { authorId: currentUserId },
+      { media: { userId: currentUserId } },
+    ],
+  } satisfies Prisma.VideoCommentWhereInput;
+
+  const [rawComments, totalCount] = await Promise.all([
+    prisma.videoComment.findMany({
+      where: { ...visibleWhere, parentId: null },
+      take: COMMENTS_PAGE_SIZE + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
+      include: {
+        author: { select: authorSelect },
+        _count: { select: { replies: true } },
+      },
+    }),
+    prisma.videoComment.count({ where: visibleWhere }),
+  ]);
 
   const hasMore = rawComments.length > COMMENTS_PAGE_SIZE;
   const comments = hasMore
@@ -122,6 +132,7 @@ export async function getComments(
   return {
     comments: comments.map((c) => serializeComment(c, currentUserId, likedIds)),
     nextCursor: hasMore ? comments[comments.length - 1].id : null,
+    totalCount,
   };
 }
 
@@ -164,17 +175,19 @@ export async function createComment(
   });
   if (!media) throw new Error("Video not found");
 
-  const comment = await prisma.videoComment.create({
-    data: { mediaId, authorId, text, parentId: parentId ?? null },
-    include: {
-      author: { select: authorSelect },
-      _count: { select: { replies: true } },
-    },
-  });
-
-  await prisma.userMedia.update({
-    where: { id: mediaId },
-    data: { commentCount: { increment: 1 } },
+  const comment = await prisma.$transaction(async (tx) => {
+    const created = await tx.videoComment.create({
+      data: { mediaId, authorId, text, parentId: parentId ?? null },
+      include: {
+        author: { select: authorSelect },
+        _count: { select: { replies: true } },
+      },
+    });
+    await tx.userMedia.update({
+      where: { id: mediaId },
+      data: { commentCount: { increment: 1 } },
+    });
+    return created;
   });
 
   // Notify the video owner (skip self-comments and guard against duplicate delivery)
@@ -264,15 +277,23 @@ export async function deleteComment(commentId: string, requesterId: string) {
   }
 
   // Count comment + all its replies before deleting (for commentCount decrement)
-  const replyCount = await prisma.videoComment.count({
-    where: { parentId: commentId },
+  const deletedCount = await prisma.$transaction(async (tx) => {
+    const replyCount = await tx.videoComment.count({
+      where: { parentId: commentId },
+    });
+    const mediaRow = await tx.userMedia.findUniqueOrThrow({
+      where: { id: comment.mediaId },
+      select: { commentCount: true },
+    });
+    const count = 1 + replyCount;
+    await tx.videoComment.delete({ where: { id: commentId } });
+    await tx.userMedia.update({
+      where: { id: comment.mediaId },
+      data: { commentCount: Math.max(0, mediaRow.commentCount - count) },
+    });
+    return count;
   });
-  await prisma.videoComment.delete({ where: { id: commentId } });
-
-  await prisma.userMedia.update({
-    where: { id: comment.mediaId },
-    data: { commentCount: { decrement: 1 + replyCount } },
-  });
+  return { deletedCount };
 }
 
 export async function editComment(
@@ -366,8 +387,8 @@ export async function toggleCommentLike(commentId: string, userId: string) {
     await prisma.commentLike.delete({
       where: { commentId_userId: { commentId, userId } },
     });
-    await prisma.videoComment.update({
-      where: { id: commentId },
+    await prisma.videoComment.updateMany({
+      where: { id: commentId, likes: { gt: 0 } },
       data: { likes: { decrement: 1 } },
     });
     const updated = await prisma.videoComment.findUnique({

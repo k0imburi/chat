@@ -3,14 +3,15 @@ import { findMobileUserById, serializeMobileUserWithCounts } from "@/lib/mobile-
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+  const session = await getMobileSessionFromRequest(request)
+  if (!session?.userId) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   const { id } = await context.params
   const user = await findMobileUserById(id)
 
-  if (!user) {
+  if (!user || !user.isActive || ["BLOCKED", "HIDDEN"].includes(user.status)) {
     return NextResponse.json({ success: false, message: "User not found" }, { status: 404 })
   }
 
-  const session = await getMobileSessionFromRequest(request)
   const serialized = await serializeMobileUserWithCounts(user)
 
   // Copyright-flagged and reported posts are visible only to their owner.

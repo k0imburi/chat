@@ -15,7 +15,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const targetUserId = searchParams.get("userId") || session.userId;
   const reposts = await prisma.mediaRepost.findMany({
-    where: { userId: targetUserId },
+    where: {
+      userId: targetUserId,
+      user: { isActive: true, status: { notIn: ["BLOCKED", "HIDDEN"] } },
+      media: { user: { isActive: true, status: { notIn: ["BLOCKED", "HIDDEN"] } } },
+    },
     orderBy: { createdAt: "desc" },
     include: { media: { include: { user: { include: { media: true } } } } },
   });

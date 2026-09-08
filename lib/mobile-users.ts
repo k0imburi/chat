@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs"
 import { LoginProvider, MediaKind, Prisma, UserRole, UserStatus, type User, type UserMedia } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { resolveUsernameUpdate } from "@/lib/username-rules"
+import { reactivateAccountForLogin } from "@/lib/account-deactivation"
 
 type UserWithMedia = User & {
   media: UserMedia[]
@@ -284,10 +285,14 @@ export async function searchMobileUsers(query: string, take = 30) {
   return (await prisma.user.findMany({
     where: {
       role: UserRole.USER,
+      isActive: true,
       status: { notIn: [UserStatus.BLOCKED, UserStatus.HIDDEN] },
-      OR: [
-        { username: { contains: q } },
-        { fullName: { contains: q } },
+      AND: [
+        { OR: [{ externalId: null }, { externalId: { not: { startsWith: "system:" } } }] },
+        { OR: [
+          { username: { contains: q } },
+          { fullName: { contains: q } },
+        ] },
       ],
     },
     include: { media: true },
@@ -417,6 +422,7 @@ export async function upsertMobileProviderUser(
   })
 
   if (existingAccount) {
+    existingAccount.user = await reactivateAccountForLogin(existingAccount.user)
     assertMobileUserCanAuthenticate(existingAccount.user)
     const resolvedUsername = await resolveUsernameUpdate(
       existingAccount.user.username,
@@ -459,6 +465,7 @@ export async function upsertMobileProviderUser(
   }
 
   if (linkedUser) {
+    linkedUser = await reactivateAccountForLogin(linkedUser)
     assertMobileUserCanAuthenticate(linkedUser)
     const resolvedLinkedUsername = await resolveUsernameUpdate(linkedUser.username, input.username, linkedUser.id)
 
@@ -562,6 +569,7 @@ export async function updateMobileUserProfile(
     lastSwipeDate?: string
     status?: string
     showLastActivity?: boolean
+    allowPostDownloads?: boolean
   },
 ): Promise<UserWithMedia> {
   const existing = await prisma.user.findUnique({
@@ -592,6 +600,7 @@ export async function updateMobileUserProfile(
         lastSwipeDate: input.lastSwipeDate !== undefined ? normalizeDate(input.lastSwipeDate) : undefined,
         status: input.status as never,
         showLastActivity: input.showLastActivity,
+        allowPostDownloads: input.allowPostDownloads,
         deviceToken: input.deviceToken,
         deviceSystem: input.deviceSystem,
         country: input.country,

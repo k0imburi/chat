@@ -48,7 +48,8 @@ const GROUPABLE_ACTIVITY_TYPES = new Set([
 ]);
 
 function mediaIdFromMetadata(metadata: Record<string, unknown>) {
-  const raw = metadata.mediaId ?? metadata.videoId;
+  const raw = metadata.mediaId ?? metadata.videoId ?? metadata.postId ??
+    metadata.reelId ?? metadata.contentId;
   return typeof raw === "string" && raw.trim() ? raw.trim() : "";
 }
 
@@ -173,6 +174,7 @@ function groupSerializedNotifications(items: Array<any>) {
         ...metadata,
         groupedNotificationIds: list.map((entry) => entry.id),
         activityCount: list.length,
+        groupedActorCount: actors.length,
         groupedActors: actors.slice(0, 3),
       },
     };
@@ -515,7 +517,7 @@ export async function broadcastCampaignNotifications(input: {
       return { message, unread: recipient.unreadCount };
     });
 
-    await createUserNotification({
+    const createdNotification = await createUserNotification({
       userId: user.id,
       senderId: systemUser.id,
       title: input.title || "ChatAndTip",
@@ -532,17 +534,36 @@ export async function broadcastCampaignNotifications(input: {
 
     // FCM push for offline users — fire-and-forget, doesn't block the loop
     if (user.deviceToken) {
-      sendFcmPush(user.deviceToken, {
+      const push = sendFcmPush(user.deviceToken, {
         title: input.title || "ChatAndTip",
         body: input.message,
         data: {
           type: "broadcast",
+          senderId: systemUser.id,
           campaignId: input.campaignId,
           title: input.title || "ChatAndTip",
           message: input.message,
           threadId: delivery.message.threadId,
         },
-      }).catch(() => {});
+      });
+      if (input.campaignId.startsWith("welcome:")) {
+        try {
+          await push;
+          await prisma.userNotification.update({
+            where: { id: createdNotification.id },
+            data: {
+              metadata: {
+                ...normalizeMetadata(createdNotification.metadata),
+                pushDeliveredAt: new Date().toISOString(),
+              } as Prisma.InputJsonValue,
+            },
+          });
+        } catch {
+          // The first profile update retries welcome delivery once a token is available.
+        }
+      } else {
+        push.catch(() => {});
+      }
     }
 
     emitChatRealtimeToUser(user.id, {
@@ -563,4 +584,45 @@ export async function broadcastCampaignNotifications(input: {
   }
 
   return { created: users.length, lastUserId: users.at(-1)?.id || null };
+}
+
+export async function sendPendingWelcomePush(
+  userId: string,
+  deviceToken: string,
+) {
+  if (!deviceToken.trim()) return;
+  const notification = await prisma.userNotification.findFirst({
+    where: {
+      userId,
+      type: "broadcast",
+      metadata: { path: "$.campaignId", equals: `welcome:${userId}` },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!notification) return;
+  const metadata = normalizeMetadata(notification.metadata);
+  if (metadata.pushDeliveredAt) return;
+
+  await sendFcmPush(deviceToken, {
+    title: notification.title || "Welcome to ChatAndTip",
+    body: notification.message,
+    data: {
+      type: "broadcast",
+      notificationId: notification.id,
+      senderId: notification.senderId || "",
+      campaignId: String(metadata.campaignId || ""),
+      title: notification.title || "Welcome to ChatAndTip",
+      message: notification.message,
+      threadId: String(metadata.threadId || ""),
+    },
+  });
+  await prisma.userNotification.update({
+    where: { id: notification.id },
+    data: {
+      metadata: {
+        ...metadata,
+        pushDeliveredAt: new Date().toISOString(),
+      } as Prisma.InputJsonValue,
+    },
+  });
 }

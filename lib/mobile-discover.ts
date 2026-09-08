@@ -26,7 +26,6 @@ export async function getDiscoverFeed(currentUserId: string) {
           blockedUsers: true,
           blockedByUsers: true,
           sentLikes: true,
-          sentSwipes: true,
         },
       }),
       prisma.follow.findMany({
@@ -66,15 +65,13 @@ export async function getDiscoverFeed(currentUserId: string) {
       .map((item) => item.mediaId)
       .filter((value): value is string => Boolean(value)),
   );
-  const swipedIds = new Set(
-    currentUser.sentSwipes.map((item) => item.receiverId),
-  );
-
   // Discover shows EVERYONE (minus blocked), ordered followed-first then the
   // rest — so the feed never dead-ends after you've seen your follows' posts.
   const followedSet = new Set(followedIds);
   const candidates = await prisma.user.findMany({
     where: {
+      isActive: true,
+      OR: [{ externalId: null }, { externalId: { not: "system:chatandtip" } }],
       status: { notIn: ["BLOCKED", "HIDDEN"] },
       id: { not: currentUserId },
     },
@@ -84,7 +81,6 @@ export async function getDiscoverFeed(currentUserId: string) {
 
   const filteredUsers = candidates.filter((candidate) => {
     if (blockedIds.has(candidate.id)) return false;
-    if (swipedIds.has(candidate.id)) return false;
     // Keep anyone with at least one gallery post (video OR image).
     return candidate.media.some(
       (item) => item.kind === "GALLERY_VIDEO" || item.kind === "IMAGE",
@@ -244,6 +240,8 @@ export async function getDiscoverFeed(currentUserId: string) {
           repost.user.gender?.toUpperCase() === "M"
             ? "assets/male.png"
             : "assets/female.png",
+        isVerified: repost.user.verified,
+        isBroadcaster: repost.user.externalId === "system:chatandtip",
       });
       repostersByMedia.set(repost.mediaId, list);
     }
@@ -280,6 +278,8 @@ export async function getTrendingFeed(currentUserId?: string) {
   const [users, savedRows, likedRows, repostRows] = await Promise.all([
     prisma.user.findMany({
       where: {
+        isActive: true,
+        OR: [{ externalId: null }, { externalId: { not: "system:chatandtip" } }],
         status: { notIn: ["BLOCKED", "HIDDEN"] },
       },
       include: { media: true },
@@ -343,10 +343,60 @@ export async function getTrendingFeed(currentUserId?: string) {
         const tiebreak = idHashFraction(String(video.id ?? "")) * 1e-6;
         return { user: userProfile, video, _score: score + tiebreak };
       });
-    })
+    });
+
+  const trendingMediaIds = entries.map((entry) => String(entry.video.id || "")).filter(Boolean);
+  if (trendingMediaIds.length) {
+    const recent = await prisma.mediaRepost.findMany({
+      where: {
+        mediaId: { in: trendingMediaIds },
+        user: {
+          isActive: true,
+          status: { notIn: ["BLOCKED", "HIDDEN"] },
+          OR: [{ externalId: null }, { externalId: { not: { startsWith: "system:" } } }],
+        },
+      },
+      include: { user: { include: { media: true } } },
+      orderBy: { createdAt: "desc" },
+      take: Math.min(1000, trendingMediaIds.length * 4),
+    });
+    const byMedia = new Map<string, typeof recent>();
+    for (const repost of recent) {
+      const list = byMedia.get(repost.mediaId) || [];
+      if (!list.some((item) => item.userId === repost.userId) && list.length < 2) list.push(repost);
+      byMedia.set(repost.mediaId, list);
+    }
+    for (const entry of entries) {
+      const reposts = byMedia.get(String(entry.video.id || "")) || [];
+      if (!reposts.length) continue;
+      const latest = reposts[0];
+      entry.video.resharedById = latest.userId;
+      entry.video.resharedByName = latest.user.fullName || latest.user.username || "Someone";
+      entry.video.resharedAt = latest.createdAt.toISOString();
+      entry.video.recentReposters = reposts.map(({ user }) => {
+        const profile = user.media
+          .filter((item) => item.kind === "PROFILE_IMAGE" || item.kind === "PROFILE_VIDEO")
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+        const rawAvatar = user.avatarUrl || profile?.thumbnailUrl || profile?.url || "";
+        return {
+          id: user.id, name: user.fullName || user.username || "Someone",
+          username: user.username || "", avatarUrl: rawAvatar,
+          fallbackAsset: user.gender?.toUpperCase() === "M" ? "assets/male.png" : "assets/female.png",
+          isVerified: user.verified,
+          isBroadcaster: user.externalId === "system:chatandtip",
+        };
+      });
+      // A fresh reshare is engagement, so it receives a modest temporary lift
+      // without replacing Trending's engagement/recency ranking.
+      const ageHours = Math.max(0, (now - latest.createdAt.getTime()) / 3_600_000);
+      entry._score += Math.max(0, 3 - ageHours / 24);
+    }
+  }
+
+  const ranked = entries
     .sort((a, b) => b._score - a._score)
     .slice(0, FEED_LIMIT)
     .map(({ user, video }) => ({ user, video }));
 
-  return entries;
+  return ranked;
 }

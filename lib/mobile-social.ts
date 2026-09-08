@@ -106,13 +106,15 @@ export async function toggleVideoLike(input: {
         where: { id: existingLike.id },
       });
 
-      await tx.userMedia.update({
+      const updated = await tx.userMedia.update({
         where: { id: media.id },
         data: { likes: { decrement: media.likes > 0 ? 1 : 0 } },
+        select: { likes: true },
       });
 
       return {
         liked: false,
+        likes: updated.likes,
       };
     }
 
@@ -125,13 +127,15 @@ export async function toggleVideoLike(input: {
       },
     });
 
-    await tx.userMedia.update({
+    const updated = await tx.userMedia.update({
       where: { id: media.id },
       data: { likes: { increment: 1 } },
+      select: { likes: true },
     });
 
     return {
       liked: true,
+      likes: updated.likes,
     };
   });
 
