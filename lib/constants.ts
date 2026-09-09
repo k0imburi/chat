@@ -17,6 +17,7 @@ import {
   TriangleAlert,
   Users,
   WalletCards,
+  Wrench,
 } from "lucide-react"
 
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "ChatAndTip Admin"
@@ -28,6 +29,7 @@ export const NAV_ITEMS = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Users", url: "/users", icon: Users },
   { title: "Reports", url: "/reports", icon: TriangleAlert },
+  { title: "Technical Problems", url: "/technical-problems", icon: Wrench },
   { title: "Wallets", url: "/wallets", icon: CircleDollarSign },
   { title: "Withdrawals", url: "/withdrawals", icon: Landmark },
   { title: "Chats", url: "/chats", icon: MessageSquareMore },
@@ -56,6 +58,7 @@ export const NAV_GROUPS = [
     items: [
       { title: "Users", url: "/users", icon: Users },
       { title: "Reports", url: "/reports", icon: TriangleAlert },
+      { title: "Technical Problems", url: "/technical-problems", icon: Wrench },
       { title: "Chats", url: "/chats", icon: MessageSquareMore },
       { title: "Assets", url: "/assets", icon: Archive },
       { title: "Explore Insights", url: "/explore-insights", icon: Flame },

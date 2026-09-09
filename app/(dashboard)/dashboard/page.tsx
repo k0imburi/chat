@@ -10,6 +10,7 @@ import {
   Bell,
   ShieldCheck,
   TrendingUp,
+  Wrench,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StatusBadge } from "@/components/status-badge"
@@ -100,7 +101,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── Stat cards — colored gradient, flat, sm radius ── */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {[
           {
             title: "Total users",
@@ -115,6 +116,13 @@ export default async function DashboardPage() {
             hint: `${data.totals.reportedUsers} flagged · ${data.totals.blockedUsers} blocked`,
             icon: AlertTriangle,
             grad: "from-rose-500 to-pink-600",
+          },
+          {
+            title: "Technical problems",
+            value: data.totals.technicalIssuesCount,
+            hint: "Open and in-progress app issues",
+            icon: Wrench,
+            grad: "from-cyan-600 to-blue-600",
           },
           {
             title: "Media uploads",

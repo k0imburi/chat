@@ -236,7 +236,13 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
     title: "New tip",
     message: "sent you a " + tierName + " tip",
     type: "tip",
-    metadata: { tipId: result.tip.id, tier: input.tier, senderName },
+    metadata: {
+      tipId: result.tip.id,
+      tier: input.tier,
+      senderName,
+      targetType: "profile",
+      profileUserId: input.senderId,
+    },
   })
 
   return result

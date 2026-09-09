@@ -134,6 +134,12 @@ enum CreatorFineStatus {
   REVERSED
 }
 
+enum TechnicalIssueStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
 enum PayoutAllocationStatus {
   RESERVED
   PAID
@@ -248,6 +254,7 @@ model User {
   media                 UserMedia[]
   reportsMade           Report[]               @relation("ReportReporter")
   reportsAgainst        Report[]               @relation("ReportTarget")
+  technicalIssues       TechnicalIssue[]
   notificationCampaigns NotificationCampaign[] @relation("NotificationCreatedBy")
   notifications         UserNotification[]     @relation("UserNotificationRecipient")
   sentNotifications     UserNotification[]     @relation("UserNotificationSender")
@@ -401,6 +408,24 @@ model Report {
   @@index([reportedUserId])
   @@index([reportedById])
   @@index([mediaId])
+}
+
+model TechnicalIssue {
+  id          String               @id @default(cuid())
+  userId      String
+  subject     String
+  description String               @db.Text
+  appVersion  String?
+  platform    String?
+  status      TechnicalIssueStatus @default(OPEN)
+  adminNotes  String?              @db.Text
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  resolvedAt  DateTime?
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
 
 model PaymentPlan {

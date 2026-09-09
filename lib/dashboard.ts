@@ -4,7 +4,7 @@ import { MediaKind, UserRole, UserStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 
 export async function getDashboardData() {
-  const [settings, users, reportsCount, mediaCount, paymentPlans, notifications] = await Promise.all([
+  const [settings, users, reportsCount, technicalIssuesCount, mediaCount, paymentPlans, notifications] = await Promise.all([
     prisma.appSettings.findUnique({ where: { id: 1 } }),
     prisma.user.findMany({
       where: { role: UserRole.USER },
@@ -12,6 +12,7 @@ export async function getDashboardData() {
       orderBy: { createdAt: "desc" },
     }),
     prisma.report.count(),
+    prisma.technicalIssue.count({ where: { status: { not: "RESOLVED" } } }),
     prisma.userMedia.count({
       where: { kind: { in: [MediaKind.PROFILE_VIDEO, MediaKind.GALLERY_VIDEO] } },
     }),
@@ -69,6 +70,7 @@ export async function getDashboardData() {
       blockedUsers,
       activeUsers,
       reportsCount,
+      technicalIssuesCount,
       mediaCount,
       paymentPlans,
       notifications,
