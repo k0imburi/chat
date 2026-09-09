@@ -75,7 +75,6 @@ const envSchema = z.object({
   AWS_REGION: z.string().default("us-east-1"),
   LIVENESS_AUTO_APPROVE_SIMILARITY: z.coerce.number().default(95),
   LIVENESS_MISMATCH_SIMILARITY: z.coerce.number().default(40),
-  TIP_REVIEW_EXEMPT_EMAILS: z.string().optional(),
 })
 
 const parsed = envSchema.safeParse(process.env)
