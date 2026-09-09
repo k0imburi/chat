@@ -240,8 +240,8 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       tipId: result.tip.id,
       tier: input.tier,
       senderName,
-      targetType: "profile",
-      profileUserId: input.senderId,
+      targetType: "chat",
+      chatUserId: input.senderId,
     },
   })
 
