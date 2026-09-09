@@ -35,6 +35,7 @@ export type FcmPayload = {
   body: string
   data?: Record<string, string>
   androidIcon?: string
+  androidDataOnly?: boolean
 }
 
 /** Send to a single device token. Returns true on success. */
@@ -44,16 +45,30 @@ export async function sendFcmPush(token: string, payload: FcmPayload): Promise<b
   try {
     await messaging.send({
       token,
-      notification: { title: payload.title, body: payload.body },
+      ...(payload.androidDataOnly
+        ? {}
+        : { notification: { title: payload.title, body: payload.body } }),
       data: payload.data,
       android: {
         priority: "high",
-        notification: {
-          icon: payload.androidIcon || "ic_launcher",
-          channelId: "chatandtip",
+        ...(payload.androidDataOnly
+          ? {}
+          : {
+              notification: {
+                icon: payload.androidIcon || "ic_launcher",
+                channelId: "chatandtip",
+              },
+            }),
+      },
+      apns: {
+        payload: {
+          aps: {
+            alert: { title: payload.title, body: payload.body },
+            sound: "default",
+            badge: 1,
+          },
         },
       },
-      apns: { payload: { aps: { sound: "default", badge: 1 } } },
     })
     return true
   } catch (err: unknown) {

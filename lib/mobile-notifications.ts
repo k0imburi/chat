@@ -276,6 +276,7 @@ export async function createUserNotification(input: {
           androidIcon: input.type === "tip"
             ? tipNotificationIcon(input.metadata?.tier)
             : undefined,
+          androidDataOnly: input.type === "tip",
           data: pushData,
         });
       } catch {
