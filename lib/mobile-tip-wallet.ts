@@ -233,8 +233,8 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
   await createUserNotification({
     userId: input.receiverId,
     senderId: input.senderId,
-    title: "New tip",
-    message: "sent you a " + tierName + " tip",
+    title: `New tip from ${senderName}`,
+    message: `${senderName} sent you a ${tierName} tip`,
     type: "tip",
     metadata: {
       tipId: result.tip.id,
