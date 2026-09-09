@@ -5,6 +5,7 @@ import { initiateStkPush, normalizePhone } from "@/lib/mpesa"
 import { TIP_USD, TIP_CREATOR_SHARE, TIP_REVIEW_THRESHOLD } from "@/lib/mobile-credits"
 import { newPaymentIdempotencyKey } from "@/lib/payment-attempts"
 import { createUserNotification } from "@/lib/mobile-notifications"
+import { env } from "@/lib/env"
 
 export type TipWallet = { pebbles: number; gems: number; diamonds: number }
 
@@ -128,12 +129,29 @@ export class InsufficientTipBalanceError extends Error {
 export async function sendTipFromWallet(input: { senderId: string; receiverId: string; tier: TipTier }) {
   if (input.senderId === input.receiverId) throw new Error("You cannot tip yourself")
 
-  const receiver = await prisma.user.findUnique({
-    where: { id: input.receiverId },
-    select: { id: true, fullName: true, earningSuspendedUntil: true },
-  })
+  const [receiver, sender] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: input.receiverId },
+      select: { id: true, fullName: true, email: true, earningSuspendedUntil: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: input.senderId },
+      select: { id: true, fullName: true, email: true },
+    }),
+  ])
   if (!receiver) throw new Error("Creator not found")
-  if (receiver.earningSuspendedUntil && receiver.earningSuspendedUntil > new Date()) {
+  if (!sender) throw new Error("Sender not found")
+
+  const exemptEmails = new Set(
+    (env.TIP_REVIEW_EXEMPT_EMAILS || "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  )
+  const senderExempt = !!sender.email && exemptEmails.has(sender.email.toLowerCase())
+  const receiverExempt = !!receiver.email && exemptEmails.has(receiver.email.toLowerCase())
+
+  if (!receiverExempt && receiver.earningSuspendedUntil && receiver.earningSuspendedUntil > new Date()) {
     throw new Error("Tips are temporarily unavailable for this creator")
   }
 
@@ -163,7 +181,7 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
     })
-    const flaggedForReview = priorCount >= TIP_REVIEW_THRESHOLD
+    const flaggedForReview = !senderExempt && priorCount >= TIP_REVIEW_THRESHOLD
 
     const tip = await tx.tip.create({
       data: {
@@ -225,10 +243,6 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
   // which point it appears in the creator's wallet like any other earning.
 
   const tierName = ({ PEBBLE: "Pebble", GEM: "Gem", DIAMOND: "Diamond" })[input.tier] ?? input.tier
-  const sender = await prisma.user.findUnique({
-    where: { id: input.senderId },
-    select: { fullName: true },
-  })
   const senderName = sender?.fullName?.split(" ").at(0) || "Someone"
   await createUserNotification({
     userId: input.receiverId,
