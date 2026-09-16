@@ -20,6 +20,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   }
   try {
+    const account = await prisma.user.findUnique({ where: { id: session.userId }, select: { accountType: true } })
+    if (account?.accountType === "ENTITY") {
+      return NextResponse.json({ success: false, message: "Entity accounts cannot top up credits" }, { status: 403 })
+    }
     const body = bodySchema.parse(await request.json())
     const result = await initiateCreditPurchase({
       userId: session.userId,

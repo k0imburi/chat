@@ -28,6 +28,28 @@ enum LoginProvider {
   APPLE
 }
 
+enum AccountType {
+  INDIVIDUAL
+  ENTITY
+}
+
+enum EntityVerificationStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum EntityPlanType {
+  BUSINESS
+  PREMIUM
+}
+
+enum EntityPlanInterval {
+  MONTHLY
+  YEARLY
+}
+
 enum MediaKind {
   PROFILE_VIDEO
   PROFILE_IMAGE
@@ -205,107 +227,123 @@ enum VerificationPurpose {
 }
 
 model User {
-  id                    String                 @id @default(cuid())
-  externalId            String?                @unique
-  fullName              String
-  username              String?                @unique
-  gender                String
-  birthday              DateTime?
-  email                 String?                @unique
-  passwordHash          String?
-  phoneNumber           String?                @unique
-  role                  UserRole               @default(USER)
-  avatarUrl             String?
-  isActive              Boolean                @default(true)
-  lastLoginAt           DateTime?
-  bio                   String?                @db.Text
-  deviceToken           String?
-  deviceSystem          String?
-  swipeCount            Int                    @default(0)
-  verified              Boolean                @default(false)
-  lastSwipeDate         DateTime?
-  status                UserStatus             @default(ACTIVE)
-  loginProvider         LoginProvider          @default(EMAIL)
-  country               String?
-  city                  String?
+  id                        String                   @id @default(cuid())
+  externalId                String?                  @unique
+  fullName                  String
+  username                  String?                  @unique
+  gender                    String
+  birthday                  DateTime?
+  email                     String?                  @unique
+  passwordHash              String?
+  phoneNumber               String?                  @unique
+  role                      UserRole                 @default(USER)
+  avatarUrl                 String?
+  isActive                  Boolean                  @default(true)
+  lastLoginAt               DateTime?
+  bio                       String?                  @db.Text
+  deviceToken               String?
+  deviceSystem              String?
+  swipeCount                Int                      @default(0)
+  verified                  Boolean                  @default(false)
+  lastSwipeDate             DateTime?
+  status                    UserStatus               @default(ACTIVE)
+  loginProvider             LoginProvider            @default(EMAIL)
+  accountType               AccountType              @default(INDIVIDUAL)
+  physicalAddress           String?
+  officialPhoneNumber       String?
+  officialEmail             String?
+  websiteUrl                String?
+  entityDocuments           Json?
+  entityVerification        EntityVerificationStatus @default(NOT_SUBMITTED)
+  entityBadgeColor          String?
+  entityPublishedAt         DateTime?
+  entityPlanType            EntityPlanType?
+  entityPlanInterval        EntityPlanInterval?
+  entityPlanStartedAt       DateTime?
+  entityPlanExpiresAt       DateTime?
+  entityCallDurationMinutes Int                      @default(15)
+  entityCallBufferMinutes   Int                      @default(5)
+  country                   String?
+  city                      String?
   // Preferred content language (ISO code, e.g. "en"/"sw") set at signup and
   // editable in profile. Used to bias which creators are suggested in Discover.
-  language              String                 @default("en")
-  latitude              Decimal?               @db.Decimal(10, 7)
-  longitude             Decimal?               @db.Decimal(10, 7)
-  interests             Json?
-  links                 Json?
-  filter                Json?
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  lastActiveAt          DateTime?
-  showLastActivity      Boolean                @default(true)
-  allowPostDownloads    Boolean                @default(true)
-  deactivatedAt         DateTime?
-  scheduledDeletionAt   DateTime?
-  accountPurgedAt       DateTime?
-  earningSuspendedUntil DateTime?
-  callsRestrictedUntil  DateTime?
+  language                  String                   @default("en")
+  latitude                  Decimal?                 @db.Decimal(10, 7)
+  longitude                 Decimal?                 @db.Decimal(10, 7)
+  interests                 Json?
+  links                     Json?
+  filter                    Json?
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  lastActiveAt              DateTime?
+  showLastActivity          Boolean                  @default(true)
+  allowPostDownloads        Boolean                  @default(true)
+  deactivatedAt             DateTime?
+  scheduledDeletionAt       DateTime?
+  accountPurgedAt           DateTime?
+  earningSuspendedUntil     DateTime?
+  callsRestrictedUntil      DateTime?
   // Creator preference: approve incoming booking proposals automatically
   // instead of leaving them PROPOSED for a manual tap. Off by default, since
   // auto-committing someone's time is not a safe assumption to make for them.
-  autoAcceptBookings    Boolean                @default(false)
-  activeStrikeCount     Int                    @default(0)
-  media                 UserMedia[]
-  reportsMade           Report[]               @relation("ReportReporter")
-  reportsAgainst        Report[]               @relation("ReportTarget")
-  technicalIssues       TechnicalIssue[]
-  notificationCampaigns NotificationCampaign[] @relation("NotificationCreatedBy")
-  notifications         UserNotification[]     @relation("UserNotificationRecipient")
-  sentNotifications     UserNotification[]     @relation("UserNotificationSender")
-  walletEntries         WalletTransaction[]
-  withdrawals           WithdrawalRequest[]
-  creditAccount         CreditAccount?
-  autoTopupConfig       AutoTopupConfig?
-  creditEntries         CreditLedger[]         @relation("CreditLedgerUser")
-  creditPurchases       CreditPurchase[]
-  tipPurchases          TipPurchase[]          @relation("TipPurchaseSender")
-  receivedTipPurchases  TipPurchase[]          @relation("TipPurchaseReceiver")
-  sentTips              Tip[]                  @relation("TipSender")
-  receivedTips          Tip[]                  @relation("TipReceiver")
-  sentFollows           Follow[]               @relation("FollowSender")
-  receivedFollows       Follow[]               @relation("FollowReceiver")
-  sentLikes             VideoLike[]            @relation("LikeSender")
-  receivedLikes         VideoLike[]            @relation("LikeReceiver")
-  sentSwipes            UserSwipe[]            @relation("SwipeSender")
-  receivedSwipes        UserSwipe[]            @relation("SwipeReceiver")
-  blockedUsers          UserBlock[]            @relation("BlockSender")
-  blockedByUsers        UserBlock[]            @relation("BlockReceiver")
-  sentMatches           UserMatch[]            @relation("MatchSender")
-  receivedMatches       UserMatch[]            @relation("MatchReceiver")
-  chatParticipants      ChatParticipant[]
-  sentMessages          ChatMessage[]          @relation("ChatMessageSender")
-  sentTipRequests       TipRequest[]           @relation("TipRequestSender")
-  receivedTipRequests   TipRequest[]           @relation("TipRequestReceiver")
-  mpesaRequests         MpesaPaymentRequest[]
-  verificationCodes     VerificationCode[]
-  providerAccounts      ProviderAccount[]
-  videoComments         VideoComment[]         @relation("CommentAuthor")
-  commentLikes          CommentLike[]          @relation("CommentLikeUser")
-  creatorAvailability   CreatorAvailability[]
-  customerBookings      CallBooking[]          @relation("BookingCustomer")
-  creatorBookings       CallBooking[]          @relation("BookingCreator")
-  creatorStrikes        CreatorStrike[]
-  creatorFines          CreatorFine[]
-  earningLots           EarningLot[]
-  kycProfile            CreatorKyc?
-  payoutProfile         PayoutProfile?
-  creatorPayouts        CreatorPayout[]
-  paymentAttempts       PaymentAttempt[]
-  livenessVerification  LivenessVerification?
-  savedVideos           SavedVideo[]
-  mediaReposts          MediaRepost[]
-  e2eKey                UserKey?
-  deviceInstallations   DeviceInstallation[]
-  outgoingCallInvites   CallInvite[]           @relation("CallInviteCaller")
-  incomingCallInvites   CallInvite[]           @relation("CallInviteCallee")
+  autoAcceptBookings        Boolean                  @default(false)
+  activeStrikeCount         Int                      @default(0)
+  media                     UserMedia[]
+  reportsMade               Report[]                 @relation("ReportReporter")
+  reportsAgainst            Report[]                 @relation("ReportTarget")
+  technicalIssues           TechnicalIssue[]
+  notificationCampaigns     NotificationCampaign[]   @relation("NotificationCreatedBy")
+  notifications             UserNotification[]       @relation("UserNotificationRecipient")
+  sentNotifications         UserNotification[]       @relation("UserNotificationSender")
+  walletEntries             WalletTransaction[]
+  withdrawals               WithdrawalRequest[]
+  creditAccount             CreditAccount?
+  autoTopupConfig           AutoTopupConfig?
+  creditEntries             CreditLedger[]           @relation("CreditLedgerUser")
+  creditPurchases           CreditPurchase[]
+  tipPurchases              TipPurchase[]            @relation("TipPurchaseSender")
+  receivedTipPurchases      TipPurchase[]            @relation("TipPurchaseReceiver")
+  sentTips                  Tip[]                    @relation("TipSender")
+  receivedTips              Tip[]                    @relation("TipReceiver")
+  sentFollows               Follow[]                 @relation("FollowSender")
+  receivedFollows           Follow[]                 @relation("FollowReceiver")
+  sentLikes                 VideoLike[]              @relation("LikeSender")
+  receivedLikes             VideoLike[]              @relation("LikeReceiver")
+  sentSwipes                UserSwipe[]              @relation("SwipeSender")
+  receivedSwipes            UserSwipe[]              @relation("SwipeReceiver")
+  blockedUsers              UserBlock[]              @relation("BlockSender")
+  blockedByUsers            UserBlock[]              @relation("BlockReceiver")
+  sentMatches               UserMatch[]              @relation("MatchSender")
+  receivedMatches           UserMatch[]              @relation("MatchReceiver")
+  chatParticipants          ChatParticipant[]
+  sentMessages              ChatMessage[]            @relation("ChatMessageSender")
+  sentTipRequests           TipRequest[]             @relation("TipRequestSender")
+  receivedTipRequests       TipRequest[]             @relation("TipRequestReceiver")
+  mpesaRequests             MpesaPaymentRequest[]
+  verificationCodes         VerificationCode[]
+  providerAccounts          ProviderAccount[]
+  videoComments             VideoComment[]           @relation("CommentAuthor")
+  commentLikes              CommentLike[]            @relation("CommentLikeUser")
+  creatorAvailability       CreatorAvailability[]
+  customerBookings          CallBooking[]            @relation("BookingCustomer")
+  creatorBookings           CallBooking[]            @relation("BookingCreator")
+  creatorStrikes            CreatorStrike[]
+  creatorFines              CreatorFine[]
+  earningLots               EarningLot[]
+  kycProfile                CreatorKyc?
+  payoutProfile             PayoutProfile?
+  creatorPayouts            CreatorPayout[]
+  paymentAttempts           PaymentAttempt[]
+  livenessVerification      LivenessVerification?
+  savedVideos               SavedVideo[]
+  mediaReposts              MediaRepost[]
+  e2eKey                    UserKey?
+  deviceInstallations       DeviceInstallation[]
+  outgoingCallInvites       CallInvite[]             @relation("CallInviteCaller")
+  incomingCallInvites       CallInvite[]             @relation("CallInviteCallee")
 
   @@index([scheduledDeletionAt, accountPurgedAt])
+  @@index([accountType, entityVerification, entityPublishedAt])
   @@map("users")
 }
 

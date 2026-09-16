@@ -143,6 +143,10 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       "Wait for a reply",
       "Unlock the conversation",
       "insufficient Balance",
+      "Purchase a plan",
+      "must be verified",
+      "daily reply limit",
+      "Entity accounts can only reply",
     ]
     const isUserError = USER_ERRORS.some((e) => msg.includes(e))
     console.warn("[chat:messages] send rejected", {

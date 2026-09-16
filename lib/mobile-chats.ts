@@ -221,6 +221,38 @@ async function ensureUsersCanChat(userId: string, otherUserId: string) {
   return { me, other }
 }
 
+function hasActiveEntityPlan(user: UserWithMedia) {
+  return Boolean(
+    user.accountType === "ENTITY" &&
+    user.entityPlanType &&
+    user.entityPlanExpiresAt &&
+    user.entityPlanExpiresAt > new Date(),
+  )
+}
+
+async function enforceEntityReplyAccess(user: UserWithMedia) {
+  if (user.entityVerification !== "APPROVED" || !user.entityPublishedAt) {
+    throw new Error("Your entity account must be verified before replying")
+  }
+  if (!hasActiveEntityPlan(user)) {
+    throw new Error("Purchase a plan to reply to messages")
+  }
+  if (user.entityPlanType !== "BUSINESS") return
+
+  const startOfDay = new Date()
+  startOfDay.setUTCHours(0, 0, 0, 0)
+  const repliesToday = await prisma.chatMessage.count({
+    where: {
+      senderId: user.id,
+      type: { not: ChatMessageType.TIP },
+      sentAt: { gte: startOfDay },
+    },
+  })
+  if (repliesToday >= 70) {
+    throw new Error("Business plan daily reply limit reached")
+  }
+}
+
 async function getParticipant(userId: string, otherUserId: string) {
   return prisma.chatParticipant.findFirst({
     where: {
@@ -377,7 +409,8 @@ export async function getChats(userId: string) {
 }
 
 export async function getMessages(userId: string, otherUserId: string) {
-  await ensureUsersCanChat(userId, otherUserId)
+  const { me, other } = await ensureUsersCanChat(userId, otherUserId)
+  const entityChat = me.accountType === "ENTITY" || other.accountType === "ENTITY"
 
   const participant = await getParticipant(userId, otherUserId)
   if (!participant) {
@@ -392,9 +425,11 @@ export async function getMessages(userId: string, otherUserId: string) {
       messages: [],
       willChargeReply: false,
       turnTakingRequired: false,
-      cycleState: "awaiting_icebreaker",
+      cycleState: entityChat ? "unlocked" : "awaiting_icebreaker",
       viewerIsInitiator: true,
       unlockExpiresAt: null,
+      entityChat,
+      entityCanReply: me.accountType !== "ENTITY" || hasActiveEntityPlan(me),
     }
   }
 
@@ -481,6 +516,7 @@ export async function getMessages(userId: string, otherUserId: string) {
     )
     const earningSuspended = Boolean(viewer?.earningSuspendedUntil && viewer.earningSuspendedUntil > new Date())
     const willChargeReply = Boolean(
+      !entityChat &&
       !threadState.broadcastOnly &&
       !earningSuspended &&
       threadState.initiatorId != null &&
@@ -497,8 +533,8 @@ export async function getMessages(userId: string, otherUserId: string) {
       messages,
       unlockKind,
       willChargeReply,
-      turnTakingRequired: !unlockWindowValid,
-      cycleState: unlockWindowValid
+      turnTakingRequired: !entityChat && !unlockWindowValid,
+      cycleState: entityChat ? "unlocked" : unlockWindowValid
         ? "unlocked"
         : !freshIcebreakerExists
           ? "awaiting_icebreaker"
@@ -512,10 +548,12 @@ export async function getMessages(userId: string, otherUserId: string) {
       // yet), either participant can send the next free icebreaker and
       // become the new initiator — so both viewers see themselves as able to
       // send here, not just whoever the thread's initiator happened to be.
-      viewerIsInitiator: !unlockWindowValid && !freshIcebreakerExists
+      viewerIsInitiator: entityChat ? false : !unlockWindowValid && !freshIcebreakerExists
         ? true
         : threadState.initiatorId === userId,
       readAt: new Date().toISOString(),
+      entityChat,
+      entityCanReply: me.accountType !== "ENTITY" || hasActiveEntityPlan(me),
     }
   })
 
@@ -607,6 +645,20 @@ export async function sendMessage(input: {
   }
 
   const { me, other } = await ensureUsersCanChat(input.senderId, input.receiverId)
+  const entityChat = me.accountType === "ENTITY" || other.accountType === "ENTITY"
+
+  if (me.accountType === "ENTITY") {
+    await enforceEntityReplyAccess(me)
+    const priorUserMessage = await prisma.chatMessage.findFirst({
+      where: {
+        senderId: input.receiverId,
+        thread: { participants: { some: { userId: input.senderId } } },
+        type: { not: ChatMessageType.TIP },
+      },
+      select: { id: true },
+    })
+    if (!priorUserMessage) throw new Error("Entity accounts can only reply to messages")
+  }
 
   const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
     const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
@@ -633,7 +685,7 @@ export async function sendMessage(input: {
       },
     })
     if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
-    const unlockWindowValid = isUnlockWindowValid(thread?.unlockedAt ?? null)
+    const unlockWindowValid = entityChat || isUnlockWindowValid(thread?.unlockedAt ?? null)
     const freshIcebreakerExists = Boolean(
       thread?.cycleIcebreakerId &&
       thread.cycleStartedAt &&
@@ -706,7 +758,7 @@ export async function sendMessage(input: {
       locked = true
       needsKeyUnlock = true
     }
-    if (isInitiator && unlockWindowValid) {
+    if (isInitiator && unlockWindowValid && !entityChat) {
       // The initiator pays when they send, never when the other party
       // replies. consumeCreditInTransaction makes this atomic and rolls back
       // the message if the initiator has no ChatCredits left.

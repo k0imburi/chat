@@ -1,7 +1,17 @@
 import "server-only"
 
 import bcrypt from "bcryptjs"
-import { LoginProvider, MediaKind, Prisma, UserRole, UserStatus, type User, type UserMedia } from "@prisma/client"
+import {
+  AccountType,
+  EntityVerificationStatus,
+  LoginProvider,
+  MediaKind,
+  Prisma,
+  UserRole,
+  UserStatus,
+  type User,
+  type UserMedia,
+} from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { resolveUsernameUpdate } from "@/lib/username-rules"
 import { reactivateAccountForLogin } from "@/lib/account-deactivation"
@@ -30,6 +40,12 @@ type RegisterMobileUserInput = {
   links?: string[]
   filter?: Record<string, unknown>
   loginProvider?: LoginProvider
+  accountType?: AccountType
+  physicalAddress?: string
+  officialPhoneNumber?: string
+  officialEmail?: string
+  websiteUrl?: string
+  entityDocuments?: Record<string, unknown>
   // Signup's profile media can be a video OR a static image — exactly one
   // of videoUrl/imageUrl is set; kind is derived from which one.
   profileVideo?: {
@@ -217,6 +233,21 @@ export function serializeMobileUser(user: UserWithMedia) {
     lastSwipeDate: user.lastSwipeDate?.toISOString() || null,
     status: mapStatus(user.status),
     loginProvider: mapMobileLoginProvider(user.loginProvider),
+    accountType: user.accountType.toLowerCase(),
+    entityVerification: user.entityVerification.toLowerCase(),
+    entityBadgeColor: user.entityBadgeColor || "",
+    entityPublished: Boolean(user.entityPublishedAt),
+    entityPlanType: user.entityPlanType?.toLowerCase() || "",
+    entityPlanInterval: user.entityPlanInterval?.toLowerCase() || "",
+    entityPlanExpiresAt: user.entityPlanExpiresAt?.toISOString() || null,
+    entityCallDurationMinutes: user.entityCallDurationMinutes,
+    entityCallBufferMinutes: user.entityCallBufferMinutes,
+    hasActiveEntityPlan: Boolean(
+      user.entityPlanType &&
+      user.entityPlanExpiresAt &&
+      user.entityPlanExpiresAt > new Date(),
+    ),
+    websiteUrl: user.websiteUrl || "",
     showLastActivity: user.showLastActivity,
     lastActive: user.showLastActivity ? user.lastActiveAt?.toISOString() || null : null,
     createdAt: user.createdAt.toISOString(),
@@ -379,6 +410,15 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
       links: toJsonValue(input.links),
       filter: toJsonValue(input.filter),
       loginProvider: input.loginProvider || LoginProvider.EMAIL,
+      accountType: input.accountType || AccountType.INDIVIDUAL,
+      physicalAddress: input.physicalAddress,
+      officialPhoneNumber: input.officialPhoneNumber,
+      officialEmail: input.officialEmail,
+      websiteUrl: input.websiteUrl,
+      entityDocuments: input.entityDocuments
+        ? toJsonValue(input.entityDocuments)
+        : undefined,
+      entityVerification: EntityVerificationStatus.NOT_SUBMITTED,
       media: input.profileVideo
         ? {
             create: {
@@ -570,6 +610,11 @@ export async function updateMobileUserProfile(
     status?: string
     showLastActivity?: boolean
     allowPostDownloads?: boolean
+    physicalAddress?: string
+    officialPhoneNumber?: string
+    officialEmail?: string
+    websiteUrl?: string
+    entityDocuments?: Record<string, unknown>
   },
 ): Promise<UserWithMedia> {
   const existing = await prisma.user.findUnique({
@@ -582,6 +627,14 @@ export async function updateMobileUserProfile(
   }
 
   const resolvedUsername = await resolveUsernameUpdate(existing.username, input.username, userId)
+
+  if (
+    existing.accountType === AccountType.ENTITY &&
+    input.fullName?.trim() &&
+    input.fullName.trim() !== existing.fullName
+  ) {
+    throw new Error("Please note changing the name will require new verification.")
+  }
 
   return (await prisma.$transaction(async (tx) => {
     const updated = await tx.user.update({
@@ -601,6 +654,13 @@ export async function updateMobileUserProfile(
         status: input.status as never,
         showLastActivity: input.showLastActivity,
         allowPostDownloads: input.allowPostDownloads,
+        physicalAddress: input.physicalAddress,
+        officialPhoneNumber: input.officialPhoneNumber,
+        officialEmail: input.officialEmail,
+        websiteUrl: input.websiteUrl,
+        entityDocuments: input.entityDocuments
+          ? toJsonValue(input.entityDocuments)
+          : undefined,
         deviceToken: input.deviceToken,
         deviceSystem: input.deviceSystem,
         country: input.country,

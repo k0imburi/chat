@@ -32,6 +32,10 @@ const schema = z.object({
   status: z.string().optional(),
   showLastActivity: z.boolean().optional(),
   allowPostDownloads: z.boolean().optional(),
+  physicalAddress: z.string().min(3).optional(),
+  officialPhoneNumber: z.string().min(5).optional(),
+  officialEmail: z.string().email().optional(),
+  websiteUrl: z.string().url().optional().or(z.literal("")),
   avatarUrl: z.string().url().optional(),
   profileVideo: z
     .object({
@@ -114,6 +118,10 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   }
 
+  const account = await prisma.user.findUnique({ where: { id: session.userId }, select: { accountType: true } })
+  if (account?.accountType === "ENTITY") {
+    return NextResponse.json({ success: false, message: "Contact support to delete an entity account" }, { status: 403 })
+  }
   await prisma.user.delete({
     where: { id: session.userId },
   })

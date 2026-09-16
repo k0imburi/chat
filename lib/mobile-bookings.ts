@@ -84,8 +84,12 @@ export async function replaceAvailability(userId: string, input: Array<{
 const SLOT_HOLDING_STATUSES = ["APPROVED", "LIVE"] as const
 
 export async function availableSlots(creatorId: string, type: BookingType, days = 14) {
-  const creator = await prisma.user.findUnique({ where: { id: creatorId }, select: { callsRestrictedUntil: true } })
+  const creator = await prisma.user.findUnique({ where: { id: creatorId }, select: {
+    callsRestrictedUntil: true, accountType: true, entityCallDurationMinutes: true, entityCallBufferMinutes: true,
+  } })
   if (creator?.callsRestrictedUntil && creator.callsRestrictedUntil > new Date()) return []
+  const sessionMinutes = creator?.accountType === "ENTITY" ? creator.entityCallDurationMinutes : SESSION_MINUTES
+  const bufferMinutes = creator?.accountType === "ENTITY" ? 5 : BUFFER_MINUTES
   const now = new Date()
   const [windows, taken] = await Promise.all([
     prisma.creatorAvailability.findMany({ where: {
@@ -106,9 +110,9 @@ export async function availableSlots(creatorId: string, type: BookingType, days 
       const local = partsInZone(probe, window.timezone)
       if (local.weekday !== window.weekday) continue
       const dayStart = zonedDate(local.year, local.month, local.day, 0, window.timezone)
-      for (let minute = window.startMinute; minute + SESSION_MINUTES <= window.endMinute; minute += SESSION_MINUTES + BUFFER_MINUTES) {
+      for (let minute = window.startMinute; minute + sessionMinutes <= window.endMinute; minute += sessionMinutes + bufferMinutes) {
         const start = addMinutes(dayStart, minute)
-        const end = addMinutes(start, SESSION_MINUTES)
+        const end = addMinutes(start, sessionMinutes)
         if (start <= addMinutes(now, MIN_PROPOSAL_LEAD_MINUTES)) continue
         if (takenStarts.has(start.toISOString())) continue // confirmed slot — not bookable
         slots.push({ start: start.toISOString(), end: end.toISOString(), timezone: window.timezone })
@@ -153,10 +157,18 @@ async function reserveBookingCredit(tx: Prisma.TransactionClient, customerId: st
 
 export async function proposeBooking(customerId: string, input: { creatorId: string; type: BookingType; start: string; timezone: string }) {
   if (customerId === input.creatorId) throw new Error("You cannot book yourself")
+  const customer = await prisma.user.findUnique({ where: { id: customerId }, select: { accountType: true } })
+  if (customer?.accountType === "ENTITY") throw new Error("Entity accounts cannot book calls")
   const start = new Date(input.start)
   if (!Number.isFinite(start.getTime())) throw new Error("Invalid start time")
   const slots = await availableSlots(input.creatorId, input.type, 31)
   if (!slots.some((s) => s.start === start.toISOString())) throw new Error("This slot is no longer available")
+  const creatorSettings = await prisma.user.findUnique({ where: { id: input.creatorId }, select: {
+    accountType: true, entityCallDurationMinutes: true, entityPublishedAt: true,
+  } })
+  if (creatorSettings?.accountType === "ENTITY") {
+    throw new Error("Use callback requests for entity calls")
+  }
   const end = addMinutes(start, SESSION_MINUTES)
   const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(start, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
   if (expires <= new Date()) throw new Error("This slot can no longer be proposed")
@@ -693,6 +705,7 @@ export async function reconcileBookings() {
     },
   }, include: { creator: true, customer: true } })
   for (const b of lateCreators) {
+    if (b.creator.accountType === "ENTITY") continue
     const fined = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
       const current = await tx.callBooking.findUnique({ where: { id: b.id } })
@@ -725,6 +738,8 @@ export async function reconcileBookings() {
     scheduledStart: { lte: addMinutes(now, -NO_SHOW_MINUTES) },
   }, include: { creator: true, customer: true } })
   for (const b of creatorNoShows) {
+    const latenessMinutes = (now.getTime() - b.scheduledStart.getTime()) / 60_000
+    if (b.creator.accountType === "ENTITY" && latenessMinutes < 5) continue
     const outcome = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
       const current = await tx.callBooking.findUnique({ where: { id: b.id } })
@@ -736,6 +751,9 @@ export async function reconcileBookings() {
       ) return null
       await releaseBookingReservation(tx, current)
       await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
+      if (b.creator.accountType === "ENTITY") {
+        return { strikeTotal: 0, restrictedUntil: null, affected: [] }
+      }
       // The 2-minute fine is unconditional and should already have landed by
       // now. This is only a fallback for the rare case a cron tick was missed
       // — the strike below always applies regardless, on top of the fine.
@@ -785,7 +803,9 @@ export async function reconcileBookings() {
       ? `Missed call — strike ${STRIKE_LIMIT}/${STRIKE_LIMIT}. Calls restricted for ${RESTRICTION_HOURS} hours.`
       : `Missed call — strike ${outcome.strikeTotal}/${STRIKE_LIMIT}.`
     await Promise.all([
-      notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email),
+      ...(b.creator.accountType === "ENTITY" ? [] : [
+        notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email),
+      ]),
       // The customer used to be told nothing at all here — their credit came
       // back with no explanation of why the call never happened.
       notifyBooking(

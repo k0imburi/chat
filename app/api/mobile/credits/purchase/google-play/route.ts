@@ -35,6 +35,10 @@ export async function POST(request: Request) {
   }
 
   try {
+    const account = await prisma.user.findUnique({ where: { id: session.userId }, select: { accountType: true } })
+    if (account?.accountType === "ENTITY") {
+      return NextResponse.json({ success: false, message: "Entity accounts cannot top up credits" }, { status: 403 })
+    }
     const body = bodySchema.parse(await request.json())
 
     // Idempotent — a client retry after a dropped response must not

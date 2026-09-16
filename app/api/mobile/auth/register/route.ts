@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { LoginProvider } from "@prisma/client"
+import { AccountType, LoginProvider } from "@prisma/client"
 import { z } from "zod"
 import { signMobileSessionToken } from "@/lib/mobile-session"
 import { mapMobileLoginProvider, registerMobileUser, serializeMobileUser } from "@/lib/mobile-users"
@@ -30,6 +30,12 @@ const schema = z.object({
   links: z.array(z.string()).optional(),
   filter: z.record(z.string(), z.unknown()).optional(),
   loginProvider: z.nativeEnum(LoginProvider).optional(),
+  accountType: z.nativeEnum(AccountType).optional(),
+  physicalAddress: z.string().min(3).optional(),
+  officialPhoneNumber: z.string().min(5).optional(),
+  officialEmail: z.string().email().optional(),
+  websiteUrl: z.string().url().optional(),
+  entityDocuments: z.record(z.string(), z.string().min(1)).optional(),
   profileVideo: z
     .object({
       videoUrl: z.string().url(),
@@ -41,6 +47,23 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     const parsed = schema.parse(await request.json())
+    if (parsed.accountType === AccountType.ENTITY) {
+      const required = [
+        parsed.fullName,
+        parsed.username,
+        parsed.country,
+        parsed.physicalAddress,
+        parsed.officialPhoneNumber,
+        parsed.officialEmail,
+        parsed.bio,
+      ]
+      if (required.some((value) => !value?.trim())) {
+        return NextResponse.json(
+          { success: false, message: "Complete all required entity account details" },
+          { status: 400 },
+        )
+      }
+    }
     const user = await registerMobileUser(parsed)
     const token = await signMobileSessionToken({
       userId: user.id,

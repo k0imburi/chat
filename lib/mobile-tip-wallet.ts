@@ -130,9 +130,10 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
 
   const receiver = await prisma.user.findUnique({
     where: { id: input.receiverId },
-    select: { id: true, fullName: true, earningSuspendedUntil: true },
+    select: { id: true, fullName: true, earningSuspendedUntil: true, accountType: true },
   })
   if (!receiver) throw new Error("Creator not found")
+  if (receiver.accountType === "ENTITY") throw new Error("Entity accounts cannot receive tips")
   if (receiver.earningSuspendedUntil && receiver.earningSuspendedUntil > new Date()) {
     throw new Error("Tips are temporarily unavailable for this creator")
   }
