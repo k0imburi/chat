@@ -38,6 +38,16 @@ type CommentAuthor = {
   media: { thumbnailUrl: string | null; url: string; kind: MediaKind }[];
 };
 
+function visibleToViewerWhere(currentUserId: string) {
+  return {
+    OR: [
+      { isHidden: false },
+      { authorId: currentUserId },
+      { media: { userId: currentUserId } },
+    ],
+  } satisfies Prisma.VideoCommentWhereInput;
+}
+
 function resolveAvatarUrl(author: CommentAuthor): string {
   const raw =
     author.avatarUrl ||
@@ -94,13 +104,10 @@ export async function getComments(
   currentUserId: string,
   cursor?: string,
 ) {
+  const visibleToViewer = visibleToViewerWhere(currentUserId);
   const visibleWhere = {
     mediaId,
-    OR: [
-      { isHidden: false },
-      { authorId: currentUserId },
-      { media: { userId: currentUserId } },
-    ],
+    ...visibleToViewer,
   } satisfies Prisma.VideoCommentWhereInput;
 
   const [rawComments, totalCount] = await Promise.all([
@@ -111,7 +118,7 @@ export async function getComments(
       orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
       include: {
         author: { select: authorSelect },
-        _count: { select: { replies: true } },
+        _count: { select: { replies: { where: visibleToViewer } } },
       },
     }),
     prisma.videoComment.count({ where: visibleWhere }),
@@ -140,11 +147,7 @@ export async function getReplies(parentId: string, currentUserId: string) {
   const rawReplies = await prisma.videoComment.findMany({
     where: {
       parentId,
-      OR: [
-        { isHidden: false },
-        { authorId: currentUserId },
-        { media: { userId: currentUserId } },
-      ],
+      ...visibleToViewerWhere(currentUserId),
     },
     orderBy: { createdAt: "asc" },
     include: {

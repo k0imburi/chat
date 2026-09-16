@@ -16,6 +16,20 @@ function idHashFraction(s: string): number {
   return ((h >>> 0) % 10_000) / 10_000;
 }
 
+function stringSet(value: unknown): Set<string> {
+  if (!Array.isArray(value)) return new Set();
+  return new Set(
+    value
+      .map((item) => String(item || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function hasOverlap(a: Set<string>, b: Set<string>) {
+  for (const item of a) if (b.has(item)) return true;
+  return false;
+}
+
 export async function getDiscoverFeed(currentUserId: string) {
   const [currentUser, followRows, seenRows, savedRows, repostRows] =
     await Promise.all([
@@ -89,6 +103,7 @@ export async function getDiscoverFeed(currentUserId: string) {
 
   const now = Date.now();
   const viewerLangs = languageTokens(currentUser.language);
+  const viewerInterests = stringSet(currentUser.interests);
 
   // Build one feed entry per gallery post, scored by the hot algorithm.
   const entries = filteredUsers
@@ -112,6 +127,7 @@ export async function getDiscoverFeed(currentUserId: string) {
       const sameLang = [...languageTokens(user.language)].some((t) =>
         viewerLangs.has(t),
       );
+      const sharedInterest = hasOverlap(viewerInterests, stringSet(user.interests));
       return videos.map((video) => {
         const id = String(video.id || "");
         const createdAt = new Date(String(video.createdAt || now));
@@ -120,6 +136,7 @@ export async function getDiscoverFeed(currentUserId: string) {
           video,
           _followed: followed,
           _sameLang: sameLang,
+          _sharedInterest: sharedInterest,
           _seen: id ? seenMediaIds.has(id) : false,
           _createdAt: createdAt.getTime(),
           _rand: Math.random(),
@@ -196,6 +213,7 @@ export async function getDiscoverFeed(currentUserId: string) {
       },
       _followed: true,
       _sameLang: true,
+      _sharedInterest: true,
       _seen: seenMediaIds.has(repost.mediaId),
       _createdAt: repost.createdAt.getTime(),
       _rand: Math.random(),
@@ -253,23 +271,66 @@ export async function getDiscoverFeed(currentUserId: string) {
     }
   }
 
-  // Discover ordering: followed creators first (unseen → newest first), then
-  // everyone else in a fresh random order each load. This keeps the feed
-  // personal at the top, never dead-ends when follows run out, and is always
-  // visibly different from Trending (which ranks purely by the hot-score
-  // algorithm) — no engagement/hotScore sorting here.
-  entries.sort((a, b) => {
-    if (a._followed !== b._followed) return a._followed ? -1 : 1;
-    // Prefer creators who share the viewer's language (soft bias, not a hard
-    // filter — a thin same-language pool must never empty the feed).
-    if (a._sameLang !== b._sameLang) return a._sameLang ? -1 : 1;
+  const freshFirst = (a: (typeof entries)[number], b: (typeof entries)[number]) => {
     if (a._seen !== b._seen) return a._seen ? 1 : -1;
-    if (a._followed) return b._createdAt - a._createdAt;
+    if (a._sharedInterest !== b._sharedInterest) return a._sharedInterest ? -1 : 1;
+    if (a._sameLang !== b._sameLang) return a._sameLang ? -1 : 1;
+    if (a._createdAt !== b._createdAt) return b._createdAt - a._createdAt;
     return a._rand - b._rand;
-  });
+  };
+
+  const followedEntries = entries.filter((entry) => entry._followed).sort(freshFirst);
+  const sharedEntries = entries
+    .filter((entry) => !entry._followed && entry._sharedInterest)
+    .sort(freshFirst);
+  const generalEntries = entries
+    .filter((entry) => !entry._followed && !entry._sharedInterest)
+    .sort(freshFirst);
+
+  // Discover mixes followed creators with new people who share interests in a
+  // 1:3 rhythm. If either bucket runs thin, general fresh content fills the
+  // gaps so the feed keeps moving and does not loop the same posts.
+  const mixed: typeof entries = [];
+  const used = new Set<string>();
+  let followedIndex = 0;
+  let sharedIndex = 0;
+  let generalIndex = 0;
+  const takeNext = (bucket: typeof entries, start: number) => {
+    let index = start;
+    while (index < bucket.length) {
+      const entry = bucket[index++];
+      const id = String(entry.video.id || "");
+      if (id && used.has(id)) continue;
+      if (id) used.add(id);
+      mixed.push(entry);
+      break;
+    }
+    return index;
+  };
+  while (mixed.length < FEED_LIMIT && used.size < entries.length) {
+    followedIndex = takeNext(followedEntries, followedIndex);
+    for (let i = 0; i < 3 && mixed.length < FEED_LIMIT; i++) {
+      const before = mixed.length;
+      sharedIndex = takeNext(sharedEntries, sharedIndex);
+      if (mixed.length === before) generalIndex = takeNext(generalEntries, generalIndex);
+    }
+    if (
+      followedIndex >= followedEntries.length &&
+      sharedIndex >= sharedEntries.length &&
+      generalIndex >= generalEntries.length
+    ) {
+      break;
+    }
+  }
+  if (mixed.length < FEED_LIMIT) {
+    const leftovers = entries
+      .filter((entry) => !used.has(String(entry.video.id || "")))
+      .sort(freshFirst);
+    mixed.push(...leftovers.slice(0, FEED_LIMIT - mixed.length));
+  }
 
   // Strip internal scoring fields before returning.
-  return entries
+  return mixed
     .slice(0, FEED_LIMIT)
     .map(({ user, video }) => ({ user, video }));
 }
