@@ -565,7 +565,12 @@ export async function getFollowers(userId: string) {
   const follows = await prisma.follow.findMany({
     where: {
       followedId: userId,
-      follower: { externalId: { not: "system:chatandtip" } },
+      follower: {
+        OR: [
+          { externalId: null },
+          { externalId: { not: "system:chatandtip" } },
+        ],
+      },
     },
     orderBy: { createdAt: "desc" },
     select: { followerId: true },
@@ -579,7 +584,12 @@ export async function getFollowing(userId: string) {
   const follows = await prisma.follow.findMany({
     where: {
       followerId: userId,
-      followed: { externalId: { not: "system:chatandtip" } },
+      followed: {
+        OR: [
+          { externalId: null },
+          { externalId: { not: "system:chatandtip" } },
+        ],
+      },
     },
     orderBy: { createdAt: "desc" },
     select: { followedId: true },
@@ -667,13 +677,23 @@ export async function getFollowCounts(userId: string) {
     prisma.follow.count({
       where: {
         followedId: userId,
-        follower: { externalId: { not: "system:chatandtip" } },
+        follower: {
+          OR: [
+            { externalId: null },
+            { externalId: { not: "system:chatandtip" } },
+          ],
+        },
       },
     }),
     prisma.follow.count({
       where: {
         followerId: userId,
-        followed: { externalId: { not: "system:chatandtip" } },
+        followed: {
+          OR: [
+            { externalId: null },
+            { externalId: { not: "system:chatandtip" } },
+          ],
+        },
       },
     }),
   ]);
