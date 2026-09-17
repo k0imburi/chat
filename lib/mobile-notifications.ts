@@ -427,6 +427,8 @@ export async function broadcastCampaignNotifications(input: {
   message: string;
   campaignId: string;
   channel?: string;
+  /** Deliver only to the broadcast chat, without an activity or device notification. */
+  createNotification?: boolean;
   afterUserId?: string;
   batchSize?: number;
   targetFilter?: TargetFilter | null;
@@ -537,23 +539,25 @@ export async function broadcastCampaignNotifications(input: {
       return { message, unread: recipient.unreadCount };
     });
 
-    const createdNotification = await createUserNotification({
-      userId: user.id,
-      senderId: systemUser.id,
-      title: input.title || "ChatAndTip",
-      message: input.message,
-      type: "broadcast",
-      metadata: {
-        campaignId: input.campaignId,
-        threadId: delivery.message.threadId,
-        targetType: "broadcast",
-        channel: input.channel || "IN_APP",
-      },
-      skipPush: true, // broadcast loop sends its own FCM push below
-    });
+    const createdNotification = input.createNotification === false
+      ? null
+      : await createUserNotification({
+          userId: user.id,
+          senderId: systemUser.id,
+          title: input.title || "ChatAndTip",
+          message: input.message,
+          type: "broadcast",
+          metadata: {
+            campaignId: input.campaignId,
+            threadId: delivery.message.threadId,
+            targetType: "broadcast",
+            channel: input.channel || "IN_APP",
+          },
+          skipPush: true, // broadcast loop sends its own FCM push below
+        });
 
     // FCM push for offline users — fire-and-forget, doesn't block the loop
-    if (user.deviceToken) {
+    if (createdNotification && user.deviceToken) {
       const push = sendFcmPush(user.deviceToken, {
         title: input.title || "ChatAndTip",
         body: input.message,

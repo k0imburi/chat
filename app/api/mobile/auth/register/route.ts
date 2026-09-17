@@ -73,8 +73,8 @@ export async function POST(request: Request) {
     })
 
     const campaignId = `welcome:${user.id}`
-    const welcomeExists = await prisma.userNotification.findFirst({
-      where: { userId: user.id, type: "broadcast", metadata: { path: "$.campaignId", equals: campaignId } },
+    const welcomeExists = await prisma.chatMessage.findFirst({
+      where: { broadcastCampaignId: campaignId },
       select: { id: true },
     })
     if (!welcomeExists) {
@@ -82,6 +82,7 @@ export async function POST(request: Request) {
         title: "Welcome to ChatAndTip",
         message: WELCOME_MESSAGE,
         campaignId,
+        createNotification: false,
         targetFilter: { userIds: [user.id] },
         batchSize: 1,
       })
