@@ -220,9 +220,12 @@ export function serializeMobileUser(user: UserWithMedia) {
         },
       },
     },
-    email: user.email || "",
+    // Entity registration contacts are used for verification and support, not
+    // public-profile data. The same serializer is used by profile endpoints,
+    // so keep them out of every public entity response.
+    email: user.accountType === AccountType.ENTITY ? "" : user.email || "",
     bio: user.bio || "",
-    phoneNumber: user.phoneNumber || "",
+    phoneNumber: user.accountType === AccountType.ENTITY ? "" : user.phoneNumber || "",
     deviceToken: user.deviceToken || "",
     deviceSystem: user.deviceSystem || "",
     swipeCount: user.swipeCount,

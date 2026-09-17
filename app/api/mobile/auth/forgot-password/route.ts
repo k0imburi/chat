@@ -23,12 +23,18 @@ export async function POST(request: Request) {
         : null
 
     if (user) {
-      await sendPasswordResetNotifications({
+      const deliveries = await sendPasswordResetNotifications({
         userId: user.id,
         email: user.email,
         phone: user.phoneNumber,
         fullName: user.fullName,
       })
+      const delivered = Object.values(deliveries).some((delivery) =>
+        Boolean((delivery as { success?: boolean }).success),
+      )
+      if (!delivered) {
+        throw new Error("Password recovery delivery is not configured. Please contact support.")
+      }
     }
 
     return NextResponse.json({
