@@ -58,9 +58,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, message: "User not found" }, { status: 404 })
   }
 
+  const serialized = await serializeMobileUserWithCounts(user)
   return NextResponse.json({
     success: true,
-    user: await serializeMobileUserWithCounts(user),
+    user: user.accountType === "ENTITY"
+      ? { ...serialized, email: user.email || "", phoneNumber: user.phoneNumber || "" }
+      : serialized,
   })
 }
 
@@ -77,6 +80,9 @@ export async function PATCH(request: Request) {
       fullName: parsed.fullName ?? parsed.fullname,
     })
     const serialized = await serializeMobileUserWithCounts(user)
+    const ownerSerialized = user.accountType === "ENTITY"
+      ? { ...serialized, email: user.email || "", phoneNumber: user.phoneNumber || "" }
+      : serialized
 
     if (parsed.deviceToken?.trim()) {
       try {
@@ -89,12 +95,12 @@ export async function PATCH(request: Request) {
     emitChatRealtimeToUser(session.userId, {
       channel: "profile",
       type: "profile_updated",
-      data: serialized,
+      data: ownerSerialized,
     })
 
     return NextResponse.json({
       success: true,
-      user: serialized,
+      user: ownerSerialized,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {

@@ -494,10 +494,6 @@ export async function followUser(input: {
     getMobileUserOrThrow(input.followedId),
   ]);
 
-  if (followerUser.accountType === "ENTITY" || followedUser.accountType === "ENTITY") {
-    throw new Error("Entity accounts cannot follow or be followed")
-  }
-
   if (followedUser.externalId === "system:chatandtip") {
     throw new Error("You cannot follow the ChatAndTip broadcast account");
   }

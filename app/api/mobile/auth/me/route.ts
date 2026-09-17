@@ -13,8 +13,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, message: "User not found" }, { status: 404 })
   }
 
+  const serialized = await serializeMobileUserWithCounts(user)
   return NextResponse.json({
     success: true,
-    user: await serializeMobileUserWithCounts(user),
+    user: user.accountType === "ENTITY"
+      ? { ...serialized, email: user.email || "", phoneNumber: user.phoneNumber || "" }
+      : serialized,
   })
 }

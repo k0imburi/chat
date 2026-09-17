@@ -167,12 +167,6 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
   if (!Number.isFinite(start.getTime())) throw new Error("Invalid start time")
   const slots = await availableSlots(input.creatorId, input.type, 31)
   if (!slots.some((s) => s.start === start.toISOString())) throw new Error("This slot is no longer available")
-  const creatorSettings = await prisma.user.findUnique({ where: { id: input.creatorId }, select: {
-    accountType: true, entityCallDurationMinutes: true, entityPublishedAt: true,
-  } })
-  if (creatorSettings?.accountType === "ENTITY") {
-    throw new Error("Use callback requests for entity calls")
-  }
   const end = addMinutes(start, SESSION_MINUTES)
   const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(start, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
   if (expires <= new Date()) throw new Error("This slot can no longer be proposed")
@@ -458,6 +452,9 @@ export async function bookingAction(userId: string, bookingId: string, action: s
   }
   if (action === "approve") {
     if (!isCreator || booking.status !== "PROPOSED" || booking.proposalExpiresAt <= new Date()) throw new Error("This proposal cannot be approved")
+    if (booking.creator.accountType === "ENTITY" && (!booking.creator.entityPlanExpiresAt || booking.creator.entityPlanExpiresAt <= new Date())) {
+      throw new Error("Purchase an entity plan to accept callback requests")
+    }
     // Confirming takes the slot: block approving a second proposal for a time
     // that's already confirmed (e.g. competing proposals for the same slot).
     const updated = await prisma.$transaction(async (tx) => {
