@@ -31,6 +31,13 @@ export const ALL_GOOGLE_PLAY_PRODUCT_IDS = [
   ...Object.keys(PRODUCT_TO_TIP_TIER),
 ]
 
+export const ENTITY_PLAN_PRODUCTS = {
+  entity_business_monthly: { type: "BUSINESS", interval: "MONTHLY" },
+  entity_business_yearly: { type: "BUSINESS", interval: "YEARLY" },
+  entity_premium_monthly: { type: "PREMIUM", interval: "MONTHLY" },
+  entity_premium_yearly: { type: "PREMIUM", interval: "YEARLY" },
+} as const
+
 export async function resolveGooglePlayConfig() {
   let settings: Record<string, unknown> | null = null
   try {
@@ -91,4 +98,19 @@ export async function consumeAndroidPurchase(productId: string, purchaseToken: s
   const client = getClient(cfg.serviceAccountJson)
   const url = `${ANDROID_PUBLISHER_BASE}/applications/${cfg.packageName}/purchases/products/${productId}/tokens/${purchaseToken}:consume`
   await client.request({ url, method: "POST" })
+}
+
+type AndroidSubscriptionPurchase = {
+  paymentState?: number
+  expiryTimeMillis?: string
+  orderId?: string
+}
+
+export async function getAndroidSubscriptionPurchase(productId: string, purchaseToken: string) {
+  const cfg = await resolveGooglePlayConfig()
+  if (!cfg.enabled) throw new Error("Google Play Billing is not configured")
+  const client = getClient(cfg.serviceAccountJson)
+  const url = `${ANDROID_PUBLISHER_BASE}/applications/${cfg.packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}`
+  const res = await client.request<AndroidSubscriptionPurchase>({ url })
+  return res.data
 }
