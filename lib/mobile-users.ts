@@ -644,6 +644,7 @@ export async function updateMobileUserProfile(
       input.fullName, input.username, input.gender, input.language,
       input.birthday, input.bio, input.physicalAddress, input.websiteUrl,
       input.country, input.city, input.interests, input.links, input.filter,
+      input.email, input.officialEmail,
     ]
     if (protectedFields.some((value) => value !== undefined)) {
       throw new Error("Entity account details can only be changed through verification.")
