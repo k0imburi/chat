@@ -352,12 +352,23 @@ async function getOrCreateThread(userId: string, otherUserId: string, tx: Prisma
   return created.id
 }
 
-export async function getChats(userId: string) {
+export async function getChats(userId: string, query?: string) {
   await getChatUserOrThrow(userId)
 
   const participants = (await prisma.chatParticipant.findMany({
     where: {
       userId,
+      ...(query?.trim()
+        ? {
+            thread: {
+              messages: {
+                some: {
+                  text: { contains: query.trim() },
+                },
+              },
+            },
+          }
+        : {}),
     },
     include: {
       thread: {

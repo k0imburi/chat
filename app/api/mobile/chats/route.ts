@@ -10,7 +10,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const data = await getChats(session.userId)
+    const query = new URL(request.url).searchParams.get("q") || undefined
+    const data = await getChats(session.userId, query)
     return NextResponse.json({ success: true, data })
   } catch (error) {
     logError("/api/mobile/chats", error)
