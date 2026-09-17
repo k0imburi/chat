@@ -489,10 +489,14 @@ export async function followUser(input: {
 }) {
   assertNotSameUser(input.followerId, input.followedId, "follow");
 
-  const [, followedUser] = await Promise.all([
+  const [followerUser, followedUser] = await Promise.all([
     getMobileUserOrThrow(input.followerId),
     getMobileUserOrThrow(input.followedId),
   ]);
+
+  if (followerUser.accountType === "ENTITY" || followedUser.accountType === "ENTITY") {
+    throw new Error("Entity accounts cannot follow or be followed")
+  }
 
   if (followedUser.externalId === "system:chatandtip") {
     throw new Error("You cannot follow the ChatAndTip broadcast account");

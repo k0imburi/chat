@@ -639,6 +639,17 @@ export async function updateMobileUserProfile(
     throw new Error("Please note changing the name will require new verification.")
   }
 
+  if (existing.accountType === AccountType.ENTITY) {
+    const protectedFields = [
+      input.fullName, input.username, input.gender, input.language,
+      input.birthday, input.bio, input.physicalAddress, input.websiteUrl,
+      input.country, input.city, input.interests, input.links, input.filter,
+    ]
+    if (protectedFields.some((value) => value !== undefined)) {
+      throw new Error("Entity account details can only be changed through verification.")
+    }
+  }
+
   return (await prisma.$transaction(async (tx) => {
     const updated = await tx.user.update({
       where: { id: userId },

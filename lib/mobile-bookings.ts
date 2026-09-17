@@ -89,7 +89,9 @@ export async function availableSlots(creatorId: string, type: BookingType, days 
   } })
   if (creator?.callsRestrictedUntil && creator.callsRestrictedUntil > new Date()) return []
   const sessionMinutes = creator?.accountType === "ENTITY" ? creator.entityCallDurationMinutes : SESSION_MINUTES
-  const bufferMinutes = creator?.accountType === "ENTITY" ? 5 : BUFFER_MINUTES
+  const bufferMinutes = creator?.accountType === "ENTITY"
+    ? Math.max(0, creator.entityCallBufferMinutes ?? 0)
+    : BUFFER_MINUTES
   const now = new Date()
   const [windows, taken] = await Promise.all([
     prisma.creatorAvailability.findMany({ where: {
@@ -158,7 +160,9 @@ async function reserveBookingCredit(tx: Prisma.TransactionClient, customerId: st
 export async function proposeBooking(customerId: string, input: { creatorId: string; type: BookingType; start: string; timezone: string }) {
   if (customerId === input.creatorId) throw new Error("You cannot book yourself")
   const customer = await prisma.user.findUnique({ where: { id: customerId }, select: { accountType: true } })
-  if (customer?.accountType === "ENTITY") throw new Error("Entity accounts cannot book calls")
+  if (customer?.accountType === "ENTITY") {
+    throw new Error("Only individual accounts can complete this process. Entity accounts only accept callback requests")
+  }
   const start = new Date(input.start)
   if (!Number.isFinite(start.getTime())) throw new Error("Invalid start time")
   const slots = await availableSlots(input.creatorId, input.type, 31)

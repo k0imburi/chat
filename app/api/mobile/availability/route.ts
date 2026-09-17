@@ -32,7 +32,12 @@ export async function PUT(request: Request) {
       if (![5, 10, 15].includes(duration)) throw new Error("Entity calls must be 5, 10 or 15 minutes")
       await prisma.user.update({
         where: { id: session.userId },
-        data: { entityCallDurationMinutes: duration, entityCallBufferMinutes: 5 },
+        data: {
+          entityCallDurationMinutes: duration,
+          entityCallBufferMinutes: [0, 5, 10].includes(Number(body.gapMinutes))
+            ? Number(body.gapMinutes)
+            : 0,
+        },
       })
     }
     const data = await replaceAvailability(session.userId, Array.isArray(body.windows) ? body.windows : [])

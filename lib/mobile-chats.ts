@@ -657,7 +657,9 @@ export async function sendMessage(input: {
       },
       select: { id: true },
     })
-    if (!priorUserMessage) throw new Error("Entity accounts can only reply to messages")
+    if (!priorUserMessage) {
+      throw new Error("This user has not initiated contact yet.")
+    }
   }
 
   const result = await withDbRetry(() => prisma.$transaction(async (tx) => {

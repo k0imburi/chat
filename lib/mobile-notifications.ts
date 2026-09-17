@@ -327,6 +327,13 @@ export async function listUserNotifications(input: {
     serializeMobileNotification(notification as never),
   );
   const withPreviews = await enrichSerializedNotificationPreviews(serialized);
+  // Broadcasts are product announcements, not transient activity. Keep them
+  // visible at the top regardless of when the user last opened the tab.
+  withPreviews.sort((a, b) => {
+    const aBroadcast = a.type === "broadcast" ? 1 : 0;
+    const bBroadcast = b.type === "broadcast" ? 1 : 0;
+    return bBroadcast - aBroadcast;
+  });
 
   return {
     data: groupSerializedNotifications(withPreviews),
