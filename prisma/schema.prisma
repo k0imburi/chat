@@ -883,6 +883,8 @@ model ChatThread {
   cycleStartedAt     DateTime?
   cycleIcebreakerId  String?
   cycleLockedReplyId String?
+  entityChatEndedAt   DateTime?
+  entityChatEndedById String?
   participants       ChatParticipant[]
   messages           ChatMessage[]
 }

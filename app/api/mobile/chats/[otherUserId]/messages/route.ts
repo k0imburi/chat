@@ -43,6 +43,8 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
       cycleState,
       viewerIsInitiator,
       unlockExpiresAt,
+      entityCanReply,
+      entityChatEnded,
     } = await getMessages(session.userId, params.otherUserId)
     return NextResponse.json({
       success: true,
@@ -52,6 +54,8 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
       cycleState,
       viewerIsInitiator,
       unlockExpiresAt,
+      entityCanReply,
+      entityChatEnded,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -147,6 +151,7 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       "must be verified",
       "daily reply limit",
       "Entity accounts can only reply",
+      "This chat has ended",
     ]
     const isUserError = USER_ERRORS.some((e) => msg.includes(e))
     console.warn("[chat:messages] send rejected", {

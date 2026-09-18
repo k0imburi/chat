@@ -441,6 +441,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       unlockExpiresAt: null,
       entityChat,
       entityCanReply: me.accountType !== "ENTITY" || hasActiveEntityPlan(me),
+      entityChatEnded: false,
     }
   }
 
@@ -500,6 +501,7 @@ export async function getMessages(userId: string, otherUserId: string) {
           cycleStartedAt: true,
           cycleIcebreakerId: true,
           cycleLockedReplyId: true,
+          entityChatEndedAt: true,
         },
       }),
       tx.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } }),
@@ -565,6 +567,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       readAt: new Date().toISOString(),
       entityChat,
       entityCanReply: me.accountType !== "ENTITY" || hasActiveEntityPlan(me),
+      entityChatEnded: me.accountType === "ENTITY" && Boolean(threadState.entityChatEndedAt),
     }
   })
 
@@ -695,9 +698,16 @@ export async function sendMessage(input: {
         cycleStartedAt: true,
         cycleIcebreakerId: true,
         cycleLockedReplyId: true,
+        entityChatEndedAt: true,
       },
     })
     if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
+    if (entityChat && thread?.entityChatEndedAt && me.accountType === "ENTITY") {
+      throw new Error("This chat has ended. The user must send a new message to restart it.")
+    }
+    const reopensEntityChat = Boolean(
+      entityChat && thread?.entityChatEndedAt && me.accountType !== "ENTITY",
+    )
     const unlockWindowValid = entityChat || isUnlockWindowValid(thread?.unlockedAt ?? null)
     const freshIcebreakerExists = Boolean(
       thread?.cycleIcebreakerId &&
@@ -865,6 +875,9 @@ export async function sendMessage(input: {
           cycleLockedReplyId: null,
         } : {}),
         ...(needsKeyUnlock ? { cycleLockedReplyId: message.id } : {}),
+        ...(reopensEntityChat
+          ? { entityChatEndedAt: null, entityChatEndedById: null }
+          : {}),
       },
     })
 
@@ -1183,6 +1196,81 @@ export async function clearChat(userId: string, otherUserId: string) {
   })
 
   return { success: true }
+}
+
+export async function endEntityChat(userId: string, otherUserId: string) {
+  const { me, other } = await ensureUsersCanChat(userId, otherUserId)
+  if (me.accountType === "ENTITY" || other.accountType !== "ENTITY") {
+    throw new Error("Only an individual can end a chat with an entity account")
+  }
+
+  const participant = await getParticipant(userId, otherUserId)
+  if (!participant) throw new Error("There is no chat to end")
+
+  const result = await prisma.$transaction(async (tx) => {
+    const thread = await tx.chatThread.findUniqueOrThrow({
+      where: { id: participant.threadId },
+      select: { entityChatEndedAt: true },
+    })
+    if (thread.entityChatEndedAt) return { message: null }
+
+    const sentAt = new Date()
+    const text = `${me.username?.trim() || me.fullName.trim() || "This user"} ended the chat.`
+    const message = await tx.chatMessage.create({
+      data: {
+        threadId: participant.threadId,
+        senderId: userId,
+        type: ChatMessageType.SYSTEM,
+        text,
+        reactions: {},
+        sentAt,
+      },
+    })
+    await tx.chatThread.update({
+      where: { id: participant.threadId },
+      data: {
+        entityChatEndedAt: sentAt,
+        entityChatEndedById: userId,
+        lastMessageText: text,
+        lastMessageType: ChatMessageType.SYSTEM,
+        lastMessageAt: sentAt,
+      },
+    })
+    await tx.chatParticipant.updateMany({
+      where: { threadId: participant.threadId, userId: otherUserId },
+      data: { archived: false, unreadCount: { increment: 1 } },
+    })
+    return { message }
+  })
+
+  if (!result.message) return { success: true, message: null }
+  const [userMessage, entityMessage, userSummary, entitySummary] = await Promise.all([
+    serializeChatMessageForViewer(result.message, userId),
+    serializeChatMessageForViewer(result.message, otherUserId),
+    getChatSummaryForUser(prisma, userId, otherUserId),
+    getChatSummaryForUser(prisma, otherUserId, userId),
+  ])
+  await createUserNotification({
+    userId: otherUserId,
+    senderId: userId,
+    title: me.fullName,
+    message: result.message.text || "Chat ended",
+    type: "message",
+    metadata: { threadUserId: userId, messageId: result.message.id },
+  })
+  emitChatRealtimeToUser(userId, {
+    channel: "chat", type: "message_created", otherUserId, data: userMessage,
+  })
+  emitChatRealtimeToUser(otherUserId, {
+    channel: "chat", type: "message_created", otherUserId: userId, data: entityMessage,
+  })
+  if (userSummary) emitChatRealtimeToUser(userId, {
+    channel: "chat", type: "chat_updated", otherUserId, data: userSummary,
+  })
+  if (entitySummary) emitChatRealtimeToUser(otherUserId, {
+    channel: "chat", type: "chat_updated", otherUserId: userId, data: entitySummary,
+  })
+  return { success: true, message: userMessage }
 }
 
 export async function deleteMessage(userId: string, otherUserId: string, messageId: string) {
