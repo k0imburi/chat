@@ -31,6 +31,7 @@ export default async function EntitiesPage() {
       officialEmail: true,
       entityDocuments: true,
       entityVerification: true,
+      entityBadgeColor: true,
       entityPublishedAt: true,
       entityPlanType: true,
       entityPlanExpiresAt: true,
@@ -148,8 +149,17 @@ export default async function EntitiesPage() {
                               name="decision"
                               value="APPROVE"
                             />
+                            <select
+                              name="badgeColor"
+                              defaultValue="blue"
+                              aria-label="Verification badge color"
+                              className="mb-2 h-8 w-full rounded-md border bg-background px-2 text-xs"
+                            >
+                              <option value="blue">Blue #9FE7E5</option>
+                              <option value="gold">Gold</option>
+                            </select>
                             <Button size="sm" type="submit">
-                              Approve documents
+                              Approve
                             </Button>
                           </ActionForm>
                           <ActionForm action={reviewEntityDocumentsAction}>

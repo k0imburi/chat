@@ -22,6 +22,7 @@ import { emitChatRealtimeToUser } from "@/lib/realtime";
 const reviewSchema = z.object({
   userId: z.string().min(1),
   decision: z.enum(["APPROVE", "REJECT"]),
+  badgeColor: z.enum(["blue", "gold"]).optional(),
 });
 
 export async function reviewEntityDocumentsAction(
@@ -43,6 +44,9 @@ export async function reviewEntityDocumentsAction(
       decision: formData.get("decision"),
     });
     const approved = input.decision === "APPROVE";
+    if (approved && !input.badgeColor) {
+      throw new Error("Choose a verification badge color");
+    }
 
     const entity = await prisma.user.findFirst({
       where: { id: input.userId, accountType: AccountType.ENTITY },
@@ -59,7 +63,7 @@ export async function reviewEntityDocumentsAction(
             verified: true,
             entityVerification: EntityVerificationStatus.APPROVED,
             entityPublishedAt: new Date(),
-            entityBadgeColor: "green",
+            entityBadgeColor: input.badgeColor,
           }
         : {
             verified: false,

@@ -305,6 +305,17 @@ function ReviewButton({
     <ActionForm action={reviewEntityDocumentsAction}>
       <input type="hidden" name="userId" value={userId} />
       <input type="hidden" name="decision" value={decision} />
+      {decision === "APPROVE" ? (
+        <select
+          name="badgeColor"
+          defaultValue="blue"
+          aria-label="Verification badge color"
+          className="mb-2 h-9 w-full rounded-md border bg-background px-2 text-sm"
+        >
+          <option value="blue">Blue #9FE7E5 badge</option>
+          <option value="gold">Gold badge</option>
+        </select>
+      ) : null}
       <Button
         type="submit"
         variant={decision === "APPROVE" ? "default" : "outline"}
