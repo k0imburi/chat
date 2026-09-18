@@ -504,6 +504,7 @@ export async function followUser(input: {
       followedId: input.followedId,
     },
   };
+  const existingFollow = await prisma.follow.findUnique({ where: followId });
 
   if (input.follow) {
     await prisma.follow.upsert({
@@ -514,6 +515,16 @@ export async function followUser(input: {
         followedId: input.followedId,
       },
     });
+    if (!existingFollow) {
+      const actorName = followerUser.username?.trim() || followerUser.fullName.trim() || "Someone";
+      await createUserNotification({
+        userId: input.followedId,
+        senderId: input.followerId,
+        title: actorName,
+        message: "followed you",
+        type: "follow",
+      });
+    }
   } else {
     await prisma.follow.deleteMany({
       where: {

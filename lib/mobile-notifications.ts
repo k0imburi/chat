@@ -45,6 +45,7 @@ const GROUPABLE_ACTIVITY_TYPES = new Set([
   "comment_reply",
   "comment_like",
   "repost",
+  "follow",
 ]);
 
 function mediaIdFromMetadata(metadata: Record<string, unknown>) {
@@ -118,6 +119,7 @@ function activityVerb(type: string) {
   if (type === "comment_reply") return "replied to your comment";
   if (type === "comment_like") return "liked your comment";
   if (type === "repost") return "Reshared your post";
+  if (type === "follow") return "followed you";
   return "updated your post";
 }
 
@@ -129,11 +131,11 @@ function groupSerializedNotifications(items: Array<any>) {
     const type = String(item.type || "alert");
     const metadata = normalizeMetadata(item.metadata);
     const mediaId = mediaIdFromMetadata(metadata);
-    if (!GROUPABLE_ACTIVITY_TYPES.has(type) || !mediaId) {
+    if (!GROUPABLE_ACTIVITY_TYPES.has(type) || (type !== "follow" && !mediaId)) {
       output.push(item);
       continue;
     }
-    const key = `${type}:${mediaId}`;
+    const key = type === "follow" ? "follow" : `${type}:${mediaId}`;
     const list = grouped.get(key) || [];
     if (!list.length) output.push(item);
     list.push(item);
@@ -144,7 +146,7 @@ function groupSerializedNotifications(items: Array<any>) {
     const type = String(item.type || "alert");
     const metadata = normalizeMetadata(item.metadata);
     const mediaId = mediaIdFromMetadata(metadata);
-    const list = grouped.get(`${type}:${mediaId}`) || [];
+    const list = grouped.get(type === "follow" ? "follow" : `${type}:${mediaId}`) || [];
     if (list.length <= 1) return item;
 
     const actors = list

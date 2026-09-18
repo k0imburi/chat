@@ -117,17 +117,30 @@ export async function POST(request: Request) {
         }),
       ]);
       const actorName = actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
-      await Promise.all(followers.map(({ followerId }) => createUserNotification({
-        userId: followerId,
-        senderId: session.userId,
-        type: "postvideo",
-        title: actorName,
-        message: `${actorName} posted a new post. Tap to view it`,
-        metadata: {
-          mediaId: savedMedia.id,
-          thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
-        },
-      })));
+      await Promise.all(followers.map(async ({ followerId }) => {
+        // Upload retries must not create a second activity card for the same post.
+        const existingNotification = await prisma.userNotification.findFirst({
+          where: {
+            userId: followerId,
+            senderId: session.userId,
+            type: "postvideo",
+            metadata: { path: "mediaId", equals: savedMedia.id },
+          },
+          select: { id: true },
+        });
+        if (existingNotification) return;
+        await createUserNotification({
+          userId: followerId,
+          senderId: session.userId,
+          type: "postvideo",
+          title: actorName,
+          message: `${actorName} added a new post. Tap to view it`,
+          metadata: {
+            mediaId: savedMedia.id,
+            thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
+          },
+        });
+      }));
     }
 
     const user = await findMobileUserById(session.userId);
