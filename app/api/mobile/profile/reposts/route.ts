@@ -54,6 +54,8 @@ export async function GET(request: Request) {
         title: media.title || "",
         caption: media.caption || "",
         description: media.description || "",
+        taggedUserId: media.taggedUserId || "",
+        taggedUsername: media.taggedUsername || "",
         views: media.views,
         likes: media.likes,
         commentCount: media.commentCount,

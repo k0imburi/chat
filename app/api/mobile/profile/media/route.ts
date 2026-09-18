@@ -18,6 +18,7 @@ const createSchema = z.object({
   titlePositionY: z.coerce.number().min(0).max(1).optional(),
   caption: z.string().max(2200).optional(),
   description: z.string().max(2200).optional(),
+  taggedUserId: z.string().min(1).optional(),
   mimeType: z.string().optional(),
   sizeBytes: z.coerce.number().optional(),
 });
@@ -74,6 +75,30 @@ export async function POST(request: Request) {
           },
         })
       : null;
+    if (parsed.taggedUserId === session.userId) {
+      return NextResponse.json(
+        { success: false, message: "You cannot tag yourself" },
+        { status: 400 },
+      );
+    }
+    const taggedUser = !isMainProfileKind && parsed.taggedUserId
+      ? await prisma.user.findFirst({
+          where: {
+            id: parsed.taggedUserId,
+            role: "USER",
+            isActive: true,
+            status: { notIn: ["BLOCKED", "HIDDEN"] },
+            OR: [{ externalId: null }, { externalId: { not: { startsWith: "system:" } } }],
+          },
+          select: { id: true, username: true, fullName: true },
+        })
+      : null;
+    if (parsed.taggedUserId && !taggedUser) {
+      return NextResponse.json(
+        { success: false, message: "That account is not available to tag" },
+        { status: 400 },
+      );
+    }
 
     const savedMedia = existingProfile
       ? await prisma.userMedia.update({
@@ -87,6 +112,8 @@ export async function POST(request: Request) {
             titlePositionY: parsed.titlePositionY,
             caption: parsed.caption,
             description: parsed.description,
+            taggedUserId: null,
+            taggedUsername: null,
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
           },
@@ -103,6 +130,8 @@ export async function POST(request: Request) {
             titlePositionY: parsed.titlePositionY,
             caption: parsed.caption,
             description: parsed.description,
+            taggedUserId: taggedUser?.id,
+            taggedUsername: taggedUser?.username || taggedUser?.fullName || null,
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
           },
@@ -141,6 +170,19 @@ export async function POST(request: Request) {
           },
         });
       }));
+      if (taggedUser) {
+        await createUserNotification({
+          userId: taggedUser.id,
+          senderId: session.userId,
+          type: "post_tag",
+          title: actorName,
+          message: `${actorName} tagged you in a post`,
+          metadata: {
+            mediaId: savedMedia.id,
+            thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
+          },
+        });
+      }
     }
 
     const user = await findMobileUserById(session.userId);

@@ -388,6 +388,8 @@ model UserMedia {
   titlePositionY  Float?         @default(0.5)
   caption         String?        @db.Text
   description     String?        @db.Text
+  taggedUserId    String?
+  taggedUsername  String?
   objectKey       String?
   url             String
   images          Json?
@@ -417,6 +419,7 @@ model UserMedia {
   reports         Report[]
 
   @@index([userId, kind])
+  @@index([taggedUserId])
 }
 
 model MediaRepost {
