@@ -167,14 +167,20 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
   if (!Number.isFinite(start.getTime())) throw new Error("Invalid start time")
   const slots = await availableSlots(input.creatorId, input.type, 31)
   if (!slots.some((s) => s.start === start.toISOString())) throw new Error("This slot is no longer available")
+  const now = new Date()
   const end = addMinutes(start, SESSION_MINUTES)
-  const expires = new Date(Math.min(addMinutes(new Date(), 12 * 60).getTime(), addMinutes(start, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
-  if (expires <= new Date()) throw new Error("This slot can no longer be proposed")
+  let expires = new Date(Math.min(addMinutes(now, 12 * 60).getTime(), addMinutes(start, -MIN_PROPOSAL_LEAD_MINUTES).getTime()))
   const reserved = input.type === "VOICE" ? "reservedVoiceSessions" : "reservedVideoSessions"
   const booking = await prisma.$transaction(async (tx) => {
     const creator = await tx.user.findUnique({
       where: { id: input.creatorId },
-      select: { callsRestrictedUntil: true, autoAcceptBookings: true },
+      select: {
+        callsRestrictedUntil: true,
+        autoAcceptBookings: true,
+        accountType: true,
+        entityPlanExpiresAt: true,
+        entityCallDurationMinutes: true,
+      },
     })
     if (creator?.callsRestrictedUntil && creator.callsRestrictedUntil > new Date()) {
       throw new Error("This creator is temporarily unavailable for calls")
@@ -193,7 +199,14 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
     })
     if (duplicate) throw new Error("You already have a booking for this time")
 
-    await reserveBookingCredit(tx, customerId, input.type)
+    const isEntityCallback = creator?.accountType === "ENTITY"
+    const callbackEnd = isEntityCallback
+      ? addMinutes(start, creator?.entityCallDurationMinutes || SESSION_MINUTES)
+      : end
+    // A callback request never reserves or consumes the requester's credits.
+    if (isEntityCallback) expires = addMinutes(now, 4)
+    if (expires <= new Date()) throw new Error("This slot can no longer be proposed")
+    if (!isEntityCallback) await reserveBookingCredit(tx, customerId, input.type)
     try {
       // Auto-accept: the creator has opted into confirming proposals without a
       // manual tap, so this is created APPROVED rather than PROPOSED. Stamping
@@ -201,15 +214,18 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
       // and the no-show ladder all key off an approved booking, so a booking
       // that skipped the manual step still has to look exactly like one that
       // went through it.
-      const autoAccept = creator?.autoAcceptBookings === true
+      const autoAccept = creator?.autoAcceptBookings === true &&
+        (!isEntityCallback || Boolean(creator.entityPlanExpiresAt && creator.entityPlanExpiresAt > now))
       return await tx.callBooking.create({ data: {
         customerId, creatorId: input.creatorId, type: input.type, timezone: input.timezone,
-        scheduledStart: start, scheduledEnd: end, proposalExpiresAt: expires,
+        scheduledStart: start, scheduledEnd: callbackEnd, proposalExpiresAt: expires,
         channelId: `booking_${crypto.randomUUID().replaceAll("-", "")}`,
         ...(autoAccept ? { status: "APPROVED" as const, approvedAt: new Date() } : {}),
       }, include: { customer: true, creator: true } })
     } catch (error) {
-      await tx.creditAccount.update({ where: { userId: customerId }, data: { [reserved]: { decrement: 1 } } })
+      if (!isEntityCallback) {
+        await tx.creditAccount.update({ where: { userId: customerId }, data: { [reserved]: { decrement: 1 } } })
+      }
       throw error
     }
   }, { timeout: 20000, maxWait: 10000 })
@@ -342,7 +358,12 @@ export async function endDueSessions(db: Prisma.TransactionClient | typeof prism
       await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
       const current = await tx.callBooking.findUnique({ where: { id: b.id } })
       if (!current || !["APPROVED", "LIVE"].includes(current.status)) return null
-      if (!current.creatorJoinedAt) {
+      if (b.creator.accountType === "ENTITY") {
+        await tx.callBooking.update({ where: { id: current.id }, data: {
+          status: current.customerJoinedAt && current.creatorJoinedAt ? "COMPLETED" : "EXPIRED",
+          completedAt: now,
+        } })
+      } else if (!current.creatorJoinedAt) {
         // Creator never joined — refund reservation, no creator payment
         await releaseBookingReservation(tx, current)
         await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
@@ -659,9 +680,22 @@ export async function reconcileBookings() {
   })
   for (const b of expired) {
     await prisma.$transaction(async (tx) => {
-      await releaseBookingReservation(tx, b)
+      if (b.creator.accountType !== "ENTITY") {
+        await releaseBookingReservation(tx, b)
+      }
       await tx.callBooking.update({ where: { id: b.id }, data: { status: "EXPIRED" } })
     }, { timeout: 20000, maxWait: 10000 })
+    if (b.creator.accountType === "ENTITY") {
+      await notifyBooking(
+        b.customerId,
+        b.creatorId,
+        "Callback request expired",
+        "Your callback request expired before it was confirmed.",
+        b.id,
+        b.customer.email,
+      )
+      continue
+    }
     await Promise.all([
       notifyBooking(
         b.customerId, b.creatorId, "Call request expired",
@@ -739,8 +773,23 @@ export async function reconcileBookings() {
     scheduledStart: { lte: addMinutes(now, -NO_SHOW_MINUTES) },
   }, include: { creator: true, customer: true } })
   for (const b of creatorNoShows) {
-    const latenessMinutes = (now.getTime() - b.scheduledStart.getTime()) / 60_000
-    if (b.creator.accountType === "ENTITY" && latenessMinutes < 5) continue
+    if (b.creator.accountType === "ENTITY") {
+      const expiredCallback = await prisma.callBooking.updateMany({
+        where: { id: b.id, status: { in: ["APPROVED", "LIVE"] } },
+        data: { status: "EXPIRED", completedAt: now },
+      })
+      if (expiredCallback.count) {
+        await notifyBooking(
+          b.customerId,
+          b.creatorId,
+          "Callback request expired",
+          "Your callback request expired before it started.",
+          b.id,
+          b.customer.email,
+        )
+      }
+      continue
+    }
     const outcome = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
       const current = await tx.callBooking.findUnique({ where: { id: b.id } })
@@ -752,9 +801,6 @@ export async function reconcileBookings() {
       ) return null
       await releaseBookingReservation(tx, current)
       await tx.callBooking.update({ where: { id: current.id }, data: { status: "CREATOR_NO_SHOW", completedAt: now } })
-      if (b.creator.accountType === "ENTITY") {
-        return { strikeTotal: 0, restrictedUntil: null, affected: [] }
-      }
       // The 2-minute fine is unconditional and should already have landed by
       // now. This is only a fallback for the rare case a cron tick was missed
       // — the strike below always applies regardless, on top of the fine.
@@ -804,9 +850,7 @@ export async function reconcileBookings() {
       ? `Missed call — strike ${STRIKE_LIMIT}/${STRIKE_LIMIT}. Calls restricted for ${RESTRICTION_HOURS} hours.`
       : `Missed call — strike ${outcome.strikeTotal}/${STRIKE_LIMIT}.`
     await Promise.all([
-      ...(b.creator.accountType === "ENTITY" ? [] : [
-        notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email),
-      ]),
+      notifyBooking(b.creatorId, b.customerId, "Strike recorded", strikeMessage, b.id, b.creator.email),
       // The customer used to be told nothing at all here — their credit came
       // back with no explanation of why the call never happened.
       notifyBooking(

@@ -16,11 +16,17 @@ export async function GET(request: Request) {
   }
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { autoAcceptBookings: true },
+    select: { autoAcceptBookings: true, accountType: true, entityPlanExpiresAt: true },
   })
   return NextResponse.json({
     success: true,
-    data: { enabled: user?.autoAcceptBookings === true },
+    data: {
+      enabled: user?.autoAcceptBookings === true &&
+        !(user.accountType === "ENTITY" &&
+          (!user.entityPlanExpiresAt || user.entityPlanExpiresAt <= new Date())),
+      requiresPlan: user?.accountType === "ENTITY" &&
+        (!user.entityPlanExpiresAt || user.entityPlanExpiresAt <= new Date()),
+    },
   })
 }
 
@@ -32,6 +38,14 @@ export async function PATCH(request: Request) {
   }
   try {
     const { enabled } = schema.parse(await request.json())
+    const existing = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { accountType: true, entityPlanExpiresAt: true },
+    })
+    if (enabled && existing?.accountType === "ENTITY" &&
+        (!existing.entityPlanExpiresAt || existing.entityPlanExpiresAt <= new Date())) {
+      throw new Error("Purchase an entity plan before turning on auto-accept")
+    }
     const user = await prisma.user.update({
       where: { id: session.userId },
       data: { autoAcceptBookings: enabled },
