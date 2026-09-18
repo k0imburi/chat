@@ -1,4 +1,4 @@
-import { MediaKind } from "@prisma/client";
+import { MediaKind, Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getMobileSessionFromRequest } from "@/lib/mobile-session";
@@ -19,6 +19,7 @@ const createSchema = z.object({
   caption: z.string().max(2200).optional(),
   description: z.string().max(2200).optional(),
   taggedUserId: z.string().min(1).optional(),
+  taggedUserIds: z.array(z.string().min(1)).max(10).optional(),
   mimeType: z.string().optional(),
   sizeBytes: z.coerce.number().optional(),
 });
@@ -75,16 +76,20 @@ export async function POST(request: Request) {
           },
         })
       : null;
-    if (parsed.taggedUserId === session.userId) {
+    const taggedUserIds = Array.from(new Set([
+      ...(parsed.taggedUserIds || []),
+      ...(parsed.taggedUserId ? [parsed.taggedUserId] : []),
+    ]));
+    if (taggedUserIds.includes(session.userId)) {
       return NextResponse.json(
         { success: false, message: "You cannot tag yourself" },
         { status: 400 },
       );
     }
-    const taggedUser = !isMainProfileKind && parsed.taggedUserId
-      ? await prisma.user.findFirst({
+    const taggedUsers = !isMainProfileKind && taggedUserIds.length
+      ? await prisma.user.findMany({
           where: {
-            id: parsed.taggedUserId,
+            id: { in: taggedUserIds },
             role: "USER",
             isActive: true,
             status: { notIn: ["BLOCKED", "HIDDEN"] },
@@ -92,8 +97,8 @@ export async function POST(request: Request) {
           },
           select: { id: true, username: true, fullName: true },
         })
-      : null;
-    if (parsed.taggedUserId && !taggedUser) {
+      : [];
+    if (taggedUsers.length !== taggedUserIds.length) {
       return NextResponse.json(
         { success: false, message: "That account is not available to tag" },
         { status: 400 },
@@ -114,6 +119,8 @@ export async function POST(request: Request) {
             description: parsed.description,
             taggedUserId: null,
             taggedUsername: null,
+            taggedUserIds: Prisma.DbNull,
+            taggedUsernames: Prisma.DbNull,
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
           },
@@ -130,8 +137,10 @@ export async function POST(request: Request) {
             titlePositionY: parsed.titlePositionY,
             caption: parsed.caption,
             description: parsed.description,
-            taggedUserId: taggedUser?.id,
-            taggedUsername: taggedUser?.username || taggedUser?.fullName || null,
+            taggedUserId: taggedUsers[0]?.id || null,
+            taggedUsername: taggedUsers[0]?.username || taggedUsers[0]?.fullName || null,
+            taggedUserIds: taggedUsers.map((user) => user.id),
+            taggedUsernames: taggedUsers.map((user) => user.username || user.fullName),
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
           },
@@ -170,8 +179,8 @@ export async function POST(request: Request) {
           },
         });
       }));
-      if (taggedUser) {
-        await createUserNotification({
+      await Promise.all(taggedUsers.map((taggedUser) =>
+        createUserNotification({
           userId: taggedUser.id,
           senderId: session.userId,
           type: "post_tag",
@@ -181,8 +190,8 @@ export async function POST(request: Request) {
             mediaId: savedMedia.id,
             thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
           },
-        });
-      }
+        }),
+      ));
     }
 
     const user = await findMobileUserById(session.userId);

@@ -3,6 +3,7 @@ import {
   BellRing,
   CircleDollarSign,
   CreditCard,
+  Building2,
   FileCheck2,
   ListChecks,
   Flame,
@@ -28,6 +29,7 @@ export const SESSION_COOKIE = process.env.NODE_ENV === "production"
 export const NAV_ITEMS = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Users", url: "/users", icon: Users },
+  { title: "Entities", url: "/entities", icon: Building2 },
   { title: "Reports", url: "/reports", icon: TriangleAlert },
   { title: "Technical Problems", url: "/technical-problems", icon: Wrench },
   { title: "Wallets", url: "/wallets", icon: CircleDollarSign },
@@ -57,6 +59,7 @@ export const NAV_GROUPS = [
     label: "MANAGEMENT",
     items: [
       { title: "Users", url: "/users", icon: Users },
+      { title: "Entities", url: "/entities", icon: Building2 },
       { title: "Reports", url: "/reports", icon: TriangleAlert },
       { title: "Technical Problems", url: "/technical-problems", icon: Wrench },
       { title: "Chats", url: "/chats", icon: MessageSquareMore },

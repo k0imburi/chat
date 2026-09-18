@@ -56,6 +56,8 @@ export async function GET(request: Request) {
         description: media.description || "",
         taggedUserId: media.taggedUserId || "",
         taggedUsername: media.taggedUsername || "",
+        taggedUserIds: Array.isArray(media.taggedUserIds) ? media.taggedUserIds : [],
+        taggedUsernames: Array.isArray(media.taggedUsernames) ? media.taggedUsernames : [],
         views: media.views,
         likes: media.likes,
         commentCount: media.commentCount,

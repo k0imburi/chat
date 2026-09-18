@@ -7,7 +7,7 @@ export default async function UsersPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Users" description="Search, filter, and manage all platform accounts" />
+      <PageHeader title="Users" description="Search, filter, and manage individual accounts" />
       <UsersTable initialData={data} />
     </div>
   )

@@ -390,6 +390,8 @@ model UserMedia {
   description     String?        @db.Text
   taggedUserId    String?
   taggedUsername  String?
+  taggedUserIds   Json?
+  taggedUsernames Json?
   objectKey       String?
   url             String
   images          Json?

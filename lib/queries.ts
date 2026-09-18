@@ -1,6 +1,6 @@
 import "server-only"
 
-import { Prisma, UserRole, UserStatus } from "@prisma/client"
+import { AccountType, Prisma, UserRole, UserStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { DEFAULT_PAGE_SIZE } from "@/lib/constants"
 
@@ -18,6 +18,7 @@ export async function getUsers(params: {
 
   const where: Prisma.UserWhereInput = {
     role: UserRole.USER,
+    accountType: AccountType.INDIVIDUAL,
   }
 
   if (params.status && params.status !== "ALL") {

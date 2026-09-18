@@ -118,6 +118,12 @@ function normalizeDate(value?: string | Date | null) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+function jsonStringList(value: Prisma.JsonValue | null | undefined) {
+  return Array.isArray(value)
+    ? value.map((item) => String(item || "").trim()).filter(Boolean)
+    : []
+}
+
 function serializeVideo(media?: UserMedia | null) {
   if (!media) {
     return {
@@ -133,6 +139,8 @@ function serializeVideo(media?: UserMedia | null) {
       description: "",
       taggedUserId: "",
       taggedUsername: "",
+      taggedUserIds: [],
+      taggedUsernames: [],
       views: 0,
       likes: 0,
       commentCount: 0,
@@ -164,6 +172,8 @@ function serializeVideo(media?: UserMedia | null) {
     description: media.description || "",
     taggedUserId: media.taggedUserId || "",
     taggedUsername: media.taggedUsername || "",
+    taggedUserIds: jsonStringList(media.taggedUserIds),
+    taggedUsernames: jsonStringList(media.taggedUsernames),
     views: media.views,
     likes: media.likes,
     commentCount: media.commentCount,

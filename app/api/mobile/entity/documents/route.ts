@@ -23,7 +23,13 @@ export async function POST(request: Request) {
     }
     await prisma.user.update({
       where: { id: session.userId },
-      data: { entityDocuments: body.entityDocuments, entityVerification: EntityVerificationStatus.PENDING },
+      data: {
+        entityDocuments: body.entityDocuments,
+        entityVerification: EntityVerificationStatus.PENDING,
+        entityPublishedAt: null,
+        entityBadgeColor: null,
+        verified: false,
+      },
     })
     return NextResponse.json({ success: true })
   } catch (error) {

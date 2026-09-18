@@ -8,6 +8,7 @@ import {
   successResult,
   type ActionResult,
 } from "@/lib/actions/action-result"
+import { AccountType } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { requireSessionUser } from "@/lib/auth"
 import { deleteFromR2 } from "@/lib/r2"
@@ -27,6 +28,7 @@ export async function queryUsersAction(params: {
 
 export async function setUserVerifiedAction(userId: string, verified: boolean) {
   await requireSessionUser()
+  await ensureIndividualAccount(userId)
   await prisma.user.update({
     where: { id: userId },
     data: { verified },
@@ -38,6 +40,17 @@ export async function setUserVerifiedAction(userId: string, verified: boolean) {
       type: "profile_updated",
       data: serializeMobileUser(user),
     })
+  }
+}
+
+async function ensureIndividualAccount(userId: string) {
+  const account = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { accountType: true },
+  })
+  if (!account) throw new Error("User not found")
+  if (account.accountType === AccountType.ENTITY) {
+    throw new Error("Review entity documents from the Entities dashboard")
   }
 }
 
@@ -127,6 +140,8 @@ export async function toggleUserVerificationAction(
       userId: formData.get("userId"),
       verified: formData.get("verified"),
     })
+
+    await ensureIndividualAccount(parsed.userId)
 
     await prisma.user.update({
       where: { id: parsed.userId },
