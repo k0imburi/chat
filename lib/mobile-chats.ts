@@ -51,13 +51,16 @@ function serializeChatSummary(participant: ChatParticipantWithThread, receiver: 
   })
   if (!lastMessage) return null
   const contentIsLocked = Boolean(lastMessage.locked && lastMessage.senderId !== participant.userId)
+  const lockedPreview = lastMessage.previewText
+    ? `${lastMessage.previewText}…`
+    : buildLockedPreview(lastMessage.text || "", lastMessage.type.toLowerCase())
 
   return {
     chatUserId: receiver.id,
     senderId: lastMessage.senderId,
     msgType: parseChatMessageType(lastMessage.type),
     lastMsg: contentIsLocked
-      ? "Locked reply"
+      ? lockedPreview
       : lastMessage.text || (lastMessage.type === ChatMessageType.DOCUMENT ? "Document" : ""),
     sentAt: lastMessage.sentAt.toISOString(),
     unread: participant.unreadCount,
