@@ -1,6 +1,6 @@
-import "server-only"
+import "server-only";
 
-import bcrypt from "bcryptjs"
+import bcrypt from "bcryptjs";
 import {
   AccountType,
   EntityVerificationStatus,
@@ -11,56 +11,62 @@ import {
   UserStatus,
   type User,
   type UserMedia,
-} from "@prisma/client"
-import { prisma } from "@/lib/prisma"
-import { resolveUsernameUpdate } from "@/lib/username-rules"
-import { reactivateAccountForLogin } from "@/lib/account-deactivation"
+} from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { resolveUsernameUpdate } from "@/lib/username-rules";
+import { reactivateAccountForLogin } from "@/lib/account-deactivation";
 
 type UserWithMedia = User & {
-  media: UserMedia[]
-}
+  media: UserMedia[];
+};
 
 type RegisterMobileUserInput = {
-  fullName?: string
-  email?: string
-  password?: string
-  phoneNumber?: string
-  gender?: string
-  birthday?: string
-  username?: string
-  bio?: string
-  language?: string
-  deviceToken?: string
-  deviceSystem?: string
-  country?: string
-  city?: string
-  latitude?: number
-  longitude?: number
-  interests?: string[]
-  links?: string[]
-  filter?: Record<string, unknown>
-  loginProvider?: LoginProvider
-  accountType?: AccountType
-  physicalAddress?: string
-  officialPhoneNumber?: string
-  officialEmail?: string
-  websiteUrl?: string
-  entityDocuments?: Record<string, unknown>
+  fullName?: string;
+  email?: string;
+  password?: string;
+  phoneNumber?: string;
+  gender?: string;
+  birthday?: string;
+  username?: string;
+  bio?: string;
+  language?: string;
+  deviceToken?: string;
+  deviceSystem?: string;
+  country?: string;
+  city?: string;
+  latitude?: number;
+  longitude?: number;
+  interests?: string[];
+  links?: string[];
+  filter?: Record<string, unknown>;
+  loginProvider?: LoginProvider;
+  accountType?: AccountType;
+  physicalAddress?: string;
+  officialPhoneNumber?: string;
+  officialEmail?: string;
+  websiteUrl?: string;
+  entityDocuments?: Record<string, unknown>;
   // Signup's profile media can be a video OR a static image — exactly one
   // of videoUrl/imageUrl is set; kind is derived from which one.
   profileVideo?: {
-    videoUrl?: string
-    imageUrl?: string
-    thumbnailUrl: string
-  }
-}
+    videoUrl?: string;
+    imageUrl?: string;
+    thumbnailUrl: string;
+  };
+};
 
 // "languages spoken" is stored as a free-text field (e.g. "English, Swahili"),
 // but legacy/signup values may be ISO codes — normalise both to display names.
 const LANGUAGE_NAMES: Record<string, string> = {
-  en: "English", es: "Spanish", fr: "French", pt: "Portuguese",
-  sw: "Swahili", ar: "Arabic", hi: "Hindi", zh: "Chinese",
-}
+  en: "English",
+  es: "Spanish",
+  fr: "French",
+  pt: "Portuguese",
+  sw: "Swahili",
+  ar: "Arabic",
+  hi: "Hindi",
+  zh: "Chinese",
+};
 
 /** Split a free-text languages value into display names (codes → names). */
 export function languageDisplayList(raw?: string | null): string[] {
@@ -68,60 +74,67 @@ export function languageDisplayList(raw?: string | null): string[] {
     .split(/[,/]/)
     .map((t) => t.trim())
     .filter(Boolean)
-    .map((t) => LANGUAGE_NAMES[t.toLowerCase()] ?? t)
+    .map((t) => LANGUAGE_NAMES[t.toLowerCase()] ?? t);
 }
 
 /** Normalised lowercase token set for language-overlap matching in Discover. */
 export function languageTokens(raw?: string | null): Set<string> {
-  return new Set(languageDisplayList(raw).map((s) => s.toLowerCase()))
+  return new Set(languageDisplayList(raw).map((s) => s.toLowerCase()));
 }
 
-function profileMediaKindAndUrl(profileVideo: { videoUrl?: string; imageUrl?: string }) {
-  if (profileVideo.imageUrl) return { kind: MediaKind.PROFILE_IMAGE, url: profileVideo.imageUrl }
-  return { kind: MediaKind.PROFILE_VIDEO, url: profileVideo.videoUrl ?? "" }
+function profileMediaKindAndUrl(profileVideo: {
+  videoUrl?: string;
+  imageUrl?: string;
+}) {
+  if (profileVideo.imageUrl)
+    return { kind: MediaKind.PROFILE_IMAGE, url: profileVideo.imageUrl };
+  return { kind: MediaKind.PROFILE_VIDEO, url: profileVideo.videoUrl ?? "" };
 }
 
 function fallbackFullName(input: RegisterMobileUserInput) {
-  const explicit = input.fullName?.trim()
-  if (explicit && explicit.length >= 2) return explicit
+  const explicit = input.fullName?.trim();
+  if (explicit && explicit.length >= 2) return explicit;
 
-  const emailName = input.email?.split("@")[0]?.replace(/[._-]+/g, " ")?.trim()
-  if (emailName && emailName.length >= 2) return emailName
+  const emailName = input.email
+    ?.split("@")[0]
+    ?.replace(/[._-]+/g, " ")
+    ?.trim();
+  if (emailName && emailName.length >= 2) return emailName;
 
-  const phoneName = input.phoneNumber?.trim()
-  if (phoneName && phoneName.length >= 2) return phoneName
+  const phoneName = input.phoneNumber?.trim();
+  if (phoneName && phoneName.length >= 2) return phoneName;
 
-  return "New User"
+  return "New User";
 }
 
 export function mapMobileLoginProvider(provider: LoginProvider) {
-  if (provider === LoginProvider.PHONE) return "number"
-  return provider.toLowerCase()
+  if (provider === LoginProvider.PHONE) return "number";
+  return provider.toLowerCase();
 }
 
 function mapStatus(status: string) {
-  return status.toLowerCase()
+  return status.toLowerCase();
 }
 
 function toJsonValue(value?: Record<string, unknown> | string[]) {
-  return value as Prisma.InputJsonValue | undefined
+  return value as Prisma.InputJsonValue | undefined;
 }
 
 function existingJsonToInput(value: Prisma.JsonValue | null | undefined) {
-  if (value === null || value === undefined) return undefined
-  return value as Prisma.InputJsonValue
+  if (value === null || value === undefined) return undefined;
+  return value as Prisma.InputJsonValue;
 }
 
 function normalizeDate(value?: string | Date | null) {
-  if (!value) return null
-  const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function jsonStringList(value: Prisma.JsonValue | null | undefined) {
   return Array.isArray(value)
     ? value.map((item) => String(item || "").trim()).filter(Boolean)
-    : []
+    : [];
 }
 
 function serializeVideo(media?: UserMedia | null) {
@@ -153,12 +166,14 @@ function serializeVideo(media?: UserMedia | null) {
       copyrightStatus: null as string | null,
       reportStatus: null as string | null,
       isHiddenByOwner: false,
-    }
+    };
   }
 
-  const isImage = media.kind === MediaKind.IMAGE || media.kind === MediaKind.PROFILE_IMAGE
-  const images = Array.isArray(media.images) ? (media.images as string[]) : []
+  const isImage =
+    media.kind === MediaKind.IMAGE || media.kind === MediaKind.PROFILE_IMAGE;
+  const images = Array.isArray(media.images) ? (media.images as string[]) : [];
 
+  const approvedTag = media.tagApprovalStatus === "ACCEPTED";
   return {
     id: media.id,
     videoUrl: isImage ? "" : media.url,
@@ -170,10 +185,10 @@ function serializeVideo(media?: UserMedia | null) {
     titlePositionY: media.titlePositionY ?? 0.5,
     caption: media.caption || "",
     description: media.description || "",
-    taggedUserId: media.taggedUserId || "",
-    taggedUsername: media.taggedUsername || "",
-    taggedUserIds: jsonStringList(media.taggedUserIds),
-    taggedUsernames: jsonStringList(media.taggedUsernames),
+    taggedUserId: approvedTag ? media.taggedUserId || "" : "",
+    taggedUsername: approvedTag ? media.taggedUsername || "" : "",
+    taggedUserIds: approvedTag ? jsonStringList(media.taggedUserIds) : [],
+    taggedUsernames: approvedTag ? jsonStringList(media.taggedUsernames) : [],
     views: media.views,
     likes: media.likes,
     commentCount: media.commentCount,
@@ -186,17 +201,22 @@ function serializeVideo(media?: UserMedia | null) {
     copyrightStatus: media.copyrightStatus ?? null,
     reportStatus: media.reportStatus ?? null,
     isHiddenByOwner: media.isHiddenByOwner,
-  }
+  };
 }
 
 export function serializeMobileUser(user: UserWithMedia) {
   const profileVideo = user.media.find(
-    (item) => item.kind === MediaKind.PROFILE_VIDEO || item.kind === MediaKind.PROFILE_IMAGE,
-  )
+    (item) =>
+      item.kind === MediaKind.PROFILE_VIDEO ||
+      item.kind === MediaKind.PROFILE_IMAGE,
+  );
   const gallery = user.media
-    .filter((item) => item.kind === MediaKind.GALLERY_VIDEO || item.kind === MediaKind.IMAGE)
+    .filter(
+      (item) =>
+        item.kind === MediaKind.GALLERY_VIDEO || item.kind === MediaKind.IMAGE,
+    )
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .map(serializeVideo)
+    .map(serializeVideo);
 
   return {
     userId: user.id,
@@ -239,7 +259,8 @@ export function serializeMobileUser(user: UserWithMedia) {
     // so keep them out of every public entity response.
     email: user.accountType === AccountType.ENTITY ? "" : user.email || "",
     bio: user.bio || "",
-    phoneNumber: user.accountType === AccountType.ENTITY ? "" : user.phoneNumber || "",
+    phoneNumber:
+      user.accountType === AccountType.ENTITY ? "" : user.phoneNumber || "",
     deviceToken: user.deviceToken || "",
     deviceSystem: user.deviceSystem || "",
     swipeCount: user.swipeCount,
@@ -266,17 +287,19 @@ export function serializeMobileUser(user: UserWithMedia) {
     ),
     websiteUrl: user.websiteUrl || "",
     showLastActivity: user.showLastActivity,
-    lastActive: user.showLastActivity ? user.lastActiveAt?.toISOString() || null : null,
+    lastActive: user.showLastActivity
+      ? user.lastActiveAt?.toISOString() || null
+      : null,
     createdAt: user.createdAt.toISOString(),
-  }
+  };
 }
 
 export async function serializeMobileUserWithCounts(user: UserWithMedia) {
   const [followersCount, followingCount] = await Promise.all([
     prisma.follow.count({ where: { followedId: user.id } }),
     prisma.follow.count({ where: { followerId: user.id } }),
-  ])
-  return { ...serializeMobileUser(user), followersCount, followingCount }
+  ]);
+  return { ...serializeMobileUser(user), followersCount, followingCount };
 }
 
 export function serializeMobileUserWithLikes(
@@ -285,14 +308,16 @@ export function serializeMobileUserWithLikes(
   savedMediaIds: Set<string> = new Set(),
   repostedMediaIds: Set<string> = new Set(),
 ) {
-  const serialized = serializeMobileUser(user) as Record<string, unknown>
-  const profileVideo = serialized.profileVideo as Record<string, unknown>
-  const gallery = (serialized.gallery as Array<Record<string, unknown>>).map((video) => ({
-    ...video,
-    isLiked: likedMediaIds.has(String(video.id || "")),
-    isSaved: savedMediaIds.has(String(video.id || "")),
-    isReposted: repostedMediaIds.has(String(video.id || "")),
-  }))
+  const serialized = serializeMobileUser(user) as Record<string, unknown>;
+  const profileVideo = serialized.profileVideo as Record<string, unknown>;
+  const gallery = (serialized.gallery as Array<Record<string, unknown>>).map(
+    (video) => ({
+      ...video,
+      isLiked: likedMediaIds.has(String(video.id || "")),
+      isSaved: savedMediaIds.has(String(video.id || "")),
+      isReposted: repostedMediaIds.has(String(video.id || "")),
+    }),
+  );
 
   return {
     ...serialized,
@@ -303,16 +328,18 @@ export function serializeMobileUserWithLikes(
       isReposted: repostedMediaIds.has(String(profileVideo.id || "")),
     },
     gallery,
-  }
+  };
 }
 
-export async function findMobileUserById(userId: string): Promise<UserWithMedia | null> {
+export async function findMobileUserById(
+  userId: string,
+): Promise<UserWithMedia | null> {
   const user = (await prisma.user.findUnique({
     where: { id: userId },
     include: { media: true },
-  })) as UserWithMedia | null
+  })) as UserWithMedia | null;
 
-  return user
+  return user;
 }
 
 export async function findMobileUsersByIds(userIds: string[]) {
@@ -322,87 +349,99 @@ export async function findMobileUsersByIds(userIds: string[]) {
       role: UserRole.USER,
     },
     include: { media: true },
-  })) as UserWithMedia[]
+  })) as UserWithMedia[];
 }
 
 // Search active users by username or full name (case-insensitive prefix/contains).
 // Includes the searcher, excludes non-USER accounts, and caps results for a snappy list.
 export async function searchMobileUsers(query: string, take = 30) {
-  const q = query.trim()
-  if (q.length < 2) return [] as UserWithMedia[]
+  const q = query.trim();
+  if (q.length < 2) return [] as UserWithMedia[];
   return (await prisma.user.findMany({
     where: {
       role: UserRole.USER,
       isActive: true,
       status: { notIn: [UserStatus.BLOCKED, UserStatus.HIDDEN] },
       AND: [
-        { OR: [{ externalId: null }, { externalId: { not: { startsWith: "system:" } } }] },
-        { OR: [
-          { username: { contains: q } },
-          { fullName: { contains: q } },
-        ] },
+        {
+          OR: [
+            { externalId: null },
+            { externalId: { not: { startsWith: "system:" } } },
+          ],
+        },
+        { OR: [{ username: { contains: q } }, { fullName: { contains: q } }] },
       ],
     },
     include: { media: true },
     take,
     orderBy: { fullName: "asc" },
-  })) as UserWithMedia[]
+  })) as UserWithMedia[];
 }
 
-export async function findMobileUserByEmail(email: string): Promise<UserWithMedia | null> {
+export async function findMobileUserByEmail(
+  email: string,
+): Promise<UserWithMedia | null> {
   return (await prisma.user.findFirst({
     where: {
       email,
       role: UserRole.USER,
     },
     include: { media: true },
-  })) as UserWithMedia | null
+  })) as UserWithMedia | null;
 }
 
-export async function findMobileUserByPhone(phoneNumber: string): Promise<UserWithMedia | null> {
+export async function findMobileUserByPhone(
+  phoneNumber: string,
+): Promise<UserWithMedia | null> {
   return (await prisma.user.findFirst({
     where: {
       phoneNumber,
       role: UserRole.USER,
     },
     include: { media: true },
-  })) as UserWithMedia | null
+  })) as UserWithMedia | null;
 }
 
 export async function verifyMobileUserPassword(user: User, password: string) {
-  if (!user.passwordHash) return false
-  return bcrypt.compare(password, user.passwordHash)
+  if (!user.passwordHash) return false;
+  return bcrypt.compare(password, user.passwordHash);
 }
 
 export function assertMobileUserCanAuthenticate(user: User) {
   if (user.role !== UserRole.USER) {
-    throw new Error("Mobile access is restricted to user accounts")
+    throw new Error("Mobile access is restricted to user accounts");
   }
 
-  if (!user.isActive || user.status === UserStatus.BLOCKED || user.status === UserStatus.HIDDEN) {
-    throw new Error("This account is not allowed to sign in")
+  if (
+    !user.isActive ||
+    user.status === UserStatus.BLOCKED ||
+    user.status === UserStatus.HIDDEN
+  ) {
+    throw new Error("This account is not allowed to sign in");
   }
 }
 
 export async function registerMobileUser(input: RegisterMobileUserInput) {
   if (input.email) {
-    const existingEmail = await findMobileUserByEmail(input.email)
+    const existingEmail = await findMobileUserByEmail(input.email);
     if (existingEmail) {
-      throw new Error("An account with this email already exists")
+      throw new Error("An account with this email already exists");
     }
   }
 
   if (input.phoneNumber) {
     const existingPhone = await prisma.user.findFirst({
       where: { phoneNumber: input.phoneNumber, role: UserRole.USER },
-    })
+    });
     if (existingPhone) {
-      throw new Error("An account with this phone number already exists")
+      throw new Error("An account with this phone number already exists");
     }
   }
 
-  const passwordHash = input.password ? await bcrypt.hash(input.password, 12) : null
-  const resolvedUsername = await resolveUsernameUpdate(null, input.username)
+  const passwordHash = input.password
+    ? await bcrypt.hash(input.password, 12)
+    : null;
+  const resolvedUsername = await resolveUsernameUpdate(null, input.username);
 
   const created = (await prisma.user.create({
     data: {
@@ -446,22 +485,22 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
         : undefined,
     },
     include: { media: true },
-  })) as UserWithMedia
+  })) as UserWithMedia;
 
-  return created
+  return created;
 }
 
 export async function upsertMobileProviderUser(
   input: RegisterMobileUserInput & {
-    provider: LoginProvider
-    providerUserId: string
-    verifiedEmail?: string
+    provider: LoginProvider;
+    providerUserId: string;
+    verifiedEmail?: string;
   },
 ): Promise<UserWithMedia> {
-  const provider = input.provider
-  const providerUserId = input.providerUserId.trim()
+  const provider = input.provider;
+  const providerUserId = input.providerUserId.trim();
   if (!providerUserId) {
-    throw new Error("providerUserId is required")
+    throw new Error("providerUserId is required");
   }
 
   const existingAccount = await prisma.providerAccount.findUnique({
@@ -476,21 +515,25 @@ export async function upsertMobileProviderUser(
         include: { media: true },
       },
     },
-  })
+  });
 
   if (existingAccount) {
-    existingAccount.user = await reactivateAccountForLogin(existingAccount.user)
-    assertMobileUserCanAuthenticate(existingAccount.user)
+    existingAccount.user = await reactivateAccountForLogin(
+      existingAccount.user,
+    );
+    assertMobileUserCanAuthenticate(existingAccount.user);
     const resolvedUsername = await resolveUsernameUpdate(
       existingAccount.user.username,
       input.username,
       existingAccount.userId,
-    )
+    );
 
     return (await prisma.user.update({
       where: { id: existingAccount.userId },
       data: {
-        fullName: input.fullName?.trim() ? input.fullName : existingAccount.user.fullName,
+        fullName: input.fullName?.trim()
+          ? input.fullName
+          : existingAccount.user.fullName,
         username: resolvedUsername,
         email: input.verifiedEmail ?? input.email ?? existingAccount.user.email,
         phoneNumber: input.phoneNumber ?? existingAccount.user.phoneNumber,
@@ -501,30 +544,40 @@ export async function upsertMobileProviderUser(
         city: input.city ?? existingAccount.user.city,
         latitude: input.latitude ?? existingAccount.user.latitude,
         longitude: input.longitude ?? existingAccount.user.longitude,
-        interests: input.interests ? toJsonValue(input.interests) : existingJsonToInput(existingAccount.user.interests),
-        links: input.links ? toJsonValue(input.links) : existingJsonToInput(existingAccount.user.links),
-        filter: input.filter ? toJsonValue(input.filter) : existingJsonToInput(existingAccount.user.filter),
+        interests: input.interests
+          ? toJsonValue(input.interests)
+          : existingJsonToInput(existingAccount.user.interests),
+        links: input.links
+          ? toJsonValue(input.links)
+          : existingJsonToInput(existingAccount.user.links),
+        filter: input.filter
+          ? toJsonValue(input.filter)
+          : existingJsonToInput(existingAccount.user.filter),
         loginProvider: provider,
         lastActiveAt: new Date(),
         lastLoginAt: new Date(),
       },
       include: { media: true },
-    })) as UserWithMedia
+    })) as UserWithMedia;
   }
 
-  const normalizedEmail = input.verifiedEmail ?? input.email
-  let linkedUser: UserWithMedia | null = null
+  const normalizedEmail = input.verifiedEmail ?? input.email;
+  let linkedUser: UserWithMedia | null = null;
 
   if (provider === LoginProvider.PHONE && input.phoneNumber) {
-    linkedUser = await findMobileUserByPhone(input.phoneNumber)
+    linkedUser = await findMobileUserByPhone(input.phoneNumber);
   } else if (normalizedEmail) {
-    linkedUser = await findMobileUserByEmail(normalizedEmail)
+    linkedUser = await findMobileUserByEmail(normalizedEmail);
   }
 
   if (linkedUser) {
-    linkedUser = await reactivateAccountForLogin(linkedUser)
-    assertMobileUserCanAuthenticate(linkedUser)
-    const resolvedLinkedUsername = await resolveUsernameUpdate(linkedUser.username, input.username, linkedUser.id)
+    linkedUser = await reactivateAccountForLogin(linkedUser);
+    assertMobileUserCanAuthenticate(linkedUser);
+    const resolvedLinkedUsername = await resolveUsernameUpdate(
+      linkedUser.username,
+      input.username,
+      linkedUser.id,
+    );
 
     return (await prisma.$transaction(async (tx) => {
       await tx.providerAccount.create({
@@ -534,12 +587,14 @@ export async function upsertMobileProviderUser(
           providerUserId,
           email: normalizedEmail,
         },
-      })
+      });
 
       const updated = await tx.user.update({
         where: { id: linkedUser!.id },
         data: {
-          fullName: input.fullName?.trim() ? input.fullName : linkedUser!.fullName,
+          fullName: input.fullName?.trim()
+            ? input.fullName
+            : linkedUser!.fullName,
           username: resolvedLinkedUsername,
           email: normalizedEmail ?? linkedUser!.email,
           phoneNumber: input.phoneNumber ?? linkedUser!.phoneNumber,
@@ -558,13 +613,13 @@ export async function upsertMobileProviderUser(
           lastLoginAt: new Date(),
         },
         include: { media: true },
-      })
+      });
 
-      return updated as UserWithMedia
-    })) as UserWithMedia
+      return updated as UserWithMedia;
+    })) as UserWithMedia;
   }
 
-  const resolvedNewUsername = await resolveUsernameUpdate(null, input.username)
+  const resolvedNewUsername = await resolveUsernameUpdate(null, input.username);
   return (await prisma.$transaction(async (tx) => {
     const created = (await tx.user.create({
       data: {
@@ -603,7 +658,7 @@ export async function upsertMobileProviderUser(
           : undefined,
       },
       include: { media: true },
-    })) as UserWithMedia
+    })) as UserWithMedia;
 
     await tx.providerAccount.create({
       data: {
@@ -612,56 +667,75 @@ export async function upsertMobileProviderUser(
         providerUserId,
         email: normalizedEmail,
       },
-    })
+    });
 
-    return created
-  })) as UserWithMedia
+    return created;
+  })) as UserWithMedia;
 }
 
 export async function updateMobileUserProfile(
   userId: string,
   input: Partial<RegisterMobileUserInput> & {
-    avatarUrl?: string
-    swipeCount?: number
-    lastSwipeDate?: string
-    status?: string
-    showLastActivity?: boolean
-    allowPostDownloads?: boolean
-    physicalAddress?: string
-    officialPhoneNumber?: string
-    officialEmail?: string
-    websiteUrl?: string
-    entityDocuments?: Record<string, unknown>
+    avatarUrl?: string;
+    swipeCount?: number;
+    lastSwipeDate?: string;
+    status?: string;
+    showLastActivity?: boolean;
+    allowPostDownloads?: boolean;
+    physicalAddress?: string;
+    officialPhoneNumber?: string;
+    officialEmail?: string;
+    websiteUrl?: string;
+    entityDocuments?: Record<string, unknown>;
   },
 ): Promise<UserWithMedia> {
   const existing = await prisma.user.findUnique({
     where: { id: userId },
     include: { media: true },
-  })
+  });
 
   if (!existing || existing.role !== UserRole.USER) {
-    throw new Error("User not found")
+    throw new Error("User not found");
   }
 
-  const resolvedUsername = await resolveUsernameUpdate(existing.username, input.username, userId)
+  const resolvedUsername = await resolveUsernameUpdate(
+    existing.username,
+    input.username,
+    userId,
+  );
 
   if (
     existing.accountType === AccountType.ENTITY &&
     input.fullName?.trim() &&
     input.fullName.trim() !== existing.fullName
   ) {
-    throw new Error("Please note changing the name will require new verification.")
+    throw new Error(
+      "Please note changing the name will require new verification.",
+    );
   }
 
   if (existing.accountType === AccountType.ENTITY) {
     const protectedFields = [
-      input.fullName, input.username, input.gender, input.language,
-      input.birthday, input.bio, input.physicalAddress, input.websiteUrl,
-      input.country, input.city, input.interests, input.links, input.filter,
-      input.email, input.officialEmail,
-    ]
+      input.fullName,
+      input.username,
+      input.gender,
+      input.language,
+      input.birthday,
+      input.bio,
+      input.physicalAddress,
+      input.websiteUrl,
+      input.country,
+      input.city,
+      input.interests,
+      input.links,
+      input.filter,
+      input.email,
+      input.officialEmail,
+    ];
     if (protectedFields.some((value) => value !== undefined)) {
-      throw new Error("Entity account details can only be changed through verification.")
+      throw new Error(
+        "Entity account details can only be changed through verification.",
+      );
     }
   }
 
@@ -673,13 +747,19 @@ export async function updateMobileUserProfile(
         username: resolvedUsername,
         gender: input.gender,
         language: input.language,
-        birthday: input.birthday !== undefined ? normalizeDate(input.birthday) : undefined,
+        birthday:
+          input.birthday !== undefined
+            ? normalizeDate(input.birthday)
+            : undefined,
         email: input.email,
         phoneNumber: input.phoneNumber,
         bio: input.bio,
         avatarUrl: input.avatarUrl,
         swipeCount: input.swipeCount,
-        lastSwipeDate: input.lastSwipeDate !== undefined ? normalizeDate(input.lastSwipeDate) : undefined,
+        lastSwipeDate:
+          input.lastSwipeDate !== undefined
+            ? normalizeDate(input.lastSwipeDate)
+            : undefined,
         status: input.status as never,
         showLastActivity: input.showLastActivity,
         allowPostDownloads: input.allowPostDownloads,
@@ -702,13 +782,15 @@ export async function updateMobileUserProfile(
         lastActiveAt: new Date(),
       },
       include: { media: true },
-    })
+    });
 
     if (input.profileVideo) {
       const currentProfileVideo = existing.media.find(
-        (item) => item.kind === MediaKind.PROFILE_VIDEO || item.kind === MediaKind.PROFILE_IMAGE,
-      )
-      const { kind, url } = profileMediaKindAndUrl(input.profileVideo)
+        (item) =>
+          item.kind === MediaKind.PROFILE_VIDEO ||
+          item.kind === MediaKind.PROFILE_IMAGE,
+      );
+      const { kind, url } = profileMediaKindAndUrl(input.profileVideo);
 
       if (currentProfileVideo) {
         await tx.userMedia.update({
@@ -718,7 +800,7 @@ export async function updateMobileUserProfile(
             url,
             thumbnailUrl: input.profileVideo.thumbnailUrl,
           },
-        })
+        });
       } else {
         await tx.userMedia.create({
           data: {
@@ -727,13 +809,13 @@ export async function updateMobileUserProfile(
             url,
             thumbnailUrl: input.profileVideo.thumbnailUrl,
           },
-        })
+        });
       }
     }
 
     return (await tx.user.findUnique({
       where: { id: updated.id },
       include: { media: true },
-    })) as UserWithMedia
-  })) as UserWithMedia
+    })) as UserWithMedia;
+  })) as UserWithMedia;
 }

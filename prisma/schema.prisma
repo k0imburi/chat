@@ -59,6 +59,12 @@ enum MediaKind {
   DOCUMENT
 }
 
+enum TagApprovalStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
 enum PlanInterval {
   ONE_TIME
   DAILY
@@ -392,6 +398,7 @@ model UserMedia {
   taggedUsername  String?
   taggedUserIds   Json?
   taggedUsernames Json?
+  tagApprovalStatus TagApprovalStatus?
   objectKey       String?
   url             String
   images          Json?

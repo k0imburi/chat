@@ -18,15 +18,18 @@ export async function GET(request: Request) {
     where: {
       userId: targetUserId,
       user: { isActive: true, status: { notIn: ["BLOCKED", "HIDDEN"] } },
-      media: { user: { isActive: true, status: { notIn: ["BLOCKED", "HIDDEN"] } } },
+      media: {
+        user: { isActive: true, status: { notIn: ["BLOCKED", "HIDDEN"] } },
+      },
     },
     orderBy: { createdAt: "desc" },
     include: { media: { include: { user: { include: { media: true } } } } },
   });
 
   const data = reposts
-    .filter(({ media }) =>
-      !media.copyrightStatus && !media.reportStatus && !media.isHiddenByOwner
+    .filter(
+      ({ media }) =>
+        !media.copyrightStatus && !media.reportStatus && !media.isHiddenByOwner,
     )
     .map(({ media, createdAt }) => {
       const profileMedia = media.user.media
@@ -44,6 +47,7 @@ export async function GET(request: Request) {
       const avatarUrl = rawAvatar
         ? `${rawAvatar}${rawAvatar.includes("?") ? "&" : "?"}v=${media.user.updatedAt.getTime()}`
         : "";
+      const showTag = media.tagApprovalStatus === "ACCEPTED";
       return {
         id: media.id,
         userId: media.userId,
@@ -54,10 +58,16 @@ export async function GET(request: Request) {
         title: media.title || "",
         caption: media.caption || "",
         description: media.description || "",
-        taggedUserId: media.taggedUserId || "",
-        taggedUsername: media.taggedUsername || "",
-        taggedUserIds: Array.isArray(media.taggedUserIds) ? media.taggedUserIds : [],
-        taggedUsernames: Array.isArray(media.taggedUsernames) ? media.taggedUsernames : [],
+        taggedUserId: showTag ? media.taggedUserId || "" : "",
+        taggedUsername: showTag ? media.taggedUsername || "" : "",
+        taggedUserIds:
+          showTag && Array.isArray(media.taggedUserIds)
+            ? media.taggedUserIds
+            : [],
+        taggedUsernames:
+          showTag && Array.isArray(media.taggedUsernames)
+            ? media.taggedUsernames
+            : [],
         views: media.views,
         likes: media.likes,
         commentCount: media.commentCount,

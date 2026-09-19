@@ -49,8 +49,12 @@ const GROUPABLE_ACTIVITY_TYPES = new Set([
 ]);
 
 function mediaIdFromMetadata(metadata: Record<string, unknown>) {
-  const raw = metadata.mediaId ?? metadata.videoId ?? metadata.postId ??
-    metadata.reelId ?? metadata.contentId;
+  const raw =
+    metadata.mediaId ??
+    metadata.videoId ??
+    metadata.postId ??
+    metadata.reelId ??
+    metadata.contentId;
   return typeof raw === "string" && raw.trim() ? raw.trim() : "";
 }
 
@@ -131,7 +135,10 @@ function groupSerializedNotifications(items: Array<any>) {
     const type = String(item.type || "alert");
     const metadata = normalizeMetadata(item.metadata);
     const mediaId = mediaIdFromMetadata(metadata);
-    if (!GROUPABLE_ACTIVITY_TYPES.has(type) || (type !== "follow" && !mediaId)) {
+    if (
+      !GROUPABLE_ACTIVITY_TYPES.has(type) ||
+      (type !== "follow" && !mediaId)
+    ) {
       output.push(item);
       continue;
     }
@@ -146,7 +153,8 @@ function groupSerializedNotifications(items: Array<any>) {
     const type = String(item.type || "alert");
     const metadata = normalizeMetadata(item.metadata);
     const mediaId = mediaIdFromMetadata(metadata);
-    const list = grouped.get(type === "follow" ? "follow" : `${type}:${mediaId}`) || [];
+    const list =
+      grouped.get(type === "follow" ? "follow" : `${type}:${mediaId}`) || [];
     if (list.length <= 1) return item;
 
     const actors = list
@@ -275,9 +283,10 @@ export async function createUserNotification(input: {
         await sendFcmPush(recipient.deviceToken, {
           title: input.title || "ChatAndTip",
           body: input.message,
-          androidIcon: input.type === "tip"
-            ? tipNotificationIcon(input.metadata?.tier)
-            : undefined,
+          androidIcon:
+            input.type === "tip"
+              ? tipNotificationIcon(input.metadata?.tier)
+              : undefined,
           androidDataOnly: input.type === "tip",
           data: pushData,
         });
@@ -292,10 +301,14 @@ export async function createUserNotification(input: {
 
 function tipNotificationIcon(tier: unknown) {
   switch (String(tier || "").toUpperCase()) {
-    case "GEM": return "notification_gem";
-    case "DIAMOND": return "notification_diamond";
-    case "PEBBLE": return "notification_pebble";
-    default: return "notification_tip";
+    case "GEM":
+      return "notification_gem";
+    case "DIAMOND":
+      return "notification_diamond";
+    case "PEBBLE":
+      return "notification_pebble";
+    default:
+      return "notification_tip";
   }
 }
 
@@ -349,6 +362,7 @@ export async function listUserNotifications(input: {
 export async function markNotificationRead(
   userId: string,
   notificationId: string,
+  isRead = true,
 ) {
   const notification = await prisma.userNotification.findFirst({
     where: {
@@ -363,7 +377,7 @@ export async function markNotificationRead(
 
   const updated = await prisma.userNotification.update({
     where: { id: notificationId },
-    data: { isRead: true },
+    data: { isRead },
     include: {
       sender: {
         include: { media: true },
@@ -373,6 +387,7 @@ export async function markNotificationRead(
 
   const metadata = normalizeMetadata(notification.metadata);
   if (
+    isRead &&
     notification.type === "broadcast" &&
     typeof metadata.threadId === "string"
   ) {
@@ -390,6 +405,27 @@ export async function markNotificationRead(
   });
 
   return { success: true };
+}
+
+export async function setNotificationsRead(
+  userId: string,
+  isRead: boolean,
+  notificationIds?: string[],
+) {
+  const ids = Array.from(new Set((notificationIds || []).filter(Boolean)));
+  const result = await prisma.userNotification.updateMany({
+    where: {
+      userId,
+      ...(ids.length ? { id: { in: ids } } : {}),
+    },
+    data: { isRead },
+  });
+  emitChatRealtimeToUser(userId, {
+    channel: "notifications",
+    type: "notifications_refresh",
+    refreshedAt: new Date().toISOString(),
+  });
+  return { success: true, updated: result.count, isRead };
 }
 
 export async function deleteSingleNotification(
@@ -541,22 +577,23 @@ export async function broadcastCampaignNotifications(input: {
       return { message, unread: recipient.unreadCount };
     });
 
-    const createdNotification = input.createNotification === false
-      ? null
-      : await createUserNotification({
-          userId: user.id,
-          senderId: systemUser.id,
-          title: input.title || "ChatAndTip",
-          message: input.message,
-          type: "broadcast",
-          metadata: {
-            campaignId: input.campaignId,
-            threadId: delivery.message.threadId,
-            targetType: "broadcast",
-            channel: input.channel || "IN_APP",
-          },
-          skipPush: true, // broadcast loop sends its own FCM push below
-        });
+    const createdNotification =
+      input.createNotification === false
+        ? null
+        : await createUserNotification({
+            userId: user.id,
+            senderId: systemUser.id,
+            title: input.title || "ChatAndTip",
+            message: input.message,
+            type: "broadcast",
+            metadata: {
+              campaignId: input.campaignId,
+              threadId: delivery.message.threadId,
+              targetType: "broadcast",
+              channel: input.channel || "IN_APP",
+            },
+            skipPush: true, // broadcast loop sends its own FCM push below
+          });
 
     // FCM push for offline users — fire-and-forget, doesn't block the loop
     if (createdNotification && user.deviceToken) {

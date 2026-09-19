@@ -1,59 +1,78 @@
-import "server-only"
+import "server-only";
 
-import { ChatMessageType, CreditKind, Prisma, PrismaClient, UserRole } from "@prisma/client"
-import { prisma, withDbRetry } from "@/lib/prisma"
-import { serializeMobileUser } from "@/lib/mobile-users"
-import { emitChatRealtimeToUser } from "@/lib/realtime"
-import { createUserNotification } from "@/lib/mobile-notifications"
-import { consumeCreditInTransaction, getCreditBalances } from "@/lib/mobile-credits"
-import { getSignedPrivateR2DownloadUrl } from "@/lib/r2"
+import {
+  ChatMessageType,
+  CreditKind,
+  Prisma,
+  PrismaClient,
+  UserRole,
+} from "@prisma/client";
+import { prisma, withDbRetry } from "@/lib/prisma";
+import { serializeMobileUser } from "@/lib/mobile-users";
+import { emitChatRealtimeToUser } from "@/lib/realtime";
+import { createUserNotification } from "@/lib/mobile-notifications";
+import {
+  consumeCreditInTransaction,
+  getCreditBalances,
+} from "@/lib/mobile-credits";
+import { getSignedPrivateR2DownloadUrl } from "@/lib/r2";
 
 type UserWithMedia = Prisma.UserGetPayload<{
-  include: { media: true }
-}>
+  include: { media: true };
+}>;
 
 type ChatParticipantWithThread = Prisma.ChatParticipantGetPayload<{
   include: {
     thread: {
       include: {
         messages: {
-          orderBy: { sentAt: "desc" }
-          take: 50
-        }
-      }
-    }
-  }
-}>
+          orderBy: { sentAt: "desc" };
+          take: 50;
+        };
+      };
+    };
+  };
+}>;
 
 function parseChatMessageType(type: ChatMessageType) {
-  return type.toLowerCase()
+  return type.toLowerCase();
 }
 
 function normalizeReactions(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {} as Record<string, string[]>
+    return {} as Record<string, string[]>;
   }
 
-  const entries = Object.entries(value as Record<string, unknown>).map(([emoji, users]) => [
-    emoji,
-    Array.isArray(users) ? users.map((userId) => String(userId)) : [],
-  ])
+  const entries = Object.entries(value as Record<string, unknown>).map(
+    ([emoji, users]) => [
+      emoji,
+      Array.isArray(users) ? users.map((userId) => String(userId)) : [],
+    ],
+  );
 
-  return Object.fromEntries(entries)
+  return Object.fromEntries(entries);
 }
 
-function serializeChatSummary(participant: ChatParticipantWithThread, receiver: UserWithMedia) {
+function serializeChatSummary(
+  participant: ChatParticipantWithThread,
+  receiver: UserWithMedia,
+) {
   const lastMessage = participant.thread.messages.find((message) => {
     const deletedFor = Array.isArray(message.deletedForUserIds)
       ? (message.deletedForUserIds as string[])
-      : []
-    return !deletedFor.includes(participant.userId)
-  })
-  if (!lastMessage) return null
-  const contentIsLocked = Boolean(lastMessage.locked && lastMessage.senderId !== participant.userId)
+      : [];
+    return !deletedFor.includes(participant.userId);
+  });
+  if (!lastMessage) return null;
+  const contentIsLocked = Boolean(
+    lastMessage.locked && lastMessage.senderId !== participant.userId,
+  );
   const lockedPreview = lastMessage.previewText
     ? `${lastMessage.previewText}…`
-    : buildLockedPreview(lastMessage.text || "", lastMessage.type.toLowerCase())
+    : buildLockedPreview(
+        lastMessage.text || "",
+        lastMessage.type.toLowerCase(),
+      );
 
   return {
     chatUserId: receiver.id,
@@ -61,75 +80,83 @@ function serializeChatSummary(participant: ChatParticipantWithThread, receiver: 
     msgType: parseChatMessageType(lastMessage.type),
     lastMsg: contentIsLocked
       ? lockedPreview
-      : lastMessage.text || (lastMessage.type === ChatMessageType.DOCUMENT ? "Document" : ""),
+      : lastMessage.text ||
+        (lastMessage.type === ChatMessageType.DOCUMENT ? "Document" : ""),
     sentAt: lastMessage.sentAt.toISOString(),
     unread: participant.unreadCount,
     broadcastOnly: participant.thread.broadcastOnly,
     threadKind: participant.thread.kind.toLowerCase(),
     receiver: serializeMobileUser(receiver),
-  }
+  };
 }
 
-const UNLOCK_WINDOW_MS = 24 * 60 * 60 * 1000
+const UNLOCK_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // A conversation's unlock is a fixed 24h grant from the moment a Key was
 // last spent — not a rolling window — so it expires exactly 24h after
 // `unlockedAt` regardless of how much chatting happened in between.
 function isUnlockWindowValid(unlockedAt: Date | null): boolean {
-  return unlockedAt != null && Date.now() - unlockedAt.getTime() < UNLOCK_WINDOW_MS
+  return (
+    unlockedAt != null && Date.now() - unlockedAt.getTime() < UNLOCK_WINDOW_MS
+  );
 }
 
 function buildLockedPreview(text: string, contentType: string): string {
-  if (contentType === "image") return ""
-  if (text.startsWith("enc:")) return ""
-  const preview = text.slice(0, 10)
-  return preview.length < text.length ? `${preview}…` : preview
+  if (contentType === "image") return "";
+  if (text.startsWith("enc:")) return "";
+  const preview = text.slice(0, 10);
+  return preview.length < text.length ? `${preview}…` : preview;
 }
 
-function serializeChatMessage(message: {
-  id: string
-  threadId: string
-  senderId: string
-  type: ChatMessageType
-  text: string | null
-  previewText?: string | null
-  imageUrl: string | null
-  imageObjectKey?: string | null
-  videoUrl?: string | null
-  videoObjectKey?: string | null
-  thumbnailUrl?: string | null
-  thumbnailObjectKey?: string | null
-  documentObjectKey?: string | null
-  documentName?: string | null
-  documentMimeType?: string | null
-  documentSizeBytes?: number | null
-  replyToId: string | null
-  replyToText: string | null
-  replyToSenderId: string | null
-  replyToSenderName: string | null
-  reactions: unknown
-  isRead: boolean
-  locked?: boolean
-  sentAt: Date
-}, options?: { viewerId?: string; unlockKind?: "KEY" | "CHAT_CREDIT" }) {
+function serializeChatMessage(
+  message: {
+    id: string;
+    threadId: string;
+    senderId: string;
+    type: ChatMessageType;
+    text: string | null;
+    previewText?: string | null;
+    imageUrl: string | null;
+    imageObjectKey?: string | null;
+    videoUrl?: string | null;
+    videoObjectKey?: string | null;
+    thumbnailUrl?: string | null;
+    thumbnailObjectKey?: string | null;
+    documentObjectKey?: string | null;
+    documentName?: string | null;
+    documentMimeType?: string | null;
+    documentSizeBytes?: number | null;
+    replyToId: string | null;
+    replyToText: string | null;
+    replyToSenderId: string | null;
+    replyToSenderName: string | null;
+    reactions: unknown;
+    isRead: boolean;
+    locked?: boolean;
+    sentAt: Date;
+  },
+  options?: { viewerId?: string; unlockKind?: "KEY" | "CHAT_CREDIT" },
+) {
   const hideContent = Boolean(
-    message.locked && options?.viewerId && message.senderId !== options.viewerId,
-  )
-  const rawText = message.text || ""
+    message.locked &&
+    options?.viewerId &&
+    message.senderId !== options.viewerId,
+  );
+  const rawText = message.text || "";
   const lockedContentType = message.documentObjectKey
     ? "document"
     : message.videoUrl || message.videoObjectKey
-    ? "video"
-    : message.imageUrl || message.imageObjectKey
-      ? "image"
-      : /https?:\/\/\S+/i.test(rawText)
-        ? "link"
-        : "text"
+      ? "video"
+      : message.imageUrl || message.imageObjectKey
+        ? "image"
+        : /https?:\/\/\S+/i.test(rawText)
+          ? "link"
+          : "text";
   // Client-captured plaintext preview covers encrypted text; fall back to
   // slicing rawText for older/unencrypted messages sent before this existed.
   const lockedPreview = message.previewText
     ? `${message.previewText}…`
-    : buildLockedPreview(rawText, lockedContentType)
+    : buildLockedPreview(rawText, lockedContentType);
 
   return {
     id: message.id,
@@ -152,9 +179,9 @@ function serializeChatMessage(message: {
     isRead: message.isRead,
     locked: hideContent,
     lockedContentType: hideContent ? lockedContentType : "",
-    unlockKind: hideContent ? options?.unlockKind ?? "CHAT_CREDIT" : "",
+    unlockKind: hideContent ? (options?.unlockKind ?? "CHAT_CREDIT") : "",
     sentAt: message.sentAt.toISOString(),
-  }
+  };
 }
 
 async function serializeChatMessageForViewer(
@@ -162,25 +189,37 @@ async function serializeChatMessageForViewer(
   viewerId: string,
   unlockKind?: "KEY" | "CHAT_CREDIT",
 ) {
-  const serialized = serializeChatMessage(message, { viewerId, unlockKind })
+  const serialized = serializeChatMessage(message, { viewerId, unlockKind });
   // All chat media lives in the private bucket, so every unlocked attachment
   // needs a signed URL. The default 5-minute expiry left media broken in a
   // chat left open for a while; an hour survives a normal session and media
   // is re-signed on every fetch anyway.
-  const mediaUrlTtlSeconds = 3600
+  const mediaUrlTtlSeconds = 3600;
   if (!serialized.locked && message.imageObjectKey) {
-    serialized.imageUrl = await getSignedPrivateR2DownloadUrl(message.imageObjectKey, mediaUrlTtlSeconds)
+    serialized.imageUrl = await getSignedPrivateR2DownloadUrl(
+      message.imageObjectKey,
+      mediaUrlTtlSeconds,
+    );
   }
   if (!serialized.locked && message.videoObjectKey) {
-    serialized.videoUrl = await getSignedPrivateR2DownloadUrl(message.videoObjectKey, mediaUrlTtlSeconds)
+    serialized.videoUrl = await getSignedPrivateR2DownloadUrl(
+      message.videoObjectKey,
+      mediaUrlTtlSeconds,
+    );
   }
   if (!serialized.locked && message.thumbnailObjectKey) {
-    serialized.thumbnailUrl = await getSignedPrivateR2DownloadUrl(message.thumbnailObjectKey, mediaUrlTtlSeconds)
+    serialized.thumbnailUrl = await getSignedPrivateR2DownloadUrl(
+      message.thumbnailObjectKey,
+      mediaUrlTtlSeconds,
+    );
   }
   if (!serialized.locked && message.documentObjectKey) {
-    serialized.documentUrl = await getSignedPrivateR2DownloadUrl(message.documentObjectKey, mediaUrlTtlSeconds)
+    serialized.documentUrl = await getSignedPrivateR2DownloadUrl(
+      message.documentObjectKey,
+      mediaUrlTtlSeconds,
+    );
   }
-  return serialized
+  return serialized;
 }
 
 async function getChatUserOrThrow(userId: string) {
@@ -190,18 +229,18 @@ async function getChatUserOrThrow(userId: string) {
       role: UserRole.USER,
     },
     include: { media: true },
-  })
+  });
 
   if (!user) {
-    throw new Error("User not found")
+    throw new Error("User not found");
   }
 
-  return user as UserWithMedia
+  return user as UserWithMedia;
 }
 
 async function ensureUsersCanChat(userId: string, otherUserId: string) {
   if (userId === otherUserId) {
-    throw new Error("You cannot message yourself")
+    throw new Error("You cannot message yourself");
   }
 
   const [me, other, block] = await Promise.all([
@@ -215,13 +254,13 @@ async function ensureUsersCanChat(userId: string, otherUserId: string) {
         ],
       },
     }),
-  ])
+  ]);
 
   if (block) {
-    throw new Error("Messaging is unavailable for this user")
+    throw new Error("Messaging is unavailable for this user");
   }
 
-  return { me, other }
+  return { me, other };
 }
 
 function hasActiveEntityPlan(user: UserWithMedia) {
@@ -230,29 +269,29 @@ function hasActiveEntityPlan(user: UserWithMedia) {
     user.entityPlanType &&
     user.entityPlanExpiresAt &&
     user.entityPlanExpiresAt > new Date(),
-  )
+  );
 }
 
 async function enforceEntityReplyAccess(user: UserWithMedia) {
   if (user.entityVerification !== "APPROVED" || !user.entityPublishedAt) {
-    throw new Error("Your entity account must be verified before replying")
+    throw new Error("Your entity account must be verified before replying");
   }
   if (!hasActiveEntityPlan(user)) {
-    throw new Error("Purchase a plan to reply to messages")
+    throw new Error("Purchase a plan to reply to messages");
   }
-  if (user.entityPlanType !== "BUSINESS") return
+  if (user.entityPlanType !== "BUSINESS") return;
 
-  const startOfDay = new Date()
-  startOfDay.setUTCHours(0, 0, 0, 0)
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
   const repliesToday = await prisma.chatMessage.count({
     where: {
       senderId: user.id,
       type: { not: ChatMessageType.TIP },
       sentAt: { gte: startOfDay },
     },
-  })
+  });
   if (repliesToday >= 70) {
-    throw new Error("Business plan daily reply limit reached")
+    throw new Error("Business plan daily reply limit reached");
   }
 }
 
@@ -262,7 +301,7 @@ async function getParticipant(userId: string, otherUserId: string) {
       userId,
       otherUserId,
     },
-  })
+  });
 }
 
 // Accepts either the main client or a transaction client — this is
@@ -300,14 +339,21 @@ async function getChatSummaryForUser(
       },
       include: { media: true },
     }),
-  ])
+  ]);
 
-  if (!participant || !receiver) return null
+  if (!participant || !receiver) return null;
 
-  return serializeChatSummary(participant as ChatParticipantWithThread, receiver as UserWithMedia)
+  return serializeChatSummary(
+    participant as ChatParticipantWithThread,
+    receiver as UserWithMedia,
+  );
 }
 
-async function getOrCreateThread(userId: string, otherUserId: string, tx: Prisma.TransactionClient) {
+async function getOrCreateThread(
+  userId: string,
+  otherUserId: string,
+  tx: Prisma.TransactionClient,
+) {
   const existing = await tx.chatParticipant.findFirst({
     where: {
       userId,
@@ -316,26 +362,26 @@ async function getOrCreateThread(userId: string, otherUserId: string, tx: Prisma
     select: {
       threadId: true,
     },
-  })
+  });
 
   if (existing) {
     // Lazily backfill initiatorId for threads that predate the locking system.
     const thread = await tx.chatThread.findUnique({
       where: { id: existing.threadId },
       select: { initiatorId: true },
-    })
+    });
     if (!thread?.initiatorId) {
       const firstMsg = await tx.chatMessage.findFirst({
         where: { threadId: existing.threadId },
         orderBy: { sentAt: "asc" },
         select: { senderId: true },
-      })
+      });
       await tx.chatThread.update({
         where: { id: existing.threadId },
         data: { initiatorId: firstMsg?.senderId ?? userId },
-      })
+      });
     }
-    return existing.threadId
+    return existing.threadId;
   }
 
   const created = await tx.chatThread.create({
@@ -350,13 +396,13 @@ async function getOrCreateThread(userId: string, otherUserId: string, tx: Prisma
       },
     },
     select: { id: true },
-  })
+  });
 
-  return created.id
+  return created.id;
 }
 
 export async function getChats(userId: string, query?: string) {
-  await getChatUserOrThrow(userId)
+  await getChatUserOrThrow(userId);
 
   const participants = (await prisma.chatParticipant.findMany({
     where: {
@@ -388,16 +434,20 @@ export async function getChats(userId: string, query?: string) {
         lastMessageAt: "desc",
       },
     },
-  })) as ChatParticipantWithThread[]
+  })) as ChatParticipantWithThread[];
 
   const visibleParticipants = participants.filter((participant) => {
-    if (!participant.thread.lastMessageAt) return false
-    return !participant.archived
-  })
+    if (!participant.thread.lastMessageAt) return false;
+    return !participant.archived;
+  });
 
   const otherUserIds = Array.from(
-    new Set(visibleParticipants.map((participant) => participant.otherUserId).filter(Boolean) as string[]),
-  )
+    new Set(
+      visibleParticipants
+        .map((participant) => participant.otherUserId)
+        .filter(Boolean) as string[],
+    ),
+  );
 
   const users = otherUserIds.length
     ? ((await prisma.user.findMany({
@@ -407,26 +457,29 @@ export async function getChats(userId: string, query?: string) {
         },
         include: { media: true },
       })) as UserWithMedia[])
-    : []
+    : [];
 
-  const usersById = new Map(users.map((user) => [user.id, user]))
+  const usersById = new Map(users.map((user) => [user.id, user]));
 
   return visibleParticipants
     .map((participant) => {
-      const receiver = participant.otherUserId ? usersById.get(participant.otherUserId) : undefined
+      const receiver = participant.otherUserId
+        ? usersById.get(participant.otherUserId)
+        : undefined;
 
-      if (!receiver) return null
+      if (!receiver) return null;
 
-      return serializeChatSummary(participant, receiver)
+      return serializeChatSummary(participant, receiver);
     })
-    .filter(Boolean)
+    .filter(Boolean);
 }
 
 export async function getMessages(userId: string, otherUserId: string) {
-  const { me, other } = await ensureUsersCanChat(userId, otherUserId)
-  const entityChat = me.accountType === "ENTITY" || other.accountType === "ENTITY"
+  const { me, other } = await ensureUsersCanChat(userId, otherUserId);
+  const entityChat =
+    me.accountType === "ENTITY" || other.accountType === "ENTITY";
 
-  const participant = await getParticipant(userId, otherUserId)
+  const participant = await getParticipant(userId, otherUserId);
   if (!participant) {
     // No ChatParticipant row exists until sendMessage creates the thread, so
     // this is a conversation that has never had a single message sent. The
@@ -445,10 +498,10 @@ export async function getMessages(userId: string, otherUserId: string) {
       entityChat,
       entityCanReply: me.accountType !== "ENTITY" || hasActiveEntityPlan(me),
       entityChatEnded: false,
-    }
+    };
   }
 
-  const clearedAt = participant.clearedAt
+  const clearedAt = participant.clearedAt;
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.chatParticipant.update({
@@ -457,7 +510,7 @@ export async function getMessages(userId: string, otherUserId: string) {
         unreadCount: 0,
         archived: false,
       },
-    })
+    });
 
     await tx.chatMessage.updateMany({
       where: {
@@ -468,23 +521,29 @@ export async function getMessages(userId: string, otherUserId: string) {
       data: {
         isRead: true,
       },
-    })
+    });
 
     const campaignIds = await tx.chatMessage.findMany({
-      where: { threadId: participant.threadId, broadcastCampaignId: { not: null } },
+      where: {
+        threadId: participant.threadId,
+        broadcastCampaignId: { not: null },
+      },
       select: { broadcastCampaignId: true },
       distinct: ["broadcastCampaignId"],
-    })
+    });
     for (const campaign of campaignIds) {
-      if (!campaign.broadcastCampaignId) continue
+      if (!campaign.broadcastCampaignId) continue;
       await tx.userNotification.updateMany({
         where: {
           userId,
           type: "broadcast",
-          metadata: { path: "$.campaignId", equals: campaign.broadcastCampaignId },
+          metadata: {
+            path: "$.campaignId",
+            equals: campaign.broadcastCampaignId,
+          },
         },
         data: { isRead: true },
-      })
+      });
     }
 
     const [messagesRaw, threadState, viewer] = await Promise.all([
@@ -507,15 +566,20 @@ export async function getMessages(userId: string, otherUserId: string) {
           entityChatEndedAt: true,
         },
       }),
-      tx.user.findUnique({ where: { id: userId }, select: { earningSuspendedUntil: true } }),
-    ])
+      tx.user.findUnique({
+        where: { id: userId },
+        select: { earningSuspendedUntil: true },
+      }),
+    ]);
 
     // Drop messages the viewer deleted from their own view — see
     // deleteMessage. The other participant's copy is untouched.
     const messages = messagesRaw.filter((m) => {
-      const deletedFor = Array.isArray(m.deletedForUserIds) ? (m.deletedForUserIds as string[]) : []
-      return !deletedFor.includes(userId)
-    })
+      const deletedFor = Array.isArray(m.deletedForUserIds)
+        ? (m.deletedForUserIds as string[])
+        : [];
+      return !deletedFor.includes(userId);
+    });
 
     // The viewer's next reply needs a fresh Key unlock (and so enforces the
     // 100-char minimum in the composer) when the viewer is the
@@ -524,13 +588,17 @@ export async function getMessages(userId: string, otherUserId: string) {
     // opened, or expired). Once a window is open, replies flow normally with
     // no length requirement — whether actively auto-deducting or paused for
     // a ChatCredit top-up.
-    const unlockWindowValid = isUnlockWindowValid(threadState.unlockedAt)
+    const unlockWindowValid = isUnlockWindowValid(threadState.unlockedAt);
     const freshIcebreakerExists = Boolean(
       threadState.cycleIcebreakerId &&
       threadState.cycleStartedAt &&
-      (!threadState.unlockedAt || threadState.cycleStartedAt > threadState.unlockedAt),
-    )
-    const earningSuspended = Boolean(viewer?.earningSuspendedUntil && viewer.earningSuspendedUntil > new Date())
+      (!threadState.unlockedAt ||
+        threadState.cycleStartedAt > threadState.unlockedAt),
+    );
+    const earningSuspended = Boolean(
+      viewer?.earningSuspendedUntil &&
+      viewer.earningSuspendedUntil > new Date(),
+    );
     const willChargeReply = Boolean(
       !entityChat &&
       !threadState.broadcastOnly &&
@@ -539,51 +607,61 @@ export async function getMessages(userId: string, otherUserId: string) {
       threadState.initiatorId !== userId &&
       freshIcebreakerExists &&
       !unlockWindowValid,
-    )
+    );
 
     // Only one Key per conversation per 24h window — within a valid window,
     // unlocking always spends a ChatCredit, regardless of current balance.
-    const unlockKind: "KEY" | "CHAT_CREDIT" = unlockWindowValid ? "CHAT_CREDIT" : "KEY"
+    const unlockKind: "KEY" | "CHAT_CREDIT" = unlockWindowValid
+      ? "CHAT_CREDIT"
+      : "KEY";
 
     return {
       messages,
       unlockKind,
       willChargeReply,
       turnTakingRequired: !entityChat && !unlockWindowValid,
-      cycleState: entityChat ? "unlocked" : unlockWindowValid
+      cycleState: entityChat
         ? "unlocked"
-        : !freshIcebreakerExists
-          ? "awaiting_icebreaker"
-          : threadState.cycleLockedReplyId
-            ? "awaiting_unlock"
-            : "awaiting_creator_reply",
-      unlockExpiresAt: unlockWindowValid && threadState.unlockedAt
-        ? new Date(threadState.unlockedAt.getTime() + UNLOCK_WINDOW_MS).toISOString()
-        : null,
+        : unlockWindowValid
+          ? "unlocked"
+          : !freshIcebreakerExists
+            ? "awaiting_icebreaker"
+            : threadState.cycleLockedReplyId
+              ? "awaiting_unlock"
+              : "awaiting_creator_reply",
+      unlockExpiresAt:
+        unlockWindowValid && threadState.unlockedAt
+          ? new Date(
+              threadState.unlockedAt.getTime() + UNLOCK_WINDOW_MS,
+            ).toISOString()
+          : null,
       // While the cycle is dormant (window lapsed, no fresh icebreaker sent
       // yet), either participant can send the next free icebreaker and
       // become the new initiator — so both viewers see themselves as able to
       // send here, not just whoever the thread's initiator happened to be.
-      viewerIsInitiator: entityChat ? false : !unlockWindowValid && !freshIcebreakerExists
-        ? true
-        : threadState.initiatorId === userId,
+      viewerIsInitiator: entityChat
+        ? false
+        : !unlockWindowValid && !freshIcebreakerExists
+          ? true
+          : threadState.initiatorId === userId,
       readAt: new Date().toISOString(),
       entityChat,
       entityCanReply: me.accountType !== "ENTITY" || hasActiveEntityPlan(me),
-      entityChatEnded: me.accountType === "ENTITY" && Boolean(threadState.entityChatEndedAt),
-    }
-  })
+      entityChatEnded:
+        me.accountType === "ENTITY" && Boolean(threadState.entityChatEndedAt),
+    };
+  });
 
   // Outside the transaction — read-only broadcast summary, not required to
   // be atomic with the writes above (see getChatSummaryForUser's comment).
-  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId)
+  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId);
   if (chatSummary) {
     emitChatRealtimeToUser(userId, {
       channel: "chat",
       type: "chat_updated",
       otherUserId,
       data: chatSummary,
-    })
+    });
   }
 
   emitChatRealtimeToUser(otherUserId, {
@@ -591,13 +669,13 @@ export async function getMessages(userId: string, otherUserId: string) {
     type: "messages_read",
     otherUserId: userId,
     readAt: result.readAt,
-  })
+  });
 
   const serializedMessages = await Promise.all(
     result.messages.map((message) =>
       serializeChatMessageForViewer(message, userId, result.unlockKind),
     ),
-  )
+  );
   return {
     messages: serializedMessages,
     willChargeReply: result.willChargeReply,
@@ -605,45 +683,46 @@ export async function getMessages(userId: string, otherUserId: string) {
     cycleState: result.cycleState,
     unlockExpiresAt: result.unlockExpiresAt,
     viewerIsInitiator: result.viewerIsInitiator,
-  }
+  };
 }
 
 export async function sendMessage(input: {
-  senderId: string
-  receiverId: string
-  textMsg?: string
-  previewText?: string
-  textLength?: number
-  imageUrl?: string
-  imageObjectKey?: string
-  videoUrl?: string
-  videoObjectKey?: string
-  thumbnailUrl?: string
-  thumbnailObjectKey?: string
-  documentObjectKey?: string
-  documentName?: string
-  documentMimeType?: string
-  documentSizeBytes?: number
-  replyToId?: string
-  replyToText?: string
-  replyToSenderId?: string
-  replyToSenderName?: string
+  senderId: string;
+  receiverId: string;
+  textMsg?: string;
+  previewText?: string;
+  textLength?: number;
+  imageUrl?: string;
+  imageObjectKey?: string;
+  videoUrl?: string;
+  videoObjectKey?: string;
+  thumbnailUrl?: string;
+  thumbnailObjectKey?: string;
+  documentObjectKey?: string;
+  documentName?: string;
+  documentMimeType?: string;
+  documentSizeBytes?: number;
+  replyToId?: string;
+  replyToText?: string;
+  replyToSenderId?: string;
+  replyToSenderName?: string;
 }) {
-  const textMsg = input.textMsg?.trim() || ""
-  const previewText = input.previewText?.trim().slice(0, 10) || ""
-  const imageUrl = input.imageUrl?.trim() || ""
-  const imageObjectKey = input.imageObjectKey?.trim() || ""
-  const videoUrl = input.videoUrl?.trim() || ""
-  const videoObjectKey = input.videoObjectKey?.trim() || ""
-  const thumbnailUrl = input.thumbnailUrl?.trim() || ""
-  const thumbnailObjectKey = input.thumbnailObjectKey?.trim() || ""
-  const documentObjectKey = input.documentObjectKey?.trim() || ""
-  const documentName = input.documentName?.trim().slice(0, 255) || "Document"
-  const documentMimeType = input.documentMimeType?.trim().slice(0, 191) || "application/octet-stream"
-  const documentSizeBytes = Math.max(0, input.documentSizeBytes ?? 0)
-  const hasDocument = Boolean(documentObjectKey)
-  const hasImage = Boolean(imageUrl || imageObjectKey)
-  const hasVideo = Boolean(videoUrl || videoObjectKey)
+  const textMsg = input.textMsg?.trim() || "";
+  const previewText = input.previewText?.trim().slice(0, 10) || "";
+  const imageUrl = input.imageUrl?.trim() || "";
+  const imageObjectKey = input.imageObjectKey?.trim() || "";
+  const videoUrl = input.videoUrl?.trim() || "";
+  const videoObjectKey = input.videoObjectKey?.trim() || "";
+  const thumbnailUrl = input.thumbnailUrl?.trim() || "";
+  const thumbnailObjectKey = input.thumbnailObjectKey?.trim() || "";
+  const documentObjectKey = input.documentObjectKey?.trim() || "";
+  const documentName = input.documentName?.trim().slice(0, 255) || "Document";
+  const documentMimeType =
+    input.documentMimeType?.trim().slice(0, 191) || "application/octet-stream";
+  const documentSizeBytes = Math.max(0, input.documentSizeBytes ?? 0);
+  const hasDocument = Boolean(documentObjectKey);
+  const hasImage = Boolean(imageUrl || imageObjectKey);
+  const hasVideo = Boolean(videoUrl || videoObjectKey);
 
   console.info("[chat:send] received", {
     senderId: input.senderId,
@@ -652,20 +731,24 @@ export async function sendMessage(input: {
     textLength: input.textLength ?? textMsg.length,
     hasImage,
     hasVideo,
-  })
+  });
 
   if (!textMsg && !hasImage && !hasVideo && !hasDocument) {
-    throw new Error("Message content is required")
+    throw new Error("Message content is required");
   }
   if ([hasImage, hasVideo, hasDocument].filter(Boolean).length > 1) {
-    throw new Error("Send one attachment type per message")
+    throw new Error("Send one attachment type per message");
   }
 
-  const { me, other } = await ensureUsersCanChat(input.senderId, input.receiverId)
-  const entityChat = me.accountType === "ENTITY" || other.accountType === "ENTITY"
+  const { me, other } = await ensureUsersCanChat(
+    input.senderId,
+    input.receiverId,
+  );
+  const entityChat =
+    me.accountType === "ENTITY" || other.accountType === "ENTITY";
 
   if (me.accountType === "ENTITY") {
-    await enforceEntityReplyAccess(me)
+    await enforceEntityReplyAccess(me);
     const priorUserMessage = await prisma.chatMessage.findFirst({
       where: {
         senderId: input.receiverId,
@@ -673,244 +756,286 @@ export async function sendMessage(input: {
         type: { not: ChatMessageType.TIP },
       },
       select: { id: true },
-    })
+    });
     if (!priorUserMessage) {
-      throw new Error("This user has not initiated contact yet.")
+      throw new Error("This user has not initiated contact yet.");
     }
   }
 
-  const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
-    const threadId = await getOrCreateThread(input.senderId, input.receiverId, tx)
-    const messageType = hasDocument
-      ? ChatMessageType.DOCUMENT
-      : hasVideo
-        ? ChatMessageType.VIDEO
-        : hasImage
-          ? ChatMessageType.IMAGE
-          : ChatMessageType.TEXT
+  const result = await withDbRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const threadId = await getOrCreateThread(
+        input.senderId,
+        input.receiverId,
+        tx,
+      );
+      const messageType = hasDocument
+        ? ChatMessageType.DOCUMENT
+        : hasVideo
+          ? ChatMessageType.VIDEO
+          : hasImage
+            ? ChatMessageType.IMAGE
+            : ChatMessageType.TEXT;
 
-    // A creator's first reply stays locked until the initiator opens the
-    // conversation. Once unlocked, the chat behaves like SMS: the initiator
-    // pays one ChatCredit when sending; creator replies are free.
-    const thread = await tx.chatThread.findUnique({
-      where: { id: threadId },
-      select: {
-        initiatorId: true,
-        unlockedAt: true,
-        broadcastOnly: true,
-        cycleStartedAt: true,
-        cycleIcebreakerId: true,
-        cycleLockedReplyId: true,
-        entityChatEndedAt: true,
-      },
-    })
-    if (thread?.broadcastOnly) throw new Error("Replies are not available for broadcast messages")
-    if (entityChat && thread?.entityChatEndedAt && me.accountType === "ENTITY") {
-      throw new Error("This chat has ended. The user must send a new message to restart it.")
-    }
-    const reopensEntityChat = Boolean(
-      entityChat && thread?.entityChatEndedAt && me.accountType !== "ENTITY",
-    )
-    const unlockWindowValid = entityChat || isUnlockWindowValid(thread?.unlockedAt ?? null)
-    const freshIcebreakerExists = Boolean(
-      thread?.cycleIcebreakerId &&
-      thread.cycleStartedAt &&
-      (!thread.unlockedAt || thread.cycleStartedAt > thread.unlockedAt),
-    )
-    // Once the unlock window has lapsed and no fresh icebreaker has started
-    // this cycle, the conversation is dormant: whoever sends next becomes the
-    // new initiator and gets a free icebreaker, restarting the cycle. This
-    // lets roles flip between the two participants over time instead of
-    // always favouring whoever sent the very first message in the thread.
-    const cycleIsDormant = !unlockWindowValid && !freshIcebreakerExists
-    const reassignInitiator = cycleIsDormant && thread?.initiatorId !== input.senderId
-    const effectiveInitiatorId = reassignInitiator ? input.senderId : thread?.initiatorId ?? null
-    const startingFreshIcebreaker = Boolean(
-      effectiveInitiatorId === input.senderId && cycleIsDormant,
-    )
-
-    // Before the conversation is unlocked (or after the fixed 24-hour grant
-    // expires), messages alternate. A valid unlock window lets the chat flow
-    // naturally; the initiator still pays a ChatCredit for each own send.
-    const lastMessage = unlockWindowValid ? null : await tx.chatMessage.findFirst({
-      where: {
-        threadId,
-        type: { not: ChatMessageType.TIP },
-      },
-      orderBy: { sentAt: "desc" },
-      select: { senderId: true, type: true, sentAt: true },
-    })
-    console.info("[chat:send] turn-check", {
-      threadId,
-      senderId: input.senderId,
-      turnTakingEnforced: !unlockWindowValid,
-      lastConversationalSenderId: lastMessage?.senderId ?? null,
-      lastConversationalType: lastMessage?.type ?? null,
-      lastConversationalSentAt: lastMessage?.sentAt.toISOString() ?? null,
-      tipsIgnored: true,
-    })
-    if (!unlockWindowValid && !startingFreshIcebreaker && lastMessage && lastMessage.senderId === input.senderId) {
-      console.warn("[chat:send] blocked by turn-taking", {
-        threadId,
-        senderId: input.senderId,
-        lastConversationalSenderId: lastMessage.senderId,
-      })
-      throw new Error("Wait for a reply before sending another message")
-    }
-
-    const earningSuspended = Boolean(me.earningSuspendedUntil && me.earningSuspendedUntil > new Date())
-    const isInitiator = effectiveInitiatorId === input.senderId
-    const isNonInitiator = effectiveInitiatorId != null && effectiveInitiatorId !== input.senderId
-    let locked = false
-    let autoDeductCredit = false
-    // Only true for a non-initiator's first reply after a conversation has
-    // never been unlocked or its 24-hour window has expired.
-    let needsKeyUnlock = false
-    const startsNewCycle = startingFreshIcebreaker
-    if (isInitiator && !unlockWindowValid) {
-      if (freshIcebreakerExists && thread?.cycleLockedReplyId) {
-        throw new Error("Unlock the conversation before sending a message")
+      // A creator's first reply stays locked until the initiator opens the
+      // conversation. Once unlocked, the chat behaves like SMS: the initiator
+      // pays one ChatCredit when sending; creator replies are free.
+      const thread = await tx.chatThread.findUnique({
+        where: { id: threadId },
+        select: {
+          initiatorId: true,
+          unlockedAt: true,
+          broadcastOnly: true,
+          cycleStartedAt: true,
+          cycleIcebreakerId: true,
+          cycleLockedReplyId: true,
+          entityChatEndedAt: true,
+        },
+      });
+      if (thread?.broadcastOnly)
+        throw new Error("Replies are not available for broadcast messages");
+      if (
+        entityChat &&
+        thread?.entityChatEndedAt &&
+        me.accountType === "ENTITY"
+      ) {
+        throw new Error(
+          "This chat has ended. The user must send a new message to restart it.",
+        );
       }
-    }
-    if (!earningSuspended && isNonInitiator && !unlockWindowValid) {
-      if (!freshIcebreakerExists) {
-        // The dormant-cycle reassignment above already handles this sender
-        // becoming the new initiator — this only remains reachable if that
-        // guard didn't apply (e.g. earning-suspended sender).
-        throw new Error("Wait for a new icebreaker before replying")
+      const reopensEntityChat = Boolean(
+        entityChat && thread?.entityChatEndedAt && me.accountType !== "ENTITY",
+      );
+      const unlockWindowValid =
+        entityChat || isUnlockWindowValid(thread?.unlockedAt ?? null);
+      const freshIcebreakerExists = Boolean(
+        thread?.cycleIcebreakerId &&
+        thread.cycleStartedAt &&
+        (!thread.unlockedAt || thread.cycleStartedAt > thread.unlockedAt),
+      );
+      // Once the unlock window has lapsed and no fresh icebreaker has started
+      // this cycle, the conversation is dormant: whoever sends next becomes the
+      // new initiator and gets a free icebreaker, restarting the cycle. This
+      // lets roles flip between the two participants over time instead of
+      // always favouring whoever sent the very first message in the thread.
+      const cycleIsDormant = !unlockWindowValid && !freshIcebreakerExists;
+      const reassignInitiator =
+        cycleIsDormant && thread?.initiatorId !== input.senderId;
+      const effectiveInitiatorId = reassignInitiator
+        ? input.senderId
+        : (thread?.initiatorId ?? null);
+      const startingFreshIcebreaker = Boolean(
+        effectiveInitiatorId === input.senderId && cycleIsDormant,
+      );
+
+      // Before the conversation is unlocked (or after the fixed 24-hour grant
+      // expires), messages alternate. A valid unlock window lets the chat flow
+      // naturally; the initiator still pays a ChatCredit for each own send.
+      const lastMessage = unlockWindowValid
+        ? null
+        : await tx.chatMessage.findFirst({
+            where: {
+              threadId,
+              type: { not: ChatMessageType.TIP },
+            },
+            orderBy: { sentAt: "desc" },
+            select: { senderId: true, type: true, sentAt: true },
+          });
+      console.info("[chat:send] turn-check", {
+        threadId,
+        senderId: input.senderId,
+        turnTakingEnforced: !unlockWindowValid,
+        lastConversationalSenderId: lastMessage?.senderId ?? null,
+        lastConversationalType: lastMessage?.type ?? null,
+        lastConversationalSentAt: lastMessage?.sentAt.toISOString() ?? null,
+        tipsIgnored: true,
+      });
+      if (
+        !unlockWindowValid &&
+        !startingFreshIcebreaker &&
+        lastMessage &&
+        lastMessage.senderId === input.senderId
+      ) {
+        console.warn("[chat:send] blocked by turn-taking", {
+          threadId,
+          senderId: input.senderId,
+          lastConversationalSenderId: lastMessage.senderId,
+        });
+        throw new Error("Wait for a reply before sending another message");
       }
-      // Never unlocked yet, or grant expired: this reply starts the locked
-      // conversation the initiator must open with a Key.
-      locked = true
-      needsKeyUnlock = true
-    }
-    if (isInitiator && unlockWindowValid && !entityChat) {
-      // The initiator pays when they send, never when the other party
-      // replies. consumeCreditInTransaction makes this atomic and rolls back
-      // the message if the initiator has no ChatCredits left.
-      autoDeductCredit = true
-    }
-    if (locked && imageUrl && !imageObjectKey) {
-      throw new Error("Paid image replies must use private upload storage")
-    }
-    if (locked && ((videoUrl && !videoObjectKey) || (thumbnailUrl && !thumbnailObjectKey))) {
-      throw new Error("Paid video replies must use private upload storage")
-    }
-    // For encrypted text, the client reports the true plaintext length —
-    // textMsg.length would measure ciphertext, which is always inflated.
-    const effectiveLength = textMsg.startsWith("enc:") ? (input.textLength ?? 0) : textMsg.length
-    // Only the creator reply that starts a locked conversation enforces the
-    // 100-character minimum. Once the window is open, normal messages have
-    // no length requirement. Media replies (photo/video) are exempt too.
-    if (needsKeyUnlock && !hasImage && !hasVideo && !hasDocument && effectiveLength < 100) {
-      console.warn("[chat:send] blocked by locked-reply minimum", {
+
+      const earningSuspended = Boolean(
+        me.earningSuspendedUntil && me.earningSuspendedUntil > new Date(),
+      );
+      const isInitiator = effectiveInitiatorId === input.senderId;
+      const isNonInitiator =
+        effectiveInitiatorId != null && effectiveInitiatorId !== input.senderId;
+      let locked = false;
+      let autoDeductCredit = false;
+      // Only true for a non-initiator's first reply after a conversation has
+      // never been unlocked or its 24-hour window has expired.
+      let needsKeyUnlock = false;
+      const startsNewCycle = startingFreshIcebreaker;
+      if (isInitiator && !unlockWindowValid) {
+        if (freshIcebreakerExists && thread?.cycleLockedReplyId) {
+          throw new Error("Unlock the conversation before sending a message");
+        }
+      }
+      if (!earningSuspended && isNonInitiator && !unlockWindowValid) {
+        if (!freshIcebreakerExists) {
+          // The dormant-cycle reassignment above already handles this sender
+          // becoming the new initiator — this only remains reachable if that
+          // guard didn't apply (e.g. earning-suspended sender).
+          throw new Error("Wait for a new icebreaker before replying");
+        }
+        // Never unlocked yet, or grant expired: this reply starts the locked
+        // conversation the initiator must open with a Key.
+        locked = true;
+        needsKeyUnlock = true;
+      }
+      if (isInitiator && unlockWindowValid && !entityChat) {
+        // The initiator pays when they send, never when the other party
+        // replies. consumeCreditInTransaction makes this atomic and rolls back
+        // the message if the initiator has no ChatCredits left.
+        autoDeductCredit = true;
+      }
+      if (locked && imageUrl && !imageObjectKey) {
+        throw new Error("Paid image replies must use private upload storage");
+      }
+      if (
+        locked &&
+        ((videoUrl && !videoObjectKey) || (thumbnailUrl && !thumbnailObjectKey))
+      ) {
+        throw new Error("Paid video replies must use private upload storage");
+      }
+      // For encrypted text, the client reports the true plaintext length —
+      // textMsg.length would measure ciphertext, which is always inflated.
+      const effectiveLength = textMsg.startsWith("enc:")
+        ? (input.textLength ?? 0)
+        : textMsg.length;
+      // Only the creator reply that starts a locked conversation enforces the
+      // 100-character minimum. Once the window is open, normal messages have
+      // no length requirement. Media replies (photo/video) are exempt too.
+      if (
+        needsKeyUnlock &&
+        !hasImage &&
+        !hasVideo &&
+        !hasDocument &&
+        effectiveLength < 100
+      ) {
+        console.warn("[chat:send] blocked by locked-reply minimum", {
+          threadId,
+          senderId: input.senderId,
+          effectiveLength,
+        });
+        throw new Error("Minimum 100 characters for the first response");
+      }
+
+      console.info("[chat:send] policy", {
         threadId,
         senderId: input.senderId,
-        effectiveLength,
-      })
-      throw new Error("Minimum 100 characters for the first response")
-    }
-
-    console.info("[chat:send] policy", {
-      threadId,
-      senderId: input.senderId,
-      isInitiator,
-      isNonInitiator,
-      unlockWindowValid,
-      needsKeyUnlock,
-      locked,
-      autoDeductCredit,
-      messageType,
-    })
-
-    const message = await tx.chatMessage.create({
-      data: {
-        threadId,
-        senderId: input.senderId,
-        type: messageType,
-        text: textMsg || null,
-        previewText: previewText || null,
-        imageUrl: imageUrl || null,
-        imageObjectKey: imageObjectKey || null,
-        videoUrl: videoUrl || null,
-        videoObjectKey: videoObjectKey || null,
-        thumbnailUrl: thumbnailUrl || null,
-        thumbnailObjectKey: thumbnailObjectKey || null,
-        documentObjectKey: documentObjectKey || null,
-        documentName: hasDocument ? documentName : null,
-        documentMimeType: hasDocument ? documentMimeType : null,
-        documentSizeBytes: hasDocument ? documentSizeBytes : null,
-        replyToId: input.replyToId || null,
-        replyToText: input.replyToText || null,
-        replyToSenderId: input.replyToSenderId || null,
-        replyToSenderName: input.replyToSenderName || null,
-        reactions: {},
+        isInitiator,
+        isNonInitiator,
+        unlockWindowValid,
+        needsKeyUnlock,
         locked,
-      },
-    })
+        autoDeductCredit,
+        messageType,
+      });
 
-    // Deduct one ChatCredit only when the initiator sends in an open window.
-    if (autoDeductCredit) {
-      await consumeCreditInTransaction(tx, {
-        userId: input.senderId,
-        creatorId: input.receiverId,
-        kind: "CHAT_CREDIT" as CreditKind,
-        idempotencyKey: `autochat:${message.id}`,
-        metadata: { threadId, messageId: message.id, autoDeducted: true },
-      })
-      console.info("[chat:send] chat credit deducted", {
-        threadId,
-        messageId: message.id,
-        senderId: input.senderId,
-      })
-    }
+      const message = await tx.chatMessage.create({
+        data: {
+          threadId,
+          senderId: input.senderId,
+          type: messageType,
+          text: textMsg || null,
+          previewText: previewText || null,
+          imageUrl: imageUrl || null,
+          imageObjectKey: imageObjectKey || null,
+          videoUrl: videoUrl || null,
+          videoObjectKey: videoObjectKey || null,
+          thumbnailUrl: thumbnailUrl || null,
+          thumbnailObjectKey: thumbnailObjectKey || null,
+          documentObjectKey: documentObjectKey || null,
+          documentName: hasDocument ? documentName : null,
+          documentMimeType: hasDocument ? documentMimeType : null,
+          documentSizeBytes: hasDocument ? documentSizeBytes : null,
+          replyToId: input.replyToId || null,
+          replyToText: input.replyToText || null,
+          replyToSenderId: input.replyToSenderId || null,
+          replyToSenderName: input.replyToSenderName || null,
+          reactions: {},
+          locked,
+        },
+      });
 
-    await tx.chatThread.update({
-      where: { id: threadId },
-      data: {
-        lastMessageText: textMsg || null,
-        lastMessageType: messageType,
-        lastMessageAt: message.sentAt,
-        ...(reassignInitiator ? { initiatorId: input.senderId } : {}),
-        ...(startsNewCycle ? {
-          cycleStartedAt: message.sentAt,
-          cycleIcebreakerId: message.id,
-          cycleLockedReplyId: null,
-        } : {}),
-        ...(needsKeyUnlock ? { cycleLockedReplyId: message.id } : {}),
-        ...(reopensEntityChat
-          ? { entityChatEndedAt: null, entityChatEndedById: null }
-          : {}),
-      },
-    })
+      // Deduct one ChatCredit only when the initiator sends in an open window.
+      if (autoDeductCredit) {
+        await consumeCreditInTransaction(tx, {
+          userId: input.senderId,
+          creatorId: input.receiverId,
+          kind: "CHAT_CREDIT" as CreditKind,
+          idempotencyKey: `autochat:${message.id}`,
+          metadata: { threadId, messageId: message.id, autoDeducted: true },
+        });
+        console.info("[chat:send] chat credit deducted", {
+          threadId,
+          messageId: message.id,
+          senderId: input.senderId,
+        });
+      }
 
-    await tx.chatParticipant.updateMany({
-      where: {
-        threadId,
-        userId: input.senderId,
-      },
-      data: {
-        archived: false,
-      },
-    })
+      await tx.chatThread.update({
+        where: { id: threadId },
+        data: {
+          lastMessageText: textMsg || null,
+          lastMessageType: messageType,
+          lastMessageAt: message.sentAt,
+          ...(reassignInitiator ? { initiatorId: input.senderId } : {}),
+          ...(startsNewCycle
+            ? {
+                cycleStartedAt: message.sentAt,
+                cycleIcebreakerId: message.id,
+                cycleLockedReplyId: null,
+              }
+            : {}),
+          ...(needsKeyUnlock ? { cycleLockedReplyId: message.id } : {}),
+          ...(reopensEntityChat
+            ? { entityChatEndedAt: null, entityChatEndedById: null }
+            : {}),
+        },
+      });
 
-    await tx.chatParticipant.updateMany({
-      where: {
-        threadId,
-        userId: input.receiverId,
-      },
-      data: {
-        archived: false,
-        unreadCount: { increment: 1 },
-      },
-    })
+      await tx.chatParticipant.updateMany({
+        where: {
+          threadId,
+          userId: input.senderId,
+        },
+        data: {
+          archived: false,
+        },
+      });
 
-    return {
-      message,
-      unlockKind: needsKeyUnlock ? "KEY" as const : "CHAT_CREDIT" as const,
-      locked,
-    }
-  }))
+      await tx.chatParticipant.updateMany({
+        where: {
+          threadId,
+          userId: input.receiverId,
+        },
+        data: {
+          archived: false,
+          unreadCount: { increment: 1 },
+        },
+      });
+
+      return {
+        message,
+        unlockKind: needsKeyUnlock
+          ? ("KEY" as const)
+          : ("CHAT_CREDIT" as const),
+        locked,
+      };
+    }),
+  );
 
   console.info("[chat:send] committed", {
     messageId: result.message.id,
@@ -918,17 +1043,22 @@ export async function sendMessage(input: {
     senderId: input.senderId,
     receiverId: input.receiverId,
     locked: result.locked,
-  })
+  });
 
   // Deliberately computed after the transaction commits — these are
   // read-only realtime-broadcast summaries, not something that needs to be
   // atomic with the write above (see getChatSummaryForUser's comment).
-  const [senderMessage, receiverMessage, senderSummary, receiverSummary] = await Promise.all([
-    serializeChatMessageForViewer(result.message, input.senderId),
-    serializeChatMessageForViewer(result.message, input.receiverId, result.unlockKind),
-    getChatSummaryForUser(prisma, input.senderId, input.receiverId),
-    getChatSummaryForUser(prisma, input.receiverId, input.senderId),
-  ])
+  const [senderMessage, receiverMessage, senderSummary, receiverSummary] =
+    await Promise.all([
+      serializeChatMessageForViewer(result.message, input.senderId),
+      serializeChatMessageForViewer(
+        result.message,
+        input.receiverId,
+        result.unlockKind,
+      ),
+      getChatSummaryForUser(prisma, input.senderId, input.receiverId),
+      getChatSummaryForUser(prisma, input.receiverId, input.senderId),
+    ]);
 
   await createUserNotification({
     userId: input.receiverId,
@@ -936,27 +1066,32 @@ export async function sendMessage(input: {
     title: me.fullName,
     message: result.locked
       ? "Sent you a reply"
-      : textMsg || (hasDocument ? "Sent you a document" : hasVideo ? "Sent you a video" : "Sent you a photo"),
+      : textMsg ||
+        (hasDocument
+          ? "Sent you a document"
+          : hasVideo
+            ? "Sent you a video"
+            : "Sent you a photo"),
     type: "message",
     metadata: {
       threadUserId: input.senderId,
       messageId: senderMessage.id,
     },
-  })
+  });
 
   emitChatRealtimeToUser(input.senderId, {
     channel: "chat",
     type: "message_created",
     otherUserId: input.receiverId,
     data: senderMessage,
-  })
+  });
 
   emitChatRealtimeToUser(input.receiverId, {
     channel: "chat",
     type: "message_created",
     otherUserId: input.senderId,
     data: receiverMessage,
-  })
+  });
 
   if (senderSummary) {
     emitChatRealtimeToUser(input.senderId, {
@@ -964,7 +1099,7 @@ export async function sendMessage(input: {
       type: "chat_updated",
       otherUserId: input.receiverId,
       data: senderSummary,
-    })
+    });
   }
 
   if (receiverSummary) {
@@ -973,10 +1108,10 @@ export async function sendMessage(input: {
       type: "chat_updated",
       otherUserId: input.senderId,
       data: receiverSummary,
-    })
+    });
   }
 
-  return { ...senderMessage, receiver: serializeMobileUser(other) }
+  return { ...senderMessage, receiver: serializeMobileUser(other) };
 }
 
 /**
@@ -990,55 +1125,72 @@ export async function sendMessage(input: {
  * initiator has no matching credit — the client should prompt to buy more
  * ChatCredits in that case, not offer a Key.
  */
-export async function unlockReply(input: { userId: string; messageId: string }) {
-  const result = await prisma.$transaction(async (tx) => {
-    const message = await tx.chatMessage.findUnique({
-      where: { id: input.messageId },
-      include: { thread: { select: { id: true, initiatorId: true, unlockedAt: true } } },
-    })
-    if (!message) throw new Error("Message not found")
-    if (message.thread.initiatorId !== input.userId) {
-      throw new Error("Only the conversation initiator can unlock replies")
-    }
+export async function unlockReply(input: {
+  userId: string;
+  messageId: string;
+}) {
+  const result = await prisma.$transaction(
+    async (tx) => {
+      const message = await tx.chatMessage.findUnique({
+        where: { id: input.messageId },
+        include: {
+          thread: { select: { id: true, initiatorId: true, unlockedAt: true } },
+        },
+      });
+      if (!message) throw new Error("Message not found");
+      if (message.thread.initiatorId !== input.userId) {
+        throw new Error("Only the conversation initiator can unlock replies");
+      }
 
-    // Claim this message before charging. A concurrent retry observes count=0
-    // and returns without spending a second credit.
-    const claimed = await tx.chatMessage.updateMany({
-      where: { id: message.id, locked: true },
-      data: { locked: false },
-    })
-    if (claimed.count === 0) {
-      const current = await tx.chatMessage.findUniqueOrThrow({ where: { id: message.id } })
-      return { message: current, creatorId: message.senderId }
-    }
+      // Claim this message before charging. A concurrent retry observes count=0
+      // and returns without spending a second credit.
+      const claimed = await tx.chatMessage.updateMany({
+        where: { id: message.id, locked: true },
+        data: { locked: false },
+      });
+      if (claimed.count === 0) {
+        const current = await tx.chatMessage.findUniqueOrThrow({
+          where: { id: message.id },
+        });
+        return { message: current, creatorId: message.senderId };
+      }
 
-    // Only one Key per conversation per 24h window — a mid-window credit
-    // shortfall always resolves with a ChatCredit (or throws for the client
-    // to prompt a top-up), never a second Key.
-    const kind: CreditKind = isUnlockWindowValid(message.thread.unlockedAt) ? "CHAT_CREDIT" : "KEY"
+      // Only one Key per conversation per 24h window — a mid-window credit
+      // shortfall always resolves with a ChatCredit (or throws for the client
+      // to prompt a top-up), never a second Key.
+      const kind: CreditKind = isUnlockWindowValid(message.thread.unlockedAt)
+        ? "CHAT_CREDIT"
+        : "KEY";
 
-    if (kind === "KEY") {
-      // Spending a Key (re-)opens the conversation: a fresh fixed 24h grant
-      // starting now, regardless of why the previous one lapsed.
-      await tx.chatThread.update({
-        where: { id: message.thread.id },
-        data: { unlockedAt: new Date(), icebreakerUnlocked: true },
-      })
-    }
+      if (kind === "KEY") {
+        // Spending a Key (re-)opens the conversation: a fresh fixed 24h grant
+        // starting now, regardless of why the previous one lapsed.
+        await tx.chatThread.update({
+          where: { id: message.thread.id },
+          data: { unlockedAt: new Date(), icebreakerUnlocked: true },
+        });
+      }
 
-    await consumeCreditInTransaction(tx, {
-      userId: input.userId,
-      creatorId: message.senderId,
-      kind,
-      idempotencyKey: `unlock:${message.id}`,
-      metadata: { threadId: message.thread.id, messageId: message.id },
-    })
+      await consumeCreditInTransaction(tx, {
+        userId: input.userId,
+        creatorId: message.senderId,
+        kind,
+        idempotencyKey: `unlock:${message.id}`,
+        metadata: { threadId: message.thread.id, messageId: message.id },
+      });
 
-    const updated = await tx.chatMessage.findUniqueOrThrow({ where: { id: message.id } })
-    return { message: updated, creatorId: message.senderId }
-  }, { timeout: 20000, maxWait: 10000 })
+      const updated = await tx.chatMessage.findUniqueOrThrow({
+        where: { id: message.id },
+      });
+      return { message: updated, creatorId: message.senderId };
+    },
+    { timeout: 20000, maxWait: 10000 },
+  );
 
-  const serialized = await serializeChatMessageForViewer(result.message, input.userId)
+  const serialized = await serializeChatMessageForViewer(
+    result.message,
+    input.userId,
+  );
 
   // Push the now-unlocked message to both parties in real time.
   emitChatRealtimeToUser(input.userId, {
@@ -1046,28 +1198,31 @@ export async function unlockReply(input: { userId: string; messageId: string }) 
     type: "message_updated",
     otherUserId: result.creatorId,
     data: serialized,
-  })
+  });
   emitChatRealtimeToUser(result.creatorId, {
     channel: "chat",
     type: "message_updated",
     otherUserId: input.userId,
     data: serialized,
-  })
+  });
 
-  return { message: serialized, balances: await getCreditBalances(input.userId) }
+  return {
+    message: serialized,
+    balances: await getCreditBalances(input.userId),
+  };
 }
 
 export async function reactToMessage(input: {
-  userId: string
-  otherUserId: string
-  messageId: string
-  emoji: string
+  userId: string;
+  otherUserId: string;
+  messageId: string;
+  emoji: string;
 }) {
-  await ensureUsersCanChat(input.userId, input.otherUserId)
+  await ensureUsersCanChat(input.userId, input.otherUserId);
 
-  const participant = await getParticipant(input.userId, input.otherUserId)
+  const participant = await getParticipant(input.userId, input.otherUserId);
   if (!participant) {
-    throw new Error("Chat not found")
+    throw new Error("Chat not found");
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -1076,25 +1231,25 @@ export async function reactToMessage(input: {
         id: input.messageId,
         threadId: participant.threadId,
       },
-    })
+    });
 
     if (!message) {
-      throw new Error("Message not found")
+      throw new Error("Message not found");
     }
 
-    const reactions = normalizeReactions(message.reactions)
-    const users = [...(reactions[input.emoji] ?? [])]
-    const existingIndex = users.indexOf(input.userId)
+    const reactions = normalizeReactions(message.reactions);
+    const users = [...(reactions[input.emoji] ?? [])];
+    const existingIndex = users.indexOf(input.userId);
 
     if (existingIndex >= 0) {
-      users.splice(existingIndex, 1)
+      users.splice(existingIndex, 1);
       if (users.length) {
-        reactions[input.emoji] = users
+        reactions[input.emoji] = users;
       } else {
-        delete reactions[input.emoji]
+        delete reactions[input.emoji];
       }
     } else {
-      reactions[input.emoji] = [...users, input.userId]
+      reactions[input.emoji] = [...users, input.userId];
     }
 
     const updated = await tx.chatMessage.update({
@@ -1102,31 +1257,31 @@ export async function reactToMessage(input: {
       data: {
         reactions: reactions as Prisma.InputJsonValue,
       },
-    })
+    });
 
-    return serializeChatMessage(updated)
-  })
+    return serializeChatMessage(updated);
+  });
 
   emitChatRealtimeToUser(input.userId, {
     channel: "chat",
     type: "message_updated",
     otherUserId: input.otherUserId,
     data: result,
-  })
+  });
   emitChatRealtimeToUser(input.otherUserId, {
     channel: "chat",
     type: "message_updated",
     otherUserId: input.userId,
     data: result,
-  })
+  });
 
-  return result
+  return result;
 }
 
 export async function markChatViewed(userId: string, otherUserId: string) {
-  const participant = await getParticipant(userId, otherUserId)
+  const participant = await getParticipant(userId, otherUserId);
   if (!participant) {
-    return { success: true }
+    return { success: true };
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -1136,7 +1291,7 @@ export async function markChatViewed(userId: string, otherUserId: string) {
         unreadCount: 0,
         archived: false,
       },
-    })
+    });
 
     await tx.chatMessage.updateMany({
       where: {
@@ -1147,23 +1302,23 @@ export async function markChatViewed(userId: string, otherUserId: string) {
       data: {
         isRead: true,
       },
-    })
+    });
 
     return {
       readAt: new Date().toISOString(),
-    }
-  })
+    };
+  });
 
   // Outside the transaction — read-only broadcast summary, not required to
   // be atomic with the writes above (see getChatSummaryForUser's comment).
-  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId)
+  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId);
   if (chatSummary) {
     emitChatRealtimeToUser(userId, {
       channel: "chat",
       type: "chat_updated",
       otherUserId,
       data: chatSummary,
-    })
+    });
   }
 
   emitChatRealtimeToUser(otherUserId, {
@@ -1171,15 +1326,15 @@ export async function markChatViewed(userId: string, otherUserId: string) {
     type: "messages_read",
     otherUserId: userId,
     readAt: result.readAt,
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
 export async function clearChat(userId: string, otherUserId: string) {
-  const participant = await getParticipant(userId, otherUserId)
+  const participant = await getParticipant(userId, otherUserId);
   if (!participant) {
-    return { success: true }
+    return { success: true };
   }
 
   await prisma.chatParticipant.update({
@@ -1189,36 +1344,36 @@ export async function clearChat(userId: string, otherUserId: string) {
       unreadCount: 0,
       clearedAt: new Date(),
     },
-  })
+  });
 
   emitChatRealtimeToUser(userId, {
     channel: "chat",
     type: "chat_cleared",
     otherUserId,
     clearedAt: new Date().toISOString(),
-  })
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
 export async function endEntityChat(userId: string, otherUserId: string) {
-  const { me, other } = await ensureUsersCanChat(userId, otherUserId)
+  const { me, other } = await ensureUsersCanChat(userId, otherUserId);
   if (me.accountType === "ENTITY" || other.accountType !== "ENTITY") {
-    throw new Error("Only an individual can end a chat with an entity account")
+    throw new Error("Only an individual can end a chat with an entity account");
   }
 
-  const participant = await getParticipant(userId, otherUserId)
-  if (!participant) throw new Error("There is no chat to end")
+  const participant = await getParticipant(userId, otherUserId);
+  if (!participant) throw new Error("There is no chat to end");
 
   const result = await prisma.$transaction(async (tx) => {
     const thread = await tx.chatThread.findUniqueOrThrow({
       where: { id: participant.threadId },
       select: { entityChatEndedAt: true },
-    })
-    if (thread.entityChatEndedAt) return { message: null }
+    });
+    if (thread.entityChatEndedAt) return { message: null };
 
-    const sentAt = new Date()
-    const text = `${me.username?.trim() || me.fullName.trim() || "This user"} ended the chat.`
+    const sentAt = new Date();
+    const text = `${me.username?.trim() || me.fullName.trim() || "This user"} ended the chat.`;
     const message = await tx.chatMessage.create({
       data: {
         threadId: participant.threadId,
@@ -1228,7 +1383,7 @@ export async function endEntityChat(userId: string, otherUserId: string) {
         reactions: {},
         sentAt,
       },
-    })
+    });
     await tx.chatThread.update({
       where: { id: participant.threadId },
       data: {
@@ -1238,21 +1393,22 @@ export async function endEntityChat(userId: string, otherUserId: string) {
         lastMessageType: ChatMessageType.SYSTEM,
         lastMessageAt: sentAt,
       },
-    })
+    });
     await tx.chatParticipant.updateMany({
       where: { threadId: participant.threadId, userId: otherUserId },
       data: { archived: false, unreadCount: { increment: 1 } },
-    })
-    return { message }
-  })
+    });
+    return { message };
+  });
 
-  if (!result.message) return { success: true, message: null }
-  const [userMessage, entityMessage, userSummary, entitySummary] = await Promise.all([
-    serializeChatMessageForViewer(result.message, userId),
-    serializeChatMessageForViewer(result.message, otherUserId),
-    getChatSummaryForUser(prisma, userId, otherUserId),
-    getChatSummaryForUser(prisma, otherUserId, userId),
-  ])
+  if (!result.message) return { success: true, message: null };
+  const [userMessage, entityMessage, userSummary, entitySummary] =
+    await Promise.all([
+      serializeChatMessageForViewer(result.message, userId),
+      serializeChatMessageForViewer(result.message, otherUserId),
+      getChatSummaryForUser(prisma, userId, otherUserId),
+      getChatSummaryForUser(prisma, otherUserId, userId),
+    ]);
   await createUserNotification({
     userId: otherUserId,
     senderId: userId,
@@ -1260,39 +1416,62 @@ export async function endEntityChat(userId: string, otherUserId: string) {
     message: result.message.text || "Chat ended",
     type: "message",
     metadata: { threadUserId: userId, messageId: result.message.id },
-  })
+  });
   emitChatRealtimeToUser(userId, {
-    channel: "chat", type: "message_created", otherUserId, data: userMessage,
-  })
+    channel: "chat",
+    type: "message_created",
+    otherUserId,
+    data: userMessage,
+  });
   emitChatRealtimeToUser(otherUserId, {
-    channel: "chat", type: "message_created", otherUserId: userId, data: entityMessage,
-  })
-  if (userSummary) emitChatRealtimeToUser(userId, {
-    channel: "chat", type: "chat_updated", otherUserId, data: userSummary,
-  })
-  if (entitySummary) emitChatRealtimeToUser(otherUserId, {
-    channel: "chat", type: "chat_updated", otherUserId: userId, data: entitySummary,
-  })
-  return { success: true, message: userMessage }
+    channel: "chat",
+    type: "message_created",
+    otherUserId: userId,
+    data: entityMessage,
+  });
+  if (userSummary)
+    emitChatRealtimeToUser(userId, {
+      channel: "chat",
+      type: "chat_updated",
+      otherUserId,
+      data: userSummary,
+    });
+  if (entitySummary)
+    emitChatRealtimeToUser(otherUserId, {
+      channel: "chat",
+      type: "chat_updated",
+      otherUserId: userId,
+      data: entitySummary,
+    });
+  return { success: true, message: userMessage };
 }
 
-export async function deleteMessage(userId: string, otherUserId: string, messageId: string) {
+export async function deleteMessage(
+  userId: string,
+  otherUserId: string,
+  messageId: string,
+) {
   const message = await prisma.chatMessage.findUnique({
     where: { id: messageId },
     include: { thread: { select: { id: true } } },
-  })
-  if (!message) throw new Error("Message not found")
-  if (message.senderId !== userId) throw new Error("You can only delete your own messages")
+  });
+  if (!message) throw new Error("Message not found");
+  const participant = await prisma.chatParticipant.findFirst({
+    where: { threadId: message.threadId, userId, otherUserId },
+    select: { threadId: true },
+  });
+  if (!participant) throw new Error("You are not part of this conversation");
 
-  // Soft delete, scoped to the deleting user only — the other participant
-  // sent/received this message as a real part of the conversation and keeps
-  // seeing it. Only the deleter's own view loses it.
-  const existing = Array.isArray(message.deletedForUserIds) ? (message.deletedForUserIds as string[]) : []
+  // Soft delete, scoped to the deleting user only. Either participant may
+  // remove a message from their own inbox without changing the other view.
+  const existing = Array.isArray(message.deletedForUserIds)
+    ? (message.deletedForUserIds as string[])
+    : [];
   if (!existing.includes(userId)) {
     await prisma.chatMessage.update({
       where: { id: messageId },
       data: { deletedForUserIds: [...existing, userId] },
-    })
+    });
   }
 
   emitChatRealtimeToUser(userId, {
@@ -1302,22 +1481,22 @@ export async function deleteMessage(userId: string, otherUserId: string, message
     messageId,
     chatId: message.threadId,
     data: { id: messageId, messageId, chatId: message.threadId },
-  })
+  });
 
-  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId)
+  const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId);
   if (chatSummary) {
     emitChatRealtimeToUser(userId, {
       channel: "chat" as const,
       type: "chat_updated" as const,
       otherUserId,
       data: chatSummary,
-    })
+    });
   } else {
     emitChatRealtimeToUser(userId, {
       channel: "chat" as const,
       type: "chat_cleared" as const,
       otherUserId,
       clearedAt: new Date().toISOString(),
-    })
+    });
   }
 }

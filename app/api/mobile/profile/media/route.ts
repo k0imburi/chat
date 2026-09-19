@@ -1,4 +1,4 @@
-import { MediaKind, Prisma } from "@prisma/client";
+import { MediaKind, Prisma, TagApprovalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getMobileSessionFromRequest } from "@/lib/mobile-session";
@@ -19,7 +19,6 @@ const createSchema = z.object({
   caption: z.string().max(2200).optional(),
   description: z.string().max(2200).optional(),
   taggedUserId: z.string().min(1).optional(),
-  taggedUserIds: z.array(z.string().min(1)).max(10).optional(),
   mimeType: z.string().optional(),
   sizeBytes: z.coerce.number().optional(),
 });
@@ -76,29 +75,30 @@ export async function POST(request: Request) {
           },
         })
       : null;
-    const taggedUserIds = Array.from(new Set([
-      ...(parsed.taggedUserIds || []),
-      ...(parsed.taggedUserId ? [parsed.taggedUserId] : []),
-    ]));
-    if (taggedUserIds.includes(session.userId)) {
+    const taggedUserId = parsed.taggedUserId?.trim() || "";
+    if (taggedUserId === session.userId) {
       return NextResponse.json(
         { success: false, message: "You cannot tag yourself" },
         { status: 400 },
       );
     }
-    const taggedUsers = !isMainProfileKind && taggedUserIds.length
-      ? await prisma.user.findMany({
-          where: {
-            id: { in: taggedUserIds },
-            role: "USER",
-            isActive: true,
-            status: { notIn: ["BLOCKED", "HIDDEN"] },
-            OR: [{ externalId: null }, { externalId: { not: { startsWith: "system:" } } }],
-          },
-          select: { id: true, username: true, fullName: true },
-        })
-      : [];
-    if (taggedUsers.length !== taggedUserIds.length) {
+    const taggedUser =
+      !isMainProfileKind && taggedUserId
+        ? await prisma.user.findFirst({
+            where: {
+              id: taggedUserId,
+              role: "USER",
+              isActive: true,
+              status: { notIn: ["BLOCKED", "HIDDEN"] },
+              OR: [
+                { externalId: null },
+                { externalId: { not: { startsWith: "system:" } } },
+              ],
+            },
+            select: { id: true, username: true, fullName: true },
+          })
+        : null;
+    if (taggedUserId && !taggedUser) {
       return NextResponse.json(
         { success: false, message: "That account is not available to tag" },
         { status: 400 },
@@ -121,6 +121,7 @@ export async function POST(request: Request) {
             taggedUsername: null,
             taggedUserIds: Prisma.DbNull,
             taggedUsernames: Prisma.DbNull,
+            tagApprovalStatus: null,
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
           },
@@ -137,61 +138,83 @@ export async function POST(request: Request) {
             titlePositionY: parsed.titlePositionY,
             caption: parsed.caption,
             description: parsed.description,
-            taggedUserId: taggedUsers[0]?.id || null,
-            taggedUsername: taggedUsers[0]?.username || taggedUsers[0]?.fullName || null,
-            taggedUserIds: taggedUsers.map((user) => user.id),
-            taggedUsernames: taggedUsers.map((user) => user.username || user.fullName),
+            taggedUserId: taggedUser?.id || null,
+            taggedUsername:
+              taggedUser?.username || taggedUser?.fullName || null,
+            // Keep the legacy list fields coherent for older app versions,
+            // while new posts intentionally support one pending tag only.
+            taggedUserIds: taggedUser ? [taggedUser.id] : Prisma.DbNull,
+            taggedUsernames: taggedUser
+              ? [taggedUser.username || taggedUser.fullName]
+              : Prisma.DbNull,
+            tagApprovalStatus: taggedUser ? TagApprovalStatus.PENDING : null,
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
           },
         });
 
-    if (!existingProfile && (parsed.kind === MediaKind.GALLERY_VIDEO || parsed.kind === MediaKind.IMAGE)) {
+    if (
+      !existingProfile &&
+      (parsed.kind === MediaKind.GALLERY_VIDEO ||
+        parsed.kind === MediaKind.IMAGE)
+    ) {
       const [actor, followers] = await Promise.all([
-        prisma.user.findUnique({ where: { id: session.userId }, select: { fullName: true, username: true } }),
+        prisma.user.findUnique({
+          where: { id: session.userId },
+          select: { fullName: true, username: true },
+        }),
         prisma.follow.findMany({
-          where: { followedId: session.userId, follower: { isActive: true, status: { notIn: ["BLOCKED", "HIDDEN"] } } },
+          where: {
+            followedId: session.userId,
+            follower: {
+              isActive: true,
+              status: { notIn: ["BLOCKED", "HIDDEN"] },
+            },
+          },
           select: { followerId: true },
         }),
       ]);
-      const actorName = actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
-      await Promise.all(followers.map(async ({ followerId }) => {
-        // Upload retries must not create a second activity card for the same post.
-        const existingNotification = await prisma.userNotification.findFirst({
-          where: {
+      const actorName =
+        actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
+      await Promise.all(
+        followers.map(async ({ followerId }) => {
+          // Upload retries must not create a second activity card for the same post.
+          const existingNotification = await prisma.userNotification.findFirst({
+            where: {
+              userId: followerId,
+              senderId: session.userId,
+              type: "postvideo",
+              metadata: { path: "mediaId", equals: savedMedia.id },
+            },
+            select: { id: true },
+          });
+          if (existingNotification) return;
+          await createUserNotification({
             userId: followerId,
             senderId: session.userId,
             type: "postvideo",
-            metadata: { path: "mediaId", equals: savedMedia.id },
-          },
-          select: { id: true },
-        });
-        if (existingNotification) return;
+            title: actorName,
+            message: "just posted",
+            metadata: {
+              mediaId: savedMedia.id,
+              thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
+            },
+          });
+        }),
+      );
+      if (taggedUser) {
         await createUserNotification({
-          userId: followerId,
-          senderId: session.userId,
-          type: "postvideo",
-          title: actorName,
-          message: `${actorName} added a new post. Tap to view it`,
-          metadata: {
-            mediaId: savedMedia.id,
-            thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
-          },
-        });
-      }));
-      await Promise.all(taggedUsers.map((taggedUser) =>
-        createUserNotification({
           userId: taggedUser.id,
           senderId: session.userId,
           type: "post_tag",
           title: actorName,
-          message: `${actorName} tagged you in a post`,
+          message: `${actorName} wants to tag you in a post`,
           metadata: {
             mediaId: savedMedia.id,
             thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
           },
-        }),
-      ));
+        });
+      }
     }
 
     const user = await findMobileUserById(session.userId);

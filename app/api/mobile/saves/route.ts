@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server"
-import { getMobileSessionFromRequest } from "@/lib/mobile-session"
-import { prisma } from "@/lib/prisma"
-import { MediaKind } from "@prisma/client"
+import { NextResponse } from "next/server";
+import { getMobileSessionFromRequest } from "@/lib/mobile-session";
+import { prisma } from "@/lib/prisma";
+import { MediaKind } from "@prisma/client";
 
 export async function GET(request: Request) {
-  const session = await getMobileSessionFromRequest(request)
+  const session = await getMobileSessionFromRequest(request);
   if (!session) {
-    return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
+    return NextResponse.json(
+      { success: false, message: "Unauthorized" },
+      { status: 401 },
+    );
   }
 
   const saved = await prisma.savedVideo.findMany({
@@ -17,34 +20,43 @@ export async function GET(request: Request) {
         include: { user: true },
       },
     },
-  })
+  });
 
-  const data = saved.map(({ media }) => ({
-    id: media.id,
-    userId: media.userId,
-    videoUrl: media.kind !== MediaKind.IMAGE ? media.url : "",
-    imageUrl: media.kind === MediaKind.IMAGE ? media.url : "",
-    thumbnailUrl: media.thumbnailUrl || media.url,
-    title: media.title || "",
-    caption: media.caption || "",
-    description: media.description || "",
-    taggedUserId: media.taggedUserId || "",
-    taggedUsername: media.taggedUsername || "",
-    taggedUserIds: Array.isArray(media.taggedUserIds) ? media.taggedUserIds : [],
-    taggedUsernames: Array.isArray(media.taggedUsernames) ? media.taggedUsernames : [],
-    views: media.views,
-    likes: media.likes,
-    commentCount: media.commentCount,
-    shareCount: media.shareCount,
-    bookmarkCount: media.saveCount,
-    images: media.images,
-    createdAt: media.createdAt.toISOString(),
-    user: {
-      userId: media.user.id,
-      fullName: media.user.fullName,
-      avatarUrl: media.user.avatarUrl || "",
-    },
-  }))
+  const data = saved.map(({ media }) => {
+    const showTag = media.tagApprovalStatus === "ACCEPTED";
+    return {
+      id: media.id,
+      userId: media.userId,
+      videoUrl: media.kind !== MediaKind.IMAGE ? media.url : "",
+      imageUrl: media.kind === MediaKind.IMAGE ? media.url : "",
+      thumbnailUrl: media.thumbnailUrl || media.url,
+      title: media.title || "",
+      caption: media.caption || "",
+      description: media.description || "",
+      taggedUserId: showTag ? media.taggedUserId || "" : "",
+      taggedUsername: showTag ? media.taggedUsername || "" : "",
+      taggedUserIds:
+        showTag && Array.isArray(media.taggedUserIds)
+          ? media.taggedUserIds
+          : [],
+      taggedUsernames:
+        showTag && Array.isArray(media.taggedUsernames)
+          ? media.taggedUsernames
+          : [],
+      views: media.views,
+      likes: media.likes,
+      commentCount: media.commentCount,
+      shareCount: media.shareCount,
+      bookmarkCount: media.saveCount,
+      images: media.images,
+      createdAt: media.createdAt.toISOString(),
+      user: {
+        userId: media.user.id,
+        fullName: media.user.fullName,
+        avatarUrl: media.user.avatarUrl || "",
+      },
+    };
+  });
 
-  return NextResponse.json({ success: true, data })
+  return NextResponse.json({ success: true, data });
 }
