@@ -5,7 +5,10 @@ import { getMobileSessionFromRequest } from "@/lib/mobile-session";
 import { createUserNotification } from "@/lib/mobile-notifications";
 import { prisma } from "@/lib/prisma";
 
-const bodySchema = z.object({ action: z.enum(["accept", "decline"]) });
+const bodySchema = z.object({
+  action: z.enum(["accept", "decline"]),
+  notificationId: z.string().min(1).optional(),
+});
 
 export async function PATCH(
   request: Request,
@@ -21,7 +24,7 @@ export async function PATCH(
 
   try {
     const { id } = await context.params;
-    const { action } = bodySchema.parse(await request.json());
+    const { action, notificationId } = bodySchema.parse(await request.json());
     const media = await prisma.userMedia.findUnique({
       where: { id },
       include: {
@@ -61,6 +64,31 @@ export async function PATCH(
     });
     const name =
       recipientName?.username || recipientName?.fullName || "Someone";
+    const decisionMessage = accepted
+      ? "You accepted this tag"
+      : "You declined this tag";
+
+    // The original request stays in Activity as a completed record instead of
+    // showing stale buttons after the screen is reopened.
+    if (notificationId) {
+      await prisma.userNotification.updateMany({
+        where: {
+          id: notificationId,
+          userId: session.userId,
+          type: "post_tag",
+        },
+        data: { isRead: true, message: decisionMessage },
+      });
+    } else {
+      await prisma.userNotification.updateMany({
+        where: {
+          userId: session.userId,
+          type: "post_tag",
+          metadata: { path: "$.mediaId", equals: media.id },
+        },
+        data: { isRead: true, message: decisionMessage },
+      });
+    }
     await createUserNotification({
       userId: media.userId,
       senderId: session.userId,
