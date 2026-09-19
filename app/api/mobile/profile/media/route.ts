@@ -158,62 +158,69 @@ export async function POST(request: Request) {
       (parsed.kind === MediaKind.GALLERY_VIDEO ||
         parsed.kind === MediaKind.IMAGE)
     ) {
-      const [actor, followers] = await Promise.all([
-        prisma.user.findUnique({
-          where: { id: session.userId },
-          select: { fullName: true, username: true },
-        }),
-        prisma.follow.findMany({
-          where: {
-            followedId: session.userId,
-            follower: {
-              isActive: true,
-              status: { notIn: ["BLOCKED", "HIDDEN"] },
-            },
-          },
-          select: { followerId: true },
-        }),
-      ]);
-      const actorName =
-        actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
-      await Promise.all(
-        followers.map(async ({ followerId }) => {
-          // Upload retries must not create a second activity card for the same post.
-          const existingNotification = await prisma.userNotification.findFirst({
+      // The post is already durable. Activity notifications must never change
+      // that result into a 500 or encourage the creator to post it again.
+      try {
+        const [actor, followers] = await Promise.all([
+          prisma.user.findUnique({
+            where: { id: session.userId },
+            select: { fullName: true, username: true },
+          }),
+          prisma.follow.findMany({
             where: {
+              followedId: session.userId,
+              follower: {
+                isActive: true,
+                status: { notIn: ["BLOCKED", "HIDDEN"] },
+              },
+            },
+            select: { followerId: true },
+          }),
+        ]);
+        const actorName =
+          actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
+        await Promise.all(
+          followers.map(async ({ followerId }) => {
+            // Upload retries must not create a second activity card for the same post.
+            const existingNotification =
+              await prisma.userNotification.findFirst({
+                where: {
+                  userId: followerId,
+                  senderId: session.userId,
+                  type: "postvideo",
+                  metadata: { path: "$.mediaId", equals: savedMedia.id },
+                },
+                select: { id: true },
+              });
+            if (existingNotification) return;
+            await createUserNotification({
               userId: followerId,
               senderId: session.userId,
               type: "postvideo",
-              metadata: { path: "mediaId", equals: savedMedia.id },
-            },
-            select: { id: true },
-          });
-          if (existingNotification) return;
+              title: actorName,
+              message: "just posted",
+              metadata: {
+                mediaId: savedMedia.id,
+                thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
+              },
+            });
+          }),
+        );
+        if (taggedUser) {
           await createUserNotification({
-            userId: followerId,
+            userId: taggedUser.id,
             senderId: session.userId,
-            type: "postvideo",
+            type: "post_tag",
             title: actorName,
-            message: "just posted",
+            message: `${actorName} wants to tag you in a post`,
             metadata: {
               mediaId: savedMedia.id,
               thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
             },
           });
-        }),
-      );
-      if (taggedUser) {
-        await createUserNotification({
-          userId: taggedUser.id,
-          senderId: session.userId,
-          type: "post_tag",
-          title: actorName,
-          message: `${actorName} wants to tag you in a post`,
-          metadata: {
-            mediaId: savedMedia.id,
-            thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
-          },
-        });
+        }
+      } catch (error) {
+        logError("/api/mobile/profile/media notifications", error);
       }
     }
 
