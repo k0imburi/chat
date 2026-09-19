@@ -32,6 +32,7 @@ export default async function EntitiesPage() {
       entityDocuments: true,
       entityVerification: true,
       entityBadgeColor: true,
+      verified: true,
       entityPublishedAt: true,
       entityPlanType: true,
       entityPlanExpiresAt: true,
@@ -80,6 +81,7 @@ export default async function EntitiesPage() {
                 <th className="px-5 py-3">Entity</th>
                 <th className="px-5 py-3">Documents</th>
                 <th className="px-5 py-3">Verification</th>
+                <th className="px-5 py-3">Badge</th>
                 <th className="px-5 py-3">Published</th>
                 <th className="px-5 py-3">Plan</th>
                 <th className="px-5 py-3">Review</th>
@@ -106,6 +108,31 @@ export default async function EntitiesPage() {
                         @{entity.username || "unassigned"}
                         {entity.country ? ` · ${entity.country}` : ""}
                       </p>
+                    </td>
+                    <td className="px-5 py-4">
+                      {status === "APPROVED" ? (
+                        <Link
+                          href={`/entities/${entity.id}`}
+                          className="inline-flex items-center gap-2 text-xs font-medium hover:underline"
+                        >
+                          <span
+                            className="h-3 w-3 rounded-full border"
+                            style={{
+                              backgroundColor:
+                                entity.entityBadgeColor === "gold"
+                                  ? "#D4AF37"
+                                  : "#9FE7E5",
+                            }}
+                          />
+                          {entity.verified
+                            ? entity.entityBadgeColor === "gold"
+                              ? "Gold"
+                              : "Blue #9FE7E5"
+                            : "Hidden"}
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-5 py-4">
                       {submitted ? (
@@ -194,7 +221,7 @@ export default async function EntitiesPage() {
               {!entities.length ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-5 py-12 text-center text-muted-foreground"
                   >
                     No entity accounts yet.

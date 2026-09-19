@@ -260,6 +260,9 @@ export async function getDiscoverFeed(currentUserId: string) {
             : "assets/female.png",
         isVerified: repost.user.verified,
         isBroadcaster: repost.user.externalId === "system:chatandtip",
+        isEntity: repost.user.accountType === "ENTITY",
+        entityVerification: repost.user.entityVerification.toLowerCase(),
+        entityBadgeColor: repost.user.entityBadgeColor || "",
       });
       repostersByMedia.set(repost.mediaId, list);
     }
@@ -445,6 +448,9 @@ export async function getTrendingFeed(currentUserId?: string) {
           fallbackAsset: user.gender?.toUpperCase() === "M" ? "assets/male.png" : "assets/female.png",
           isVerified: user.verified,
           isBroadcaster: user.externalId === "system:chatandtip",
+          isEntity: user.accountType === "ENTITY",
+          entityVerification: user.entityVerification.toLowerCase(),
+          entityBadgeColor: user.entityBadgeColor || "",
         };
       });
       // A fresh reshare is engagement, so it receives a modest temporary lift

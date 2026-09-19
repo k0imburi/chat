@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { AccountType } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -42,6 +43,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       fallbackAsset: user.gender?.toUpperCase() === "M" ? "assets/male.png" : "assets/female.png",
       isVerified: user.verified,
       isBroadcaster: user.externalId === "system:chatandtip",
+      isEntity: user.accountType === AccountType.ENTITY,
+      entityVerification: user.entityVerification.toLowerCase(),
+      entityBadgeColor: user.entityBadgeColor || "",
     }
   })
   return NextResponse.json({ success: true, data, nextCursor: hasMore ? page.at(-1)?.id ?? null : null })

@@ -42,6 +42,7 @@ export async function reviewEntityDocumentsAction(
     const input = reviewSchema.parse({
       userId: formData.get("userId"),
       decision: formData.get("decision"),
+      badgeColor: formData.get("badgeColor") || undefined,
     });
     const approved = input.decision === "APPROVE";
     if (approved && !input.badgeColor) {
@@ -99,5 +100,69 @@ export async function reviewEntityDocumentsAction(
     );
   } catch (error) {
     return errorResult(error, "Unable to review entity documents");
+  }
+}
+
+const badgeSchema = z.object({
+  userId: z.string().min(1),
+  enabled: z.enum(["true", "false"]).transform((value) => value === "true"),
+  badgeColor: z.enum(["blue", "gold"]),
+});
+
+export async function updateEntityBadgeAction(
+  stateOrFormData: ActionResult | FormData,
+  maybeFormData?: FormData,
+) {
+  try {
+    const formData = getActionFormData(stateOrFormData, maybeFormData);
+    const session = await requireSessionUser();
+    if (
+      session.role !== UserRole.SUPER_ADMIN &&
+      session.role !== UserRole.ADMIN
+    ) {
+      throw new Error("Administrator access required");
+    }
+
+    const input = badgeSchema.parse({
+      userId: formData.get("userId"),
+      enabled: formData.get("enabled"),
+      badgeColor: formData.get("badgeColor"),
+    });
+    const entity = await prisma.user.findFirst({
+      where: { id: input.userId, accountType: AccountType.ENTITY },
+      select: { id: true, entityVerification: true, entityPublishedAt: true },
+    });
+    if (!entity) throw new Error("Entity account not found");
+    if (
+      entity.entityVerification !== EntityVerificationStatus.APPROVED ||
+      !entity.entityPublishedAt
+    ) {
+      throw new Error("Approve the entity documents before managing its badge");
+    }
+
+    await prisma.user.update({
+      where: { id: entity.id },
+      data: {
+        verified: input.enabled,
+        entityBadgeColor: input.badgeColor,
+      },
+    });
+    const user = await findMobileUserById(entity.id);
+    if (user) {
+      emitChatRealtimeToUser(entity.id, {
+        channel: "profile",
+        type: "profile_updated",
+        data: serializeMobileUser(user),
+      });
+    }
+
+    revalidatePath("/entities");
+    revalidatePath(`/entities/${entity.id}`);
+    revalidatePath("/users");
+    return successResult(
+      input.enabled ? "Entity badge updated" : "Entity badge hidden",
+    );
+  } catch (error) {
+    return errorResult(error, "Unable to update entity badge");
   }
 }

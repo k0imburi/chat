@@ -1,6 +1,6 @@
 import "server-only";
 
-import { MediaKind, Prisma, UserRole } from "@prisma/client";
+import { AccountType, MediaKind, Prisma, UserRole } from "@prisma/client";
 import { createUserNotification } from "@/lib/mobile-notifications";
 import { prisma } from "@/lib/prisma";
 
@@ -17,6 +17,9 @@ const authorSelect = {
   avatarUrl: true,
   gender: true,
   verified: true,
+  accountType: true,
+  entityVerification: true,
+  entityBadgeColor: true,
   externalId: true,
   updatedAt: true,
   media: {
@@ -33,6 +36,9 @@ type CommentAuthor = {
   avatarUrl: string | null;
   gender: string;
   verified: boolean;
+  accountType: AccountType;
+  entityVerification: string;
+  entityBadgeColor: string | null;
   externalId: string | null;
   updatedAt: Date;
   media: { thumbnailUrl: string | null; url: string; kind: MediaKind }[];
@@ -95,6 +101,9 @@ function serializeComment(
       isByCurrentUser: comment.author.id === currentUserId,
       isVerified: comment.author.verified,
       isBroadcaster: comment.author.externalId === "system:chatandtip",
+      isEntity: comment.author.accountType === AccountType.ENTITY,
+      entityVerification: comment.author.entityVerification.toLowerCase(),
+      entityBadgeColor: comment.author.entityBadgeColor || "",
     },
   };
 }

@@ -18,7 +18,10 @@ import { ActionForm } from "@/components/action-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
-import { reviewEntityDocumentsAction } from "@/lib/actions/entities";
+import {
+  reviewEntityDocumentsAction,
+  updateEntityBadgeAction,
+} from "@/lib/actions/entities";
 import { updateUserStatusAction } from "@/lib/actions/users";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
@@ -218,6 +221,13 @@ export default async function EntityDetailPage({
                   <ReviewButton userId={entity.id} decision="REJECT" />
                 </div>
               ) : null}
+              {isApproved ? (
+                <EntityBadgeControls
+                  userId={entity.id}
+                  enabled={entity.verified}
+                  badgeColor={entity.entityBadgeColor || "blue"}
+                />
+              ) : null}
             </CardContent>
           </Card>
 
@@ -290,6 +300,52 @@ export default async function EntityDetailPage({
           </Card>
         </main>
       </div>
+    </div>
+  );
+}
+
+function EntityBadgeControls({
+  userId,
+  enabled,
+  badgeColor,
+}: {
+  userId: string;
+  enabled: boolean;
+  badgeColor: string;
+}) {
+  const selectedColor = badgeColor === "gold" ? "gold" : "blue";
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-4">
+      <div>
+        <p className="text-sm font-medium">App verification badge</p>
+        <p className="text-xs text-muted-foreground">
+          The documents remain approved when this badge is hidden.
+        </p>
+      </div>
+      <ActionForm action={updateEntityBadgeAction} className="ml-auto flex flex-wrap items-end gap-2">
+        <input type="hidden" name="userId" value={userId} />
+        <input type="hidden" name="enabled" value="true" />
+        <label className="grid gap-1 text-xs font-medium">
+          Badge color
+          <select
+            name="badgeColor"
+            defaultValue={selectedColor}
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+          >
+            <option value="blue">Blue #9FE7E5</option>
+            <option value="gold">Gold</option>
+          </select>
+        </label>
+        <Button type="submit">Save badge</Button>
+      </ActionForm>
+      <ActionForm action={updateEntityBadgeAction}>
+        <input type="hidden" name="userId" value={userId} />
+        <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
+        <input type="hidden" name="badgeColor" value={selectedColor} />
+        <Button type="submit" variant="outline">
+          {enabled ? "Hide checkmark" : "Show checkmark"}
+        </Button>
+      </ActionForm>
     </div>
   );
 }
