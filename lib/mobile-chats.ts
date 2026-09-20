@@ -1319,18 +1319,8 @@ export async function markChatViewed(userId: string, otherUserId: string) {
     };
   });
 
-  // Outside the transaction — read-only broadcast summary, not required to
-  // be atomic with the writes above (see getChatSummaryForUser's comment).
-  const hasVisibleMessages = await prisma.chatMessage.findFirst({
-    where: {
-      threadId: message.threadId,
-      type: { not: ChatMessageType.SYSTEM },
-      NOT: { deletedForUserIds: { array_contains: [userId] } },
-    },
-    select: { id: true },
-  });
   const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId);
-  if (chatSummary && hasVisibleMessages) {
+  if (chatSummary) {
     emitChatRealtimeToUser(userId, {
       channel: "chat",
       type: "chat_updated",
@@ -1501,8 +1491,16 @@ export async function deleteMessage(
     data: { id: messageId, messageId, chatId: message.threadId },
   });
 
+  const hasVisibleMessages = await prisma.chatMessage.findFirst({
+    where: {
+      threadId: message.threadId,
+      type: { not: ChatMessageType.SYSTEM },
+      NOT: { deletedForUserIds: { array_contains: [userId] } },
+    },
+    select: { id: true },
+  });
   const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId);
-  if (chatSummary) {
+  if (chatSummary && hasVisibleMessages) {
     emitChatRealtimeToUser(userId, {
       channel: "chat" as const,
       type: "chat_updated" as const,
