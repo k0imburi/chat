@@ -1,4 +1,4 @@
-import { Prisma, TagApprovalStatus } from "@prisma/client";
+import { TagApprovalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getMobileSessionFromRequest } from "@/lib/mobile-session";
@@ -31,13 +31,27 @@ export async function PATCH(
         user: { select: { id: true, fullName: true, username: true } },
       },
     });
-    if (!media || media.taggedUserId !== session.userId) {
+    const taggedIds = Array.isArray(media?.taggedUserIds)
+      ? media.taggedUserIds.map(String)
+      : media?.taggedUserId
+        ? [media.taggedUserId]
+        : [];
+    if (!media || !taggedIds.includes(session.userId)) {
       return NextResponse.json(
         { success: false, message: "Tag request not found" },
         { status: 404 },
       );
     }
-    if (media.tagApprovalStatus !== TagApprovalStatus.PENDING) {
+    const statuses =
+      media.tagApprovalStatuses &&
+      typeof media.tagApprovalStatuses === "object" &&
+      !Array.isArray(media.tagApprovalStatuses)
+        ? { ...(media.tagApprovalStatuses as Record<string, string>) }
+        : {
+            [session.userId]:
+              media.tagApprovalStatus ?? TagApprovalStatus.PENDING,
+          };
+    if (statuses[session.userId] !== TagApprovalStatus.PENDING) {
       return NextResponse.json(
         { success: false, message: "This tag has already been reviewed" },
         { status: 409 },
@@ -45,17 +59,31 @@ export async function PATCH(
     }
 
     const accepted = action === "accept";
+    statuses[session.userId] = accepted
+      ? TagApprovalStatus.ACCEPTED
+      : TagApprovalStatus.DECLINED;
+    const approvedIds = taggedIds.filter(
+      (taggedId) => statuses[taggedId] === TagApprovalStatus.ACCEPTED,
+    );
+    const names = Array.isArray(media.taggedUsernames)
+      ? media.taggedUsernames.map(String)
+      : media.taggedUsername
+        ? [media.taggedUsername]
+        : [];
     await prisma.userMedia.update({
       where: { id },
-      data: accepted
-        ? { tagApprovalStatus: TagApprovalStatus.ACCEPTED }
-        : {
-            tagApprovalStatus: TagApprovalStatus.DECLINED,
-            taggedUserId: null,
-            taggedUsername: null,
-            taggedUserIds: Prisma.DbNull,
-            taggedUsernames: Prisma.DbNull,
-          },
+      data: {
+        tagApprovalStatuses: statuses,
+        // Legacy readers still use this scalar field. It means at least one
+        // recipient accepted, while modern clients filter by each status.
+        tagApprovalStatus: approvedIds.length
+          ? TagApprovalStatus.ACCEPTED
+          : TagApprovalStatus.PENDING,
+        taggedUserId: approvedIds[0] || media.taggedUserId || null,
+        taggedUsername: approvedIds.length
+          ? names[taggedIds.indexOf(approvedIds[0])] || null
+          : media.taggedUsername,
+      },
     });
 
     const recipientName = await prisma.user.findUnique({

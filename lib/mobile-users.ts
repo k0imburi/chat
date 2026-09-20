@@ -137,6 +137,38 @@ function jsonStringList(value: Prisma.JsonValue | null | undefined) {
     : [];
 }
 
+export function serializeMediaTags(media: UserMedia) {
+  const ids = jsonStringList(media.taggedUserIds);
+  const names = jsonStringList(media.taggedUsernames);
+  const statuses =
+    media.tagApprovalStatuses &&
+    typeof media.tagApprovalStatuses === "object" &&
+    !Array.isArray(media.tagApprovalStatuses)
+      ? (media.tagApprovalStatuses as Record<string, string>)
+      : null;
+  const acceptedIndexes = ids
+    .map((id, index) => ({ id, index }))
+    .filter(({ id }) =>
+      statuses
+        ? statuses[id] === "ACCEPTED"
+        : media.tagApprovalStatus === "ACCEPTED",
+    );
+  const previews = Array.isArray(media.taggedUserPreviews)
+    ? (media.taggedUserPreviews as Record<string, unknown>[])
+    : [];
+  const acceptedIds = acceptedIndexes.map(({ id }) => id);
+  const acceptedNames = acceptedIndexes.map(({ index }) => names[index] || "");
+  return {
+    taggedUserId: acceptedIds[0] ?? "",
+    taggedUsername: acceptedNames[0] ?? "",
+    taggedUserIds: acceptedIds,
+    taggedUsernames: acceptedNames.filter(Boolean),
+    taggedUserPreviews: previews.filter((preview) =>
+      acceptedIds.includes(String(preview.id || "")),
+    ),
+  };
+}
+
 function serializeVideo(media?: UserMedia | null) {
   if (!media) {
     return {
@@ -173,7 +205,7 @@ function serializeVideo(media?: UserMedia | null) {
     media.kind === MediaKind.IMAGE || media.kind === MediaKind.PROFILE_IMAGE;
   const images = Array.isArray(media.images) ? (media.images as string[]) : [];
 
-  const approvedTag = media.tagApprovalStatus === "ACCEPTED";
+  const mediaTags = serializeMediaTags(media);
   return {
     id: media.id,
     videoUrl: isImage ? "" : media.url,
@@ -185,10 +217,7 @@ function serializeVideo(media?: UserMedia | null) {
     titlePositionY: media.titlePositionY ?? 0.5,
     caption: media.caption || "",
     description: media.description || "",
-    taggedUserId: approvedTag ? media.taggedUserId || "" : "",
-    taggedUsername: approvedTag ? media.taggedUsername || "" : "",
-    taggedUserIds: approvedTag ? jsonStringList(media.taggedUserIds) : [],
-    taggedUsernames: approvedTag ? jsonStringList(media.taggedUsernames) : [],
+    ...mediaTags,
     views: media.views,
     likes: media.likes,
     commentCount: media.commentCount,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getMobileSessionFromRequest } from "@/lib/mobile-session";
 import { prisma } from "@/lib/prisma";
 import { MediaKind } from "@prisma/client";
+import { serializeMediaTags } from "@/lib/mobile-users";
 
 export async function GET(request: Request) {
   const session = await getMobileSessionFromRequest(request);
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
   });
 
   const data = saved.map(({ media }) => {
-    const showTag = media.tagApprovalStatus === "ACCEPTED";
+    const mediaTags = serializeMediaTags(media);
     return {
       id: media.id,
       userId: media.userId,
@@ -33,16 +34,7 @@ export async function GET(request: Request) {
       title: media.title || "",
       caption: media.caption || "",
       description: media.description || "",
-      taggedUserId: showTag ? media.taggedUserId || "" : "",
-      taggedUsername: showTag ? media.taggedUsername || "" : "",
-      taggedUserIds:
-        showTag && Array.isArray(media.taggedUserIds)
-          ? media.taggedUserIds
-          : [],
-      taggedUsernames:
-        showTag && Array.isArray(media.taggedUsernames)
-          ? media.taggedUsernames
-          : [],
+      ...mediaTags,
       views: media.views,
       likes: media.likes,
       commentCount: media.commentCount,

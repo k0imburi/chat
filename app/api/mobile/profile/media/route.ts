@@ -18,7 +18,8 @@ const createSchema = z.object({
   titlePositionY: z.coerce.number().min(0).max(1).optional(),
   caption: z.string().max(2200).optional(),
   description: z.string().max(2200).optional(),
-  taggedUserId: z.string().min(1).optional(),
+  taggedUserId: z.string().min(1).optional(), // legacy client support
+  taggedUserIds: z.array(z.string().min(1)).max(5).optional(),
   mimeType: z.string().optional(),
   sizeBytes: z.coerce.number().optional(),
 });
@@ -35,12 +36,83 @@ const updateSchema = z.object({
   description: z.string().max(2200).optional(),
   titlePositionX: z.coerce.number().min(0).max(1).optional(),
   titlePositionY: z.coerce.number().min(0).max(1).optional(),
+  taggedUserIds: z.array(z.string().min(1)).max(5).optional(),
 });
 
 const visibilitySchema = z.object({
   mediaId: z.string(),
   hidden: z.boolean(),
 });
+
+const tagUserSelect = {
+  id: true,
+  username: true,
+  fullName: true,
+  avatarUrl: true,
+  gender: true,
+  verified: true,
+  accountType: true,
+  entityVerification: true,
+  entityBadgeColor: true,
+} as const;
+
+function normalizedTagIds(ids: string[], ownerId: string) {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length > 5) throw new Error("You can tag up to 5 people");
+  if (unique.includes(ownerId)) throw new Error("You cannot tag yourself");
+  return unique;
+}
+
+async function resolveTaggedUsers(ids: string[], ownerId: string) {
+  const tagIds = normalizedTagIds(ids, ownerId);
+  if (!tagIds.length) return [];
+  const users = await prisma.user.findMany({
+    where: {
+      id: { in: tagIds },
+      role: "USER",
+      isActive: true,
+      status: { notIn: ["BLOCKED", "HIDDEN"] },
+      OR: [
+        { externalId: null },
+        { externalId: { not: { startsWith: "system:" } } },
+      ],
+    },
+    select: tagUserSelect,
+  });
+  if (users.length !== tagIds.length) {
+    throw new Error("One or more accounts are not available to tag");
+  }
+  return tagIds.map((id) => users.find((user) => user.id === id)!);
+}
+
+function tagFields(users: Awaited<ReturnType<typeof resolveTaggedUsers>>) {
+  const ids = users.map((user) => user.id);
+  const names = users.map((user) => user.username || user.fullName);
+  const statuses = Object.fromEntries(ids.map((id) => [id, "PENDING"]));
+  return {
+    taggedUserId: ids[0] || null,
+    taggedUsername: names[0] || null,
+    taggedUserIds: ids.length ? ids : Prisma.DbNull,
+    taggedUsernames: names.length ? names : Prisma.DbNull,
+    taggedUserPreviews: users.length
+      ? users.map((user) => ({
+          id: user.id,
+          name: user.username || user.fullName,
+          avatarUrl: user.avatarUrl || "",
+          fallbackAsset:
+            user.gender?.toUpperCase() === "M"
+              ? "assets/male.png"
+              : "assets/female.png",
+          isVerified: user.verified,
+          isEntity: user.accountType === "ENTITY",
+          entityVerification: user.entityVerification.toLowerCase(),
+          entityBadgeColor: user.entityBadgeColor || "",
+        }))
+      : Prisma.DbNull,
+    tagApprovalStatuses: ids.length ? statuses : Prisma.DbNull,
+    tagApprovalStatus: ids.length ? TagApprovalStatus.PENDING : null,
+  };
+}
 
 export async function POST(request: Request) {
   const session = await getMobileSessionFromRequest(request);
@@ -75,35 +147,12 @@ export async function POST(request: Request) {
           },
         })
       : null;
-    const taggedUserId = parsed.taggedUserId?.trim() || "";
-    if (taggedUserId === session.userId) {
-      return NextResponse.json(
-        { success: false, message: "You cannot tag yourself" },
-        { status: 400 },
-      );
-    }
-    const taggedUser =
-      !isMainProfileKind && taggedUserId
-        ? await prisma.user.findFirst({
-            where: {
-              id: taggedUserId,
-              role: "USER",
-              isActive: true,
-              status: { notIn: ["BLOCKED", "HIDDEN"] },
-              OR: [
-                { externalId: null },
-                { externalId: { not: { startsWith: "system:" } } },
-              ],
-            },
-            select: { id: true, username: true, fullName: true },
-          })
-        : null;
-    if (taggedUserId && !taggedUser) {
-      return NextResponse.json(
-        { success: false, message: "That account is not available to tag" },
-        { status: 400 },
-      );
-    }
+    const requestedTagIds =
+      parsed.taggedUserIds ??
+      (parsed.taggedUserId ? [parsed.taggedUserId] : []);
+    const taggedUsers = isMainProfileKind
+      ? []
+      : await resolveTaggedUsers(requestedTagIds, session.userId);
 
     const savedMedia = existingProfile
       ? await prisma.userMedia.update({
@@ -121,6 +170,8 @@ export async function POST(request: Request) {
             taggedUsername: null,
             taggedUserIds: Prisma.DbNull,
             taggedUsernames: Prisma.DbNull,
+            taggedUserPreviews: Prisma.DbNull,
+            tagApprovalStatuses: Prisma.DbNull,
             tagApprovalStatus: null,
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
@@ -138,16 +189,7 @@ export async function POST(request: Request) {
             titlePositionY: parsed.titlePositionY,
             caption: parsed.caption,
             description: parsed.description,
-            taggedUserId: taggedUser?.id || null,
-            taggedUsername:
-              taggedUser?.username || taggedUser?.fullName || null,
-            // Keep the legacy list fields coherent for older app versions,
-            // while new posts intentionally support one pending tag only.
-            taggedUserIds: taggedUser ? [taggedUser.id] : Prisma.DbNull,
-            taggedUsernames: taggedUser
-              ? [taggedUser.username || taggedUser.fullName]
-              : Prisma.DbNull,
-            tagApprovalStatus: taggedUser ? TagApprovalStatus.PENDING : null,
+            ...tagFields(taggedUsers),
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
           },
@@ -206,7 +248,7 @@ export async function POST(request: Request) {
             });
           }),
         );
-        if (taggedUser) {
+        for (const taggedUser of taggedUsers) {
           await createUserNotification({
             userId: taggedUser.id,
             senderId: session.userId,
@@ -387,10 +429,22 @@ export async function PATCH(request: Request) {
       "description",
       "titlePositionX",
       "titlePositionY",
+      "taggedUserIds",
     ].some((field) => Object.prototype.hasOwnProperty.call(body, field));
     if (isMetadataUpdate) {
       const parsed = updateSchema.parse(body);
-      const { mediaId, ...data } = parsed;
+      const { mediaId, taggedUserIds, ...metadata } = parsed;
+      const hasTagUpdate = Object.prototype.hasOwnProperty.call(
+        body,
+        "taggedUserIds",
+      );
+      const taggedUsers = hasTagUpdate
+        ? await resolveTaggedUsers(taggedUserIds ?? [], session.userId)
+        : [];
+      const data = {
+        ...metadata,
+        ...(hasTagUpdate ? tagFields(taggedUsers) : {}),
+      };
       const result = await prisma.userMedia.updateMany({
         where: { id: mediaId, userId: session.userId },
         data,
@@ -399,6 +453,26 @@ export async function PATCH(request: Request) {
         return NextResponse.json(
           { success: false, message: "Post not found" },
           { status: 404 },
+        );
+      }
+      if (hasTagUpdate && taggedUsers.length) {
+        const actor = await prisma.user.findUnique({
+          where: { id: session.userId },
+          select: { fullName: true, username: true },
+        });
+        const actorName =
+          actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
+        await Promise.all(
+          taggedUsers.map((taggedUser) =>
+            createUserNotification({
+              userId: taggedUser.id,
+              senderId: session.userId,
+              type: "post_tag",
+              title: actorName,
+              message: `${actorName} wants to tag you in a post`,
+              metadata: { mediaId, thumbnailUrl: "" },
+            }),
+          ),
         );
       }
       const user = await findMobileUserById(session.userId);

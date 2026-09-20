@@ -398,6 +398,8 @@ model UserMedia {
   taggedUsername  String?
   taggedUserIds   Json?
   taggedUsernames Json?
+  taggedUserPreviews Json?
+  tagApprovalStatuses Json?
   tagApprovalStatus TagApprovalStatus?
   objectKey       String?
   url             String
