@@ -72,19 +72,10 @@ function serializeChatSummary(
     );
   });
   if (!lastMessage) {
-    return {
-      chatUserId: receiver.id,
-      senderId: "",
-      msgType: "text",
-      lastMsg: "",
-      sentAt:
-        participant.thread.lastMessageAt?.toISOString() ??
-        new Date(0).toISOString(),
-      unread: participant.unreadCount,
-      broadcastOnly: participant.thread.broadcastOnly,
-      threadKind: participant.thread.kind.toLowerCase(),
-      receiver: serializeMobileUser(receiver),
-    };
+    // A per-user deletion must also remove the conversation from that user's
+    // inbox. Returning an empty shell here made a blank "Start chatting"
+    // thread survive reloads even though every visible message was gone.
+    return null;
   }
   const contentIsLocked = Boolean(
     lastMessage.locked && lastMessage.senderId !== participant.userId,
