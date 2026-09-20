@@ -119,7 +119,7 @@ export async function getComments(
     ...visibleToViewer,
   } satisfies Prisma.VideoCommentWhereInput;
 
-  const [rawComments, totalCount] = await Promise.all([
+  const [rawComments, totalCount, media] = await Promise.all([
     prisma.videoComment.findMany({
       where: { ...visibleWhere, parentId: null },
       take: COMMENTS_PAGE_SIZE + 1,
@@ -131,12 +131,22 @@ export async function getComments(
       },
     }),
     prisma.videoComment.count({ where: visibleWhere }),
+    prisma.userMedia.findUnique({
+      where: { id: mediaId },
+      select: { userId: true },
+    }),
   ]);
 
   const hasMore = rawComments.length > COMMENTS_PAGE_SIZE;
-  const comments = hasMore
+  const comments = (hasMore
     ? rawComments.slice(0, COMMENTS_PAGE_SIZE)
-    : rawComments;
+    : rawComments).sort((a, b) => {
+      // Pinned comments always lead. The publisher's own comment comes next,
+      // then all remaining comments retain their newest-first order.
+      const rank = (comment: (typeof rawComments)[number]) =>
+        comment.isPinned ? 0 : comment.authorId === media?.userId ? 1 : 2;
+      return rank(a) - rank(b);
+    });
 
   const commentIds = comments.map((c) => c.id);
   const likedRows = await prisma.commentLike.findMany({
@@ -255,6 +265,37 @@ export async function createComment(
         });
       }
     }
+  }
+
+  // Mentions are intentionally explicit handles only. This avoids ambiguous
+  // full-name matching while allowing the mobile composer to offer people as
+  // soon as the author types `@`.
+  const mentionedHandles = Array.from(
+    new Set(
+      Array.from(text.matchAll(/@([a-zA-Z0-9_]{1,64})/g)).map((match) =>
+        match[1].toLowerCase(),
+      ),
+    ),
+  );
+  if (mentionedHandles.length) {
+    const mentionedUsers = await prisma.user.findMany({
+      where: { username: { in: mentionedHandles } },
+      select: { id: true },
+    });
+    await Promise.all(
+      mentionedUsers
+        .filter((user) => user.id !== authorId)
+        .map((user) =>
+          createUserNotification({
+            userId: user.id,
+            senderId: authorId,
+            type: "comment_mention",
+            title: `${comment.author.fullName} mentioned you in a comment`,
+            message: text,
+            metadata: { videoId: mediaId, commentId: comment.id, parentId },
+          }),
+        ),
+    );
   }
 
   return serializeComment(comment, authorId, new Set());

@@ -312,6 +312,36 @@ function tipNotificationIcon(tier: unknown) {
   }
 }
 
+/**
+ * Chat delivery is deliberately separate from Activity. A message should
+ * alert the device and open its conversation, but it should not create a
+ * second item in the in-app notifications feed.
+ */
+export async function sendDirectMessagePush(input: {
+  userId: string;
+  senderId: string;
+}) {
+  try {
+    const recipient = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { deviceToken: true },
+    });
+    if (!recipient?.deviceToken) return false;
+    return await sendFcmPush(recipient.deviceToken, {
+      title: "ChatAndTip",
+      body: "You have a new message",
+      data: {
+        type: "message",
+        senderId: input.senderId,
+        threadUserId: input.senderId,
+        targetType: "chat",
+      },
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function listUserNotifications(input: {
   userId: string;
   page?: number;

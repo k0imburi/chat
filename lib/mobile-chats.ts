@@ -10,7 +10,10 @@ import {
 import { prisma, withDbRetry } from "@/lib/prisma";
 import { serializeMobileUser } from "@/lib/mobile-users";
 import { emitChatRealtimeToUser } from "@/lib/realtime";
-import { createUserNotification } from "@/lib/mobile-notifications";
+import {
+  createUserNotification,
+  sendDirectMessagePush,
+} from "@/lib/mobile-notifications";
 import {
   consumeCreditInTransaction,
   getCreditBalances,
@@ -1081,23 +1084,9 @@ export async function sendMessage(input: {
       getChatSummaryForUser(prisma, input.receiverId, input.senderId),
     ]);
 
-  await createUserNotification({
+  void sendDirectMessagePush({
     userId: input.receiverId,
     senderId: input.senderId,
-    title: me.fullName,
-    message: result.locked
-      ? "Sent you a reply"
-      : textMsg ||
-        (hasDocument
-          ? "Sent you a document"
-          : hasVideo
-            ? "Sent you a video"
-            : "Sent you a photo"),
-    type: "message",
-    metadata: {
-      threadUserId: input.senderId,
-      messageId: senderMessage.id,
-    },
   });
 
   emitChatRealtimeToUser(input.senderId, {
@@ -1332,8 +1321,16 @@ export async function markChatViewed(userId: string, otherUserId: string) {
 
   // Outside the transaction — read-only broadcast summary, not required to
   // be atomic with the writes above (see getChatSummaryForUser's comment).
+  const hasVisibleMessages = await prisma.chatMessage.findFirst({
+    where: {
+      threadId: message.threadId,
+      type: { not: ChatMessageType.SYSTEM },
+      NOT: { deletedForUserIds: { array_contains: [userId] } },
+    },
+    select: { id: true },
+  });
   const chatSummary = await getChatSummaryForUser(prisma, userId, otherUserId);
-  if (chatSummary) {
+  if (chatSummary && hasVisibleMessages) {
     emitChatRealtimeToUser(userId, {
       channel: "chat",
       type: "chat_updated",
