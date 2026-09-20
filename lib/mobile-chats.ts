@@ -404,21 +404,6 @@ async function getOrCreateThread(
 export async function getChats(userId: string, query?: string) {
   await getChatUserOrThrow(userId);
 
-  // A block removes the conversation from the overview for both people. The
-  // thread itself remains available to an already-open screen so it can show
-  // its clear blocked state instead of disappearing mid-session.
-  const blocks = await prisma.userBlock.findMany({
-    where: {
-      OR: [{ blockerId: userId }, { blockedId: userId }],
-    },
-    select: { blockerId: true, blockedId: true },
-  });
-  const blockedChatUserIds = new Set(
-    blocks.map((block) =>
-      block.blockerId === userId ? block.blockedId : block.blockerId,
-    ),
-  );
-
   const participants = (await prisma.chatParticipant.findMany({
     where: {
       userId,
@@ -453,8 +438,7 @@ export async function getChats(userId: string, query?: string) {
 
   const visibleParticipants = participants.filter((participant) => {
     if (!participant.thread.lastMessageAt) return false;
-    return !participant.archived &&
-      !blockedChatUserIds.has(participant.otherUserId || "");
+    return !participant.archived;
   });
 
   const otherUserIds = Array.from(
