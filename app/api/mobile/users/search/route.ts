@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   }
   try {
     const q = new URL(request.url).searchParams.get("q")?.trim() || ""
-    if (q.length < 2) {
+    if (q.isEmpty) {
       return NextResponse.json({ success: true, data: [] })
     }
     const users = await searchMobileUsers(q)

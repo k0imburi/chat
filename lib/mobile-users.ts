@@ -385,7 +385,7 @@ export async function findMobileUsersByIds(userIds: string[]) {
 // Includes the searcher, excludes non-USER accounts, and caps results for a snappy list.
 export async function searchMobileUsers(query: string, take = 30) {
   const q = query.trim();
-  if (q.length < 2) return [] as UserWithMedia[];
+  if (!q) return [] as UserWithMedia[];
   return (await prisma.user.findMany({
     where: {
       role: UserRole.USER,
