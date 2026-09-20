@@ -87,7 +87,7 @@ async function resolveTaggedUsers(ids: string[], ownerId: string) {
 
 function tagFields(users: Awaited<ReturnType<typeof resolveTaggedUsers>>) {
   const ids = users.map((user) => user.id);
-  const names = users.map((user) => user.username || user.fullName);
+  const names = users.map((user) => user.fullName || user.username || "");
   const statuses = Object.fromEntries(ids.map((id) => [id, "PENDING"]));
   return {
     taggedUserId: ids[0] || null,
@@ -97,7 +97,7 @@ function tagFields(users: Awaited<ReturnType<typeof resolveTaggedUsers>>) {
     taggedUserPreviews: users.length
       ? users.map((user) => ({
           id: user.id,
-          name: user.username || user.fullName,
+          name: user.fullName || user.username || "",
           avatarUrl: user.avatarUrl || "",
           fallbackAsset:
             user.gender?.toUpperCase() === "M"
