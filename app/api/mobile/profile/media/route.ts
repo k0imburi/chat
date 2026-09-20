@@ -240,7 +240,7 @@ export async function POST(request: Request) {
               senderId: session.userId,
               type: "postvideo",
               title: actorName,
-              message: "just posted",
+              message: "added a new post",
               metadata: {
                 mediaId: savedMedia.id,
                 thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
