@@ -61,9 +61,28 @@ function serializeChatSummary(
     const deletedFor = Array.isArray(message.deletedForUserIds)
       ? (message.deletedForUserIds as string[])
       : [];
-    return !deletedFor.includes(participant.userId);
+    // End-chat notices belong inside the conversation as context, not in the
+    // chat list as though they were a person's last message.
+    return (
+      message.type !== ChatMessageType.SYSTEM &&
+      !deletedFor.includes(participant.userId)
+    );
   });
-  if (!lastMessage) return null;
+  if (!lastMessage) {
+    return {
+      chatUserId: receiver.id,
+      senderId: "",
+      msgType: "text",
+      lastMsg: "",
+      sentAt:
+        participant.thread.lastMessageAt?.toISOString() ??
+        new Date(0).toISOString(),
+      unread: participant.unreadCount,
+      broadcastOnly: participant.thread.broadcastOnly,
+      threadKind: participant.thread.kind.toLowerCase(),
+      receiver: serializeMobileUser(receiver),
+    };
+  }
   const contentIsLocked = Boolean(
     lastMessage.locked && lastMessage.senderId !== participant.userId,
   );

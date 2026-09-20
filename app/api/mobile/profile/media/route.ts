@@ -456,10 +456,16 @@ export async function PATCH(request: Request) {
         );
       }
       if (hasTagUpdate && taggedUsers.length) {
-        const actor = await prisma.user.findUnique({
-          where: { id: session.userId },
-          select: { fullName: true, username: true },
-        });
+        const [actor, media] = await Promise.all([
+          prisma.user.findUnique({
+            where: { id: session.userId },
+            select: { fullName: true, username: true },
+          }),
+          prisma.userMedia.findUnique({
+            where: { id: mediaId },
+            select: { thumbnailUrl: true, url: true },
+          }),
+        ]);
         const actorName =
           actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
         await Promise.all(
@@ -470,7 +476,10 @@ export async function PATCH(request: Request) {
               type: "post_tag",
               title: actorName,
               message: `${actorName} wants to tag you in a post`,
-              metadata: { mediaId, thumbnailUrl: "" },
+              metadata: {
+                mediaId,
+                thumbnailUrl: media?.thumbnailUrl || media?.url || "",
+              },
             }),
           ),
         );
