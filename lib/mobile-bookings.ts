@@ -159,9 +159,21 @@ async function reserveBookingCredit(tx: Prisma.TransactionClient, customerId: st
 
 export async function proposeBooking(customerId: string, input: { creatorId: string; type: BookingType; start: string; timezone: string }) {
   if (customerId === input.creatorId) throw new Error("You cannot book yourself")
-  const customer = await prisma.user.findUnique({ where: { id: customerId }, select: { accountType: true } })
+  const customer = await prisma.user.findUnique({
+    where: { id: customerId },
+    select: { accountType: true, entityPlanType: true, entityPlanExpiresAt: true },
+  })
   if (customer?.accountType === "ENTITY") {
-    throw new Error("Only individual accounts can complete this process. Entity accounts only accept callback requests")
+    const hasPlan = Boolean(
+      customer.entityPlanType &&
+      customer.entityPlanExpiresAt &&
+      customer.entityPlanExpiresAt > new Date(),
+    )
+    throw new Error(
+      hasPlan
+        ? "You can only accept Callback requests"
+        : "Purchase an entity plan before making calls",
+    )
   }
   const start = new Date(input.start)
   if (!Number.isFinite(start.getTime())) throw new Error("Invalid start time")

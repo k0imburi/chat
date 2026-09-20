@@ -763,6 +763,11 @@ export async function sendMessage(input: {
     me.accountType === "ENTITY" || other.accountType === "ENTITY";
 
   if (me.accountType === "ENTITY") {
+    if (other.accountType === "ENTITY") {
+      throw new Error(
+        "Entity accounts can only reply to individual users who have initiated contact.",
+      );
+    }
     await enforceEntityReplyAccess(me);
     const priorUserMessage = await prisma.chatMessage.findFirst({
       where: {
