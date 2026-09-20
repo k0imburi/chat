@@ -457,7 +457,9 @@ export async function getChats(userId: string, query?: string) {
 
   const visibleParticipants = participants.filter((participant) => {
     if (!participant.thread.lastMessageAt) return false;
-    return !participant.archived;
+    // A self participant is invalid data. Never expose it even if an old
+    // client or a historical import managed to create one.
+    return !participant.archived && participant.otherUserId !== userId;
   });
 
   const otherUserIds = Array.from(
