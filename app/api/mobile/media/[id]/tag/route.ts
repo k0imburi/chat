@@ -1,4 +1,4 @@
-import { TagApprovalStatus } from "@prisma/client";
+import { Prisma, TagApprovalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getMobileSessionFromRequest } from "@/lib/mobile-session";
@@ -70,18 +70,51 @@ export async function PATCH(
       : media.taggedUsername
         ? [media.taggedUsername]
         : [];
+    // Keep accepted tags first in the order they were accepted. That lets the
+    // feed show the first two acceptances without adding a new schema field.
+    const acceptedBeforeThisDecision = taggedIds.filter(
+      (taggedId) =>
+        taggedId !== session.userId &&
+        statuses[taggedId] === TagApprovalStatus.ACCEPTED,
+    );
+    const orderedTaggedIds = accepted
+      ? [
+          ...acceptedBeforeThisDecision,
+          session.userId,
+          ...taggedIds.filter(
+            (taggedId) =>
+              taggedId !== session.userId &&
+              !acceptedBeforeThisDecision.includes(taggedId),
+          ),
+        ]
+      : taggedIds;
+    const nameById = new Map(taggedIds.map((taggedId, index) => [taggedId, names[index] || ""]));
+    const previews = Array.isArray(media.taggedUserPreviews)
+      ? (media.taggedUserPreviews as Array<Record<string, unknown>>)
+      : [];
+    const previewById = new Map(previews.map((preview) => [String(preview.id || ""), preview]));
+    const orderedPreviews = orderedTaggedIds.flatMap((taggedId) => {
+      const preview = previewById.get(taggedId);
+      return preview ? [preview] : [];
+    });
+    const orderedApprovedIds = orderedTaggedIds.filter(
+      (taggedId) => statuses[taggedId] === TagApprovalStatus.ACCEPTED,
+    );
     await prisma.userMedia.update({
       where: { id },
       data: {
         tagApprovalStatuses: statuses,
+        taggedUserIds: orderedTaggedIds,
+        taggedUsernames: orderedTaggedIds.map((taggedId) => nameById.get(taggedId) || ""),
+        taggedUserPreviews: orderedPreviews as Prisma.InputJsonValue,
         // Legacy readers still use this scalar field. It means at least one
         // recipient accepted, while modern clients filter by each status.
         tagApprovalStatus: approvedIds.length
           ? TagApprovalStatus.ACCEPTED
           : TagApprovalStatus.PENDING,
-        taggedUserId: approvedIds[0] || media.taggedUserId || null,
-        taggedUsername: approvedIds.length
-          ? names[taggedIds.indexOf(approvedIds[0])] || null
+        taggedUserId: orderedApprovedIds[0] || media.taggedUserId || null,
+        taggedUsername: orderedApprovedIds.length
+          ? nameById.get(orderedApprovedIds[0]) || null
           : media.taggedUsername,
       },
     });
