@@ -64,10 +64,12 @@ function serializeChatSummary(
     const deletedFor = Array.isArray(message.deletedForUserIds)
       ? (message.deletedForUserIds as string[])
       : [];
-    // End-chat notices belong inside the conversation as context, not in the
-    // chat list as though they were a person's last message.
+    // End-chat notices belong inside one-to-one conversations as context, not
+    // in the chat list as though they were a person's last message. Broadcasts
+    // intentionally use SYSTEM messages, so they must remain eligible here.
     return (
-      message.type !== ChatMessageType.SYSTEM &&
+      (message.type !== ChatMessageType.SYSTEM ||
+        participant.thread.broadcastOnly) &&
       !deletedFor.includes(participant.userId)
     );
   });
