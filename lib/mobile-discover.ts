@@ -20,7 +20,11 @@ function stringSet(value: unknown): Set<string> {
   if (!Array.isArray(value)) return new Set();
   return new Set(
     value
-      .map((item) => String(item || "").trim().toLowerCase())
+      .map((item) =>
+        String(item || "")
+          .trim()
+          .toLowerCase(),
+      )
       .filter(Boolean),
   );
 }
@@ -31,7 +35,7 @@ function hasOverlap(a: Set<string>, b: Set<string>) {
 }
 
 export async function getDiscoverFeed(currentUserId: string) {
-  const [currentUser, followRows, seenRows, savedRows, repostRows] =
+  const [currentUser, followRows, seenRows, savedRows, repostRows, hiddenRows] =
     await Promise.all([
       prisma.user.findUnique({
         where: { id: currentUserId },
@@ -58,6 +62,10 @@ export async function getDiscoverFeed(currentUserId: string) {
         where: { userId: currentUserId },
         select: { mediaId: true },
       }),
+      prisma.hiddenMedia.findMany({
+        where: { userId: currentUserId },
+        select: { mediaId: true },
+      }),
     ]);
 
   if (!currentUser) {
@@ -67,6 +75,7 @@ export async function getDiscoverFeed(currentUserId: string) {
   const seenMediaIds = new Set(seenRows.map((row) => row.mediaId));
   const savedMediaIds = new Set(savedRows.map((row) => row.mediaId));
   const repostedMediaIds = new Set(repostRows.map((row) => row.mediaId));
+  const hiddenMediaIds = new Set(hiddenRows.map((row) => row.mediaId));
   const followedIds = followRows.map((r) => r.followedId);
 
   const blockedIds = new Set<string>([
@@ -118,7 +127,13 @@ export async function getDiscoverFeed(currentUserId: string) {
         Array.isArray(serialized.gallery)
           ? (serialized.gallery as Array<Record<string, unknown>>)
           : []
-      ).filter((v) => !v.copyrightStatus && !v.reportStatus && !v.isHiddenByOwner);
+      ).filter(
+        (v) =>
+          !v.copyrightStatus &&
+          !v.reportStatus &&
+          !v.isHiddenByOwner &&
+          !hiddenMediaIds.has(String(v.id || "")),
+      );
       // Strip gallery from the user profile — the app only needs avatar/name,
       // not the full post list. Keeps the response payload small.
       const { gallery: _g, ...userProfile } = serialized;
@@ -127,7 +142,10 @@ export async function getDiscoverFeed(currentUserId: string) {
       const sameLang = [...languageTokens(user.language)].some((t) =>
         viewerLangs.has(t),
       );
-      const sharedInterest = hasOverlap(viewerInterests, stringSet(user.interests));
+      const sharedInterest = hasOverlap(
+        viewerInterests,
+        stringSet(user.interests),
+      );
       return videos.map((video) => {
         const id = String(video.id || "");
         const createdAt = new Date(String(video.createdAt || now));
@@ -170,6 +188,7 @@ export async function getDiscoverFeed(currentUserId: string) {
     entries.map((entry) => String(entry.video.id || "")),
   );
   for (const repost of repostFeedRows) {
+    if (hiddenMediaIds.has(repost.mediaId)) continue;
     if (blockedIds.has(repost.userId) || blockedIds.has(repost.media.userId))
       continue;
     const serializedOwner = serializeMobileUserWithLikes(
@@ -274,15 +293,21 @@ export async function getDiscoverFeed(currentUserId: string) {
     }
   }
 
-  const freshFirst = (a: (typeof entries)[number], b: (typeof entries)[number]) => {
+  const freshFirst = (
+    a: (typeof entries)[number],
+    b: (typeof entries)[number],
+  ) => {
     if (a._seen !== b._seen) return a._seen ? 1 : -1;
-    if (a._sharedInterest !== b._sharedInterest) return a._sharedInterest ? -1 : 1;
+    if (a._sharedInterest !== b._sharedInterest)
+      return a._sharedInterest ? -1 : 1;
     if (a._sameLang !== b._sameLang) return a._sameLang ? -1 : 1;
     if (a._createdAt !== b._createdAt) return b._createdAt - a._createdAt;
     return a._rand - b._rand;
   };
 
-  const followedEntries = entries.filter((entry) => entry._followed).sort(freshFirst);
+  const followedEntries = entries
+    .filter((entry) => entry._followed)
+    .sort(freshFirst);
   const sharedEntries = entries
     .filter((entry) => !entry._followed && entry._sharedInterest)
     .sort(freshFirst);
@@ -315,7 +340,8 @@ export async function getDiscoverFeed(currentUserId: string) {
     for (let i = 0; i < 3 && mixed.length < FEED_LIMIT; i++) {
       const before = mixed.length;
       sharedIndex = takeNext(sharedEntries, sharedIndex);
-      if (mixed.length === before) generalIndex = takeNext(generalEntries, generalIndex);
+      if (mixed.length === before)
+        generalIndex = takeNext(generalEntries, generalIndex);
     }
     if (
       followedIndex >= followedEntries.length &&
@@ -333,40 +359,48 @@ export async function getDiscoverFeed(currentUserId: string) {
   }
 
   // Strip internal scoring fields before returning.
-  return mixed
-    .slice(0, FEED_LIMIT)
-    .map(({ user, video }) => ({ user, video }));
+  return mixed.slice(0, FEED_LIMIT).map(({ user, video }) => ({ user, video }));
 }
 
 export async function getTrendingFeed(currentUserId?: string) {
-  const [users, savedRows, likedRows, repostRows] = await Promise.all([
-    prisma.user.findMany({
-      where: {
-        isActive: true,
-        OR: [{ externalId: null }, { externalId: { not: "system:chatandtip" } }],
-        status: { notIn: ["BLOCKED", "HIDDEN"] },
-      },
-      include: { media: true },
-    }),
-    currentUserId
-      ? prisma.savedVideo.findMany({
-          where: { userId: currentUserId },
-          select: { mediaId: true },
-        })
-      : Promise.resolve([]),
-    currentUserId
-      ? prisma.videoLike.findMany({
-          where: { senderId: currentUserId },
-          select: { mediaId: true },
-        })
-      : Promise.resolve([]),
-    currentUserId
-      ? prisma.mediaRepost.findMany({
-          where: { userId: currentUserId },
-          select: { mediaId: true },
-        })
-      : Promise.resolve([]),
-  ]);
+  const [users, savedRows, likedRows, repostRows, hiddenRows] =
+    await Promise.all([
+      prisma.user.findMany({
+        where: {
+          isActive: true,
+          OR: [
+            { externalId: null },
+            { externalId: { not: "system:chatandtip" } },
+          ],
+          status: { notIn: ["BLOCKED", "HIDDEN"] },
+        },
+        include: { media: true },
+      }),
+      currentUserId
+        ? prisma.savedVideo.findMany({
+            where: { userId: currentUserId },
+            select: { mediaId: true },
+          })
+        : Promise.resolve([]),
+      currentUserId
+        ? prisma.videoLike.findMany({
+            where: { senderId: currentUserId },
+            select: { mediaId: true },
+          })
+        : Promise.resolve([]),
+      currentUserId
+        ? prisma.mediaRepost.findMany({
+            where: { userId: currentUserId },
+            select: { mediaId: true },
+          })
+        : Promise.resolve([]),
+      currentUserId
+        ? prisma.hiddenMedia.findMany({
+            where: { userId: currentUserId },
+            select: { mediaId: true },
+          })
+        : Promise.resolve([]),
+    ]);
 
   const savedMediaIds = new Set(savedRows.map((row) => row.mediaId));
   const likedMediaIds = new Set(
@@ -375,41 +409,49 @@ export async function getTrendingFeed(currentUserId?: string) {
       .filter((value): value is string => Boolean(value)),
   );
   const repostedMediaIds = new Set(repostRows.map((row) => row.mediaId));
+  const hiddenMediaIds = new Set(hiddenRows.map((row) => row.mediaId));
 
   const now = Date.now();
-  const entries = users
-    .flatMap((user) => {
-      const serialized = serializeMobileUserWithLikes(
-        user,
-        likedMediaIds,
-        savedMediaIds,
-        repostedMediaIds,
+  const entries = users.flatMap((user) => {
+    const serialized = serializeMobileUserWithLikes(
+      user,
+      likedMediaIds,
+      savedMediaIds,
+      repostedMediaIds,
+    );
+    const videos = (
+      Array.isArray(serialized.gallery)
+        ? (serialized.gallery as Array<Record<string, unknown>>)
+        : []
+    ).filter(
+      (v) =>
+        !v.copyrightStatus &&
+        !v.reportStatus &&
+        !v.isHiddenByOwner &&
+        !hiddenMediaIds.has(String(v.id || "")),
+    );
+    const { gallery: _g, ...userProfile } = serialized;
+    return videos.map((video) => {
+      // Trending is ranked strictly by the hot-score algorithm (engagement
+      // blended with recency). This is deliberately a different ordering
+      // from discover's following-first / freshness sort, so swapping tabs
+      // shows visibly different content. ID hash tiebreaks equal scores.
+      const createdAt = new Date(String(video.createdAt ?? now));
+      const score = hotScore(
+        Number(video.likes ?? 0),
+        Number(video.commentCount ?? 0),
+        Number(video.views ?? 0),
+        createdAt,
+        now,
       );
-      const videos = (
-        Array.isArray(serialized.gallery)
-          ? (serialized.gallery as Array<Record<string, unknown>>)
-          : []
-      ).filter((v) => !v.copyrightStatus && !v.reportStatus && !v.isHiddenByOwner);
-      const { gallery: _g, ...userProfile } = serialized;
-      return videos.map((video) => {
-        // Trending is ranked strictly by the hot-score algorithm (engagement
-        // blended with recency). This is deliberately a different ordering
-        // from discover's following-first / freshness sort, so swapping tabs
-        // shows visibly different content. ID hash tiebreaks equal scores.
-        const createdAt = new Date(String(video.createdAt ?? now));
-        const score = hotScore(
-          Number(video.likes ?? 0),
-          Number(video.commentCount ?? 0),
-          Number(video.views ?? 0),
-          createdAt,
-          now,
-        );
-        const tiebreak = idHashFraction(String(video.id ?? "")) * 1e-6;
-        return { user: userProfile, video, _score: score + tiebreak };
-      });
+      const tiebreak = idHashFraction(String(video.id ?? "")) * 1e-6;
+      return { user: userProfile, video, _score: score + tiebreak };
     });
+  });
 
-  const trendingMediaIds = entries.map((entry) => String(entry.video.id || "")).filter(Boolean);
+  const trendingMediaIds = entries
+    .map((entry) => String(entry.video.id || ""))
+    .filter(Boolean);
   if (trendingMediaIds.length) {
     const recent = await prisma.mediaRepost.findMany({
       where: {
@@ -417,7 +459,10 @@ export async function getTrendingFeed(currentUserId?: string) {
         user: {
           isActive: true,
           status: { notIn: ["BLOCKED", "HIDDEN"] },
-          OR: [{ externalId: null }, { externalId: { not: { startsWith: "system:" } } }],
+          OR: [
+            { externalId: null },
+            { externalId: { not: { startsWith: "system:" } } },
+          ],
         },
       },
       include: { user: { include: { media: true } } },
@@ -427,7 +472,11 @@ export async function getTrendingFeed(currentUserId?: string) {
     const byMedia = new Map<string, typeof recent>();
     for (const repost of recent) {
       const list = byMedia.get(repost.mediaId) || [];
-      if (!list.some((item) => item.userId === repost.userId) && list.length < 2) list.push(repost);
+      if (
+        !list.some((item) => item.userId === repost.userId) &&
+        list.length < 2
+      )
+        list.push(repost);
       byMedia.set(repost.mediaId, list);
     }
     for (const entry of entries) {
@@ -435,17 +484,27 @@ export async function getTrendingFeed(currentUserId?: string) {
       if (!reposts.length) continue;
       const latest = reposts[0];
       entry.video.resharedById = latest.userId;
-      entry.video.resharedByName = latest.user.fullName || latest.user.username || "Someone";
+      entry.video.resharedByName =
+        latest.user.fullName || latest.user.username || "Someone";
       entry.video.resharedAt = latest.createdAt.toISOString();
       entry.video.recentReposters = reposts.map(({ user }) => {
         const profile = user.media
-          .filter((item) => item.kind === "PROFILE_IMAGE" || item.kind === "PROFILE_VIDEO")
+          .filter(
+            (item) =>
+              item.kind === "PROFILE_IMAGE" || item.kind === "PROFILE_VIDEO",
+          )
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-        const rawAvatar = user.avatarUrl || profile?.thumbnailUrl || profile?.url || "";
+        const rawAvatar =
+          user.avatarUrl || profile?.thumbnailUrl || profile?.url || "";
         return {
-          id: user.id, name: user.fullName || user.username || "Someone",
-          username: user.username || "", avatarUrl: rawAvatar,
-          fallbackAsset: user.gender?.toUpperCase() === "M" ? "assets/male.png" : "assets/female.png",
+          id: user.id,
+          name: user.fullName || user.username || "Someone",
+          username: user.username || "",
+          avatarUrl: rawAvatar,
+          fallbackAsset:
+            user.gender?.toUpperCase() === "M"
+              ? "assets/male.png"
+              : "assets/female.png",
           isVerified: user.verified,
           isBroadcaster: user.externalId === "system:chatandtip",
           isEntity: user.accountType === "ENTITY",
@@ -455,7 +514,10 @@ export async function getTrendingFeed(currentUserId?: string) {
       });
       // A fresh reshare is engagement, so it receives a modest temporary lift
       // without replacing Trending's engagement/recency ranking.
-      const ageHours = Math.max(0, (now - latest.createdAt.getTime()) / 3_600_000);
+      const ageHours = Math.max(
+        0,
+        (now - latest.createdAt.getTime()) / 3_600_000,
+      );
       entry._score += Math.max(0, 3 - ageHours / 24);
     }
   }

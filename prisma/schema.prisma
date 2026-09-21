@@ -342,6 +342,7 @@ model User {
   paymentAttempts           PaymentAttempt[]
   livenessVerification      LivenessVerification?
   savedVideos               SavedVideo[]
+  hiddenMedia               HiddenMedia[]
   mediaReposts              MediaRepost[]
   e2eKey                    UserKey?
   deviceInstallations       DeviceInstallation[]
@@ -426,6 +427,7 @@ model UserMedia {
   likeRecords     VideoLike[]
   comments        VideoComment[]
   savedBy         SavedVideo[]
+  hiddenBy        HiddenMedia[]
   reposts         MediaRepost[]
   reports         Report[]
 
@@ -1406,6 +1408,20 @@ model SavedVideo {
 
   @@unique([userId, mediaId])
   @@index([userId, savedAt])
+}
+
+// A viewer-level preference: unlike moderation or an owner hiding their own
+// work, this affects only the account that selected "Not interested".
+model HiddenMedia {
+  id        String    @id @default(cuid())
+  userId    String
+  mediaId   String
+  hiddenAt  DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media     UserMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, mediaId])
+  @@index([userId, hiddenAt])
 }
 
 model UserKey {
