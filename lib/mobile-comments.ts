@@ -290,7 +290,7 @@ export async function createComment(
             userId: user.id,
             senderId: authorId,
             type: "comment_mention",
-            title: `${comment.author.fullName} mentioned you in a comment`,
+            title: `${comment.author.fullName} mentioned you`,
             message: text,
             metadata: { videoId: mediaId, commentId: comment.id, parentId },
           }),
