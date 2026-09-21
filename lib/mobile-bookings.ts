@@ -169,11 +169,15 @@ export async function proposeBooking(customerId: string, input: { creatorId: str
       customer.entityPlanExpiresAt &&
       customer.entityPlanExpiresAt > new Date(),
     )
-    throw new Error(
-      hasPlan
-        ? "You can only accept Callback requests"
-        : "Purchase an entity plan before making calls",
-    )
+    if (!hasPlan) throw new Error("Purchase an entity plan before making calls")
+    const target = await prisma.user.findUnique({
+      where: { id: input.creatorId },
+      select: { accountType: true },
+    })
+    if (target?.accountType === "ENTITY") {
+      throw new Error("This action cannot be completed.")
+    }
+    throw new Error("You can only accept Callback requests")
   }
   const start = new Date(input.start)
   if (!Number.isFinite(start.getTime())) throw new Error("Invalid start time")

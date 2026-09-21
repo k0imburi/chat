@@ -765,12 +765,12 @@ export async function sendMessage(input: {
     me.accountType === "ENTITY" || other.accountType === "ENTITY";
 
   if (me.accountType === "ENTITY") {
-    if (other.accountType === "ENTITY") {
-      throw new Error(
-        "Entity accounts can only reply to individual users who have initiated contact.",
-      );
-    }
+    // An unsubscribed entity always gets the purchase path first. Once it has
+    // a plan, entity-to-entity messaging is explicitly unavailable.
     await enforceEntityReplyAccess(me);
+    if (other.accountType === "ENTITY") {
+      throw new Error("This action cannot be completed.");
+    }
     const priorUserMessage = await prisma.chatMessage.findFirst({
       where: {
         senderId: input.receiverId,

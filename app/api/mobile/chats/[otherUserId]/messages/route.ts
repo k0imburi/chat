@@ -152,6 +152,7 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       "daily reply limit",
       "Entity accounts can only reply",
       "Entity accounts can only reply to individual users",
+      "This action cannot be completed.",
       "This user has not initiated contact yet.",
       "This chat has ended",
     ]
