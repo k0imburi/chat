@@ -9,8 +9,18 @@ export async function GET(request: Request) {
   const session = await getMobileSessionFromRequest(request)
   if (!session?.userId) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
 
+  const url = new URL(request.url)
+  const includeActivity = url.searchParams.get("includeActivity") !== "false"
+  const rawSince = url.searchParams.get("activitySince")
+  const parsedSince = rawSince ? new Date(rawSince) : null
+  const activitySince = parsedSince && !Number.isNaN(parsedSince.getTime())
+    ? parsedSince
+    : undefined
+
   const [activity, finesAndStrikes] = await Promise.all([
-    financeActivity(session.userId),
+    includeActivity
+      ? financeActivity(session.userId, { since: activitySince })
+      : Promise.resolve({ items: [] }),
     financeFinesAndStrikes(session.userId),
   ])
 

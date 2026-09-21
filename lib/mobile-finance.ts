@@ -124,10 +124,14 @@ export async function financeSummary(userId: string) {
 // Per-earning detail for the wallet's "Earnings activity" list: what was
 // earned, how much, who it was with (when resolvable), when it was received,
 // and when it matures/became available.
-export async function financeActivity(userId: string, opts?: { take?: number }) {
+export async function financeActivity(userId: string, opts?: { take?: number; since?: Date }) {
   const take = opts?.take == null ? undefined : Math.min(Math.max(opts.take, 1), 500)
+  const where = {
+    userId,
+    ...(opts?.since ? { createdAt: { gte: opts.since } } : {}),
+  }
   const [lots, settings] = await Promise.all([
-    prisma.earningLot.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take }),
+    prisma.earningLot.findMany({ where, orderBy: { createdAt: "desc" }, take }),
     prisma.appSettings.findUnique({ where: { id: 1 } }),
   ])
   const rate = Number(settings?.usdToKesRate || 0)
