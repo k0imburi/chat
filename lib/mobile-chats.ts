@@ -253,14 +253,22 @@ async function getChatUserOrThrow(userId: string) {
   return user as UserWithMedia;
 }
 
-async function ensureUsersCanChat(userId: string, otherUserId: string) {
+async function getConversationUsers(userId: string, otherUserId: string) {
   if (userId === otherUserId) {
     throw new Error("You cannot message yourself");
   }
 
-  const [me, other, block] = await Promise.all([
+  const [me, other] = await Promise.all([
     getChatUserOrThrow(userId),
     getChatUserOrThrow(otherUserId),
+  ]);
+
+  return { me, other };
+}
+
+async function ensureUsersCanChat(userId: string, otherUserId: string) {
+  const [{ me, other }, block] = await Promise.all([
+    getConversationUsers(userId, otherUserId),
     prisma.userBlock.findFirst({
       where: {
         OR: [
@@ -492,7 +500,10 @@ export async function getChats(userId: string, query?: string) {
 }
 
 export async function getMessages(userId: string, otherUserId: string) {
-  const { me, other } = await ensureUsersCanChat(userId, otherUserId);
+  // Blocking prevents new messages, but it must not erase the existing
+  // conversation. Keep history readable so the mobile client can show it
+  // together with its blocked-conversation banner.
+  const { me, other } = await getConversationUsers(userId, otherUserId);
   const entityChat =
     me.accountType === "ENTITY" || other.accountType === "ENTITY";
 
