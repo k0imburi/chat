@@ -10,6 +10,8 @@ const ECONOMY_ACCOUNTS = [
   "koimburi",
   "lucyjoymwende",
   "joelm",
+  "sasha",
+  "christian",
   "hunter",
 ]
 

@@ -1,0 +1,2 @@
+ALTER TABLE `UserMedia`
+  ADD COLUMN `adCtaColor` VARCHAR(7) NULL;

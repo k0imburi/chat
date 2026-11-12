@@ -1,0 +1,2 @@
+ALTER TABLE `AppSettings`
+  ADD COLUMN `freeStorageLimitMb` INTEGER NOT NULL DEFAULT 1024;

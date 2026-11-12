@@ -1,3 +1,4 @@
+import { withChatIdentity } from "@/lib/chat-identity";
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { reactToMessage } from "@/lib/mobile-chats"
@@ -13,7 +14,7 @@ const bodySchema = z.object({
   emoji: z.string().min(1).max(16),
 })
 
-export async function POST(
+async function POSTHandler(
   request: Request,
   context: { params: Promise<unknown> },
 ) {
@@ -50,3 +51,6 @@ export async function POST(
     )
   }
 }
+
+
+export const POST = withChatIdentity(POSTHandler);

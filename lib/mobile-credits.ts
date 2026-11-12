@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 // What the user PAYS at checkout, in USD — converted to KES at the live
 // admin-configured exchange rate, the same way tips (TIP_USD) already work.
 export const PURCHASE_PRICE_USD: Record<CreditKind, number> = {
-  KEY: 1,
+  KEY: 1.99,
   CHAT_CREDIT: 0.2,
   VOICE_SESSION: 4,
   VIDEO_SESSION: 5,
@@ -34,6 +34,7 @@ export const MIN_PURCHASE: Partial<Record<CreditKind, number>> = {
   KEY: 1,
   CHAT_CREDIT: 5,
 }
+export const CHAT_CREDIT_BUNDLES = [5, 10, 20, 50, 100, 200, 500, 1000] as const
 
 // Tips (USD) — sent straight to the creator, never converted to credits.
 export const TIP_USD: Record<TipTier, number> = {
@@ -289,7 +290,7 @@ export async function recordTipInTransaction(
 export type CartItems = Partial<Record<CreditKind, number>>
 
 /** Validate a purchase cart against minimums/increments; return the KES total. */
-export function priceCart(items: CartItems, usdToKesRate: number): { totalKes: number; normalized: CartItems } {
+export function priceCart(items: CartItems, usdToKesRate: number, allowChatOnlyGift = false): { totalKes: number; normalized: CartItems } {
   const normalized: CartItems = {}
   let total = 0
   const priceKes = purchasePriceKesFor(usdToKesRate)
@@ -305,7 +306,14 @@ export function priceCart(items: CartItems, usdToKesRate: number): { totalKes: n
   // Minimum cart: at least 1 Key + 5 ChatCredits must be present together.
   const keys = normalized.KEY ?? 0
   const chat = normalized.CHAT_CREDIT ?? 0
-  if (keys > 0 || chat > 0) {
+  if (chat > 0 && !CHAT_CREDIT_BUNDLES.includes(chat as (typeof CHAT_CREDIT_BUNDLES)[number])) {
+    throw new Error(`Choose a ChatCredits bundle: ${CHAT_CREDIT_BUNDLES.join(", ")}`)
+  }
+  if (allowChatOnlyGift && chat > 0 && keys === 0) {
+    if (chat < (MIN_PURCHASE.CHAT_CREDIT ?? 0)) {
+      throw new Error(`Minimum purchase is ${MIN_PURCHASE.CHAT_CREDIT} ChatCredits`)
+    }
+  } else if (keys > 0 || chat > 0) {
     if (keys < (MIN_PURCHASE.KEY ?? 0) || chat < (MIN_PURCHASE.CHAT_CREDIT ?? 0)) {
       throw new Error(
         `Minimum purchase is ${MIN_PURCHASE.KEY} Key and ${MIN_PURCHASE.CHAT_CREDIT} ChatCredits`,

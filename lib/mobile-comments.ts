@@ -24,7 +24,7 @@ const authorSelect = {
   updatedAt: true,
   media: {
     where: { kind: { in: profileMediaKinds } },
-    select: { thumbnailUrl: true, url: true, kind: true },
+    select: { id: true, thumbnailUrl: true, url: true, kind: true },
     orderBy: { createdAt: "desc" as const },
     take: 1,
   },
@@ -41,7 +41,7 @@ type CommentAuthor = {
   entityBadgeColor: string | null;
   externalId: string | null;
   updatedAt: Date;
-  media: { thumbnailUrl: string | null; url: string; kind: MediaKind }[];
+  media: { id: string; thumbnailUrl: string | null; url: string; kind: MediaKind }[];
 };
 
 function visibleToViewerWhere(currentUserId: string) {
@@ -69,6 +69,8 @@ function serializeComment(
   comment: {
     id: string;
     text: string;
+    attachmentUrl?: string | null;
+    attachmentKind?: string | null;
     parentId: string | null;
     likes: number;
     createdAt: Date;
@@ -83,6 +85,8 @@ function serializeComment(
   return {
     id: comment.id,
     text: comment.text,
+    attachmentUrl: comment.attachmentUrl || null,
+    attachmentKind: comment.attachmentKind || null,
     parentId: comment.parentId,
     likes: comment.likes,
     replyCount: comment._count.replies,
@@ -94,6 +98,7 @@ function serializeComment(
       id: comment.author.id,
       name: comment.author.fullName,
       avatarUrl: resolveAvatarUrl(comment.author),
+      avatarMediaId: comment.author.media[0]?.id || "",
       fallbackAsset:
         comment.author.gender.toUpperCase() === "M"
           ? "assets/male.png"
@@ -190,7 +195,17 @@ export async function createComment(
   authorId: string,
   text: string,
   parentId?: string,
+  attachment?: {url:string;kind:string},
 ) {
+  if (attachment) {
+    const asset = await prisma.asset.findFirst({where:{url:attachment.url,visibility:'public',
+      objectKey:{startsWith:`uploads/${authorId}/`},metadata:{path:'$.userId',equals:authorId}},
+      select:{contentType:true,sizeBytes:true}});
+    const allowed=['image/jpeg','image/png','image/webp','image/gif'];
+    if (!asset || !allowed.includes(asset.contentType??'') || Number(asset.sizeBytes)>10*1024*1024)
+      throw new Error('Upload a supported image, GIF or sticker under 10 MB.');
+    if (attachment.kind==='gif' && asset.contentType!=='image/gif') throw new Error('Choose a GIF file.');
+  }
   const media = await prisma.userMedia.findUnique({
     where: { id: mediaId },
     select: { userId: true },
@@ -199,7 +214,8 @@ export async function createComment(
 
   const comment = await prisma.$transaction(async (tx) => {
     const created = await tx.videoComment.create({
-      data: { mediaId, authorId, text, parentId: parentId ?? null },
+      data: { mediaId, authorId, text, parentId: parentId ?? null,
+        attachmentUrl:attachment?.url,attachmentKind:attachment?.kind },
       include: {
         author: { select: authorSelect },
         _count: { select: { replies: true } },

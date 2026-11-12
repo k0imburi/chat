@@ -3,7 +3,7 @@ import { TechnicalIssuesTable } from "@/components/technical-issues-table"
 import { getTechnicalIssues } from "@/lib/technical-issues"
 
 export default async function TechnicalProblemsPage() {
-  const issues = await getTechnicalIssues()
+  const issues = await getTechnicalIssues("", "technical")
   return (
     <div className="space-y-5">
       <PageHeader

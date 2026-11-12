@@ -1,9 +1,10 @@
+import { withChatIdentity } from "@/lib/chat-identity";
 import { NextResponse } from "next/server"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { getChats } from "@/lib/mobile-chats"
 import { logError } from "@/lib/log-error"
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   const session = await getMobileSessionFromRequest(request)
   if (!session?.userId) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
@@ -21,3 +22,6 @@ export async function GET(request: Request) {
     )
   }
 }
+
+
+export const GET = withChatIdentity(GETHandler);

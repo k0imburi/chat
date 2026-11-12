@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { withChatIdentity } from "@/lib/chat-identity"
 import { z } from "zod"
 import { unlockReply } from "@/lib/mobile-chats"
 import { InsufficientCreditsError } from "@/lib/mobile-credits"
@@ -10,7 +11,7 @@ const paramsSchema = z.object({
   messageId: z.string().min(1),
 })
 
-export async function POST(request: Request, context: { params: Promise<unknown> }) {
+async function POSTHandler(request: Request, context: { params: Promise<unknown> }) {
   const viewer = await getCurrentCustomerUser()
   if (!viewer) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
 
@@ -38,3 +39,5 @@ export async function POST(request: Request, context: { params: Promise<unknown>
     )
   }
 }
+
+export const POST = withChatIdentity(POSTHandler, getCurrentCustomerUser)

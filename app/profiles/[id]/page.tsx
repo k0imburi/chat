@@ -5,7 +5,7 @@ import { notFound } from "next/navigation"
 import { MessageCircle, PhoneCall, Video } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CustomerShell } from "@/components/customer/customer-shell"
-import { PostGrid } from "@/components/customer/post-grid"
+import { ProfileTabs } from "@/components/customer/profile-tabs"
 import { ReportButton } from "@/components/customer/report-button"
 import { VerifiedBadge } from "@/components/customer/verified-badge"
 import { getCurrentCustomerUser, getCustomerProfile, type CustomerFeedEntry } from "@/lib/customer-web"
@@ -57,12 +57,6 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
                   </Button>
                 </form>
               ) : null}
-              <Link
-                href={`/tip?creator=${profile.userId}&tier=PEBBLE`}
-                className="rounded-full border border-emerald-700 px-3 py-1.5 text-xs font-bold text-emerald-400"
-              >
-                Tip
-              </Link>
               {viewer && viewer.userId !== id ? (
                 <>
                   <Link
@@ -112,7 +106,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
       </div>
 
       {/* Posts grid */}
-      <PostGrid entries={entries} empty="No posts yet." />
+      <ProfileTabs profileId={id} posts={entries} user={profile} />
     </CustomerShell>
   )
 }

@@ -18,6 +18,7 @@ export async function POST(request: Request) {
   const metadata = campaign.metadata && typeof campaign.metadata === "object" && !Array.isArray(campaign.metadata) ? campaign.metadata as Record<string, unknown> : {}
   try {
     const delivered = await broadcastCampaignNotifications({
+      createNotification: false,
       title: campaign.title, message: campaign.message, campaignId: campaign.id,
       channel: campaign.channel, afterUserId: typeof metadata.lastUserId === "string" ? metadata.lastUserId : undefined, batchSize: 200,
     })

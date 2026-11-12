@@ -308,8 +308,12 @@ export default async function SettingsPage() {
                   {" "}method, not a store policy). Requires: the app listed in Play Console (at least
                   {" "}Internal Testing), a Google Cloud service account with “View financial data”
                   {" "}access linked under Play Console → Setup → API access, and these in-app
-                  {" "}products created with these exact IDs: <code>key</code>, <code>chat_credit</code>,
-                  {" "}<code>voice_session</code>, <code>video_session</code>, <code>tip_pebble</code>,
+                  {" "}products created with these exact IDs: <code>key</code>,
+                  {" "}<code>chat_credit_5</code>, <code>chat_credit_10</code>, <code>chat_credit_20</code>,
+                  {" "}<code>chat_credit_50</code>, <code>chat_credit_100</code>, <code>chat_credit_200</code>,
+                  {" "}<code>chat_credit_500</code>, <code>chat_credit_1000</code>,
+                  {" "}<code>chat_credit</code> (legacy single credit), <code>voice_session</code>,
+                  {" "}<code>video_session</code>, <code>tip_pebble</code>,
                   {" "}<code>tip_gem</code>, <code>tip_diamond</code> (all consumable, priced to match
                   {" "}your existing per-unit USD prices — Play handles currency localization itself).
                   {" "}Only affects the Android app; web and iOS are unchanged.
@@ -353,6 +357,8 @@ export default async function SettingsPage() {
                 <div className="md:col-span-2">
                   <Field label="Endpoint" name="r2Endpoint" defaultValue={settings?.r2Endpoint ?? ""} />
                 </div>
+                <Field label="Free storage per user (MB)" name="freeStorageLimitMb" type="number" defaultValue={String(settings?.freeStorageLimitMb ?? 1024)} />
+                <p className="self-end pb-2 text-xs text-muted-foreground">Uploads stop at this limit and users are prompted to upgrade for more cloud storage.</p>
                 <div className="md:col-span-2">
                   <SubmitButton type="submit">Save storage settings</SubmitButton>
                 </div>

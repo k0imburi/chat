@@ -16,11 +16,13 @@ import { z } from "zod"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { getPresignedUploadUrl } from "@/lib/r2"
 import { logError } from "@/lib/log-error"
+import { assertStorageAvailable } from "@/lib/storage-quota"
 
 const schema = z.object({
   filename: z.string().min(1).max(255),
   dir_name: z.string().default("uploads"),
   visibility: z.enum(["public", "private"]).default("public"),
+  size_bytes: z.number().int().positive().optional(),
 })
 
 export async function POST(request: Request) {
@@ -31,6 +33,7 @@ export async function POST(request: Request) {
 
   try {
     const body = schema.parse(await request.json())
+    if (body.size_bytes) await assertStorageAvailable(session.userId, body.size_bytes)
 
     const root = body.visibility === "private" ? "private" : "uploads"
     const prefix = `${root}/${session.userId}/${body.dir_name}`

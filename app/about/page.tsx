@@ -1,39 +1,11 @@
-import { LegalPage, LegalP } from "@/components/legal-page"
-
-export const metadata = {
-  title: "About Us — ChatAndTip",
-  description: "ChatAndTip is a creator-engagement platform for discovering, connecting with, and supporting creators worldwide.",
-}
-
+import { PublicPageFrame, PublicText } from "@/components/public-page-frame"
+export const metadata = { title: "About ChatAndTip", description: "Discover creators, conversations and community on ChatAndTip." }
 export default function AboutPage() {
-  return (
-    <LegalPage title="About Us">
-      <LegalP>
-        ChatAndTip is a creator-engagement platform built to help people discover, connect with, and support Creators
-        from all over the world. Whether you&apos;re browsing posts, exchanging messages, or booking a live voice or
-        video session, ChatAndTip is designed to make real, meaningful interaction between Users and Creators simple
-        and secure.
-      </LegalP>
-      <LegalP>
-        ChatAndTip exists to celebrate creators and the communities that follow them — through shared interests,
-        languages, and the content they love. Users can explore content, follow favorite Creators, join
-        conversations, and show appreciation through tips, while Creators can build genuine relationships with their
-        audience and earn from the connections they make.
-      </LegalP>
-      <LegalP>
-        We&apos;re committed to a respectful, safe community. ChatAndTip does not condone nudity, racist views,
-        slurs, extortion, and discrimination of any kind, and content or conduct that violates these standards is
-        not tolerated on the Platform.
-      </LegalP>
-      <LegalP>
-        Every feature, from our Access Key messaging system to scheduled VoiceCall and VideoCall Sessions, is built
-        around trust, fairness, and safety. Payments and account management happen securely through in-app and
-        chatandtip.com, keeping your data and transactions protected.
-      </LegalP>
-      <LegalP>
-        At its core, ChatAndTip is about connection: giving Creators a platform to be seen and supported, and
-        giving Users a genuine way to engage with people and content they care about.
-      </LegalP>
-    </LegalPage>
-  )
+  return <PublicPageFrame titleKey="web.about">
+    <p className="max-w-2xl text-xl leading-9 text-slate-600"><PublicText message="web.aboutBody"/></p>
+    <div className="mt-10 grid gap-4 sm:grid-cols-3">
+      {(["web.discover", "web.community", "web.chats"] as const).map(key =>
+        <div key={key} className="rounded-2xl border border-emerald-100 bg-emerald-50 p-6 text-lg font-bold text-emerald-950"><PublicText message={key}/></div>)}
+    </div>
+  </PublicPageFrame>
 }

@@ -15,7 +15,7 @@ export function calculateWithdrawalValues(
   const netUsd = roundUsd(grossUsd.minus(feeUsd))
   const grossKes = roundUsd(grossUsd.mul(rate))
   const netKes = netUsd.mul(rate).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP)
-  const minimumShortfallUsd = Prisma.Decimal.max(0, new Prisma.Decimal(40).minus(netUsd))
+  const minimumShortfallUsd = Prisma.Decimal.max(0, new Prisma.Decimal(100).minus(netUsd))
     .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
   return { grossUsd, feePercent, rate, feeUsd, netUsd, grossKes, netKes, minimumShortfallUsd }
 }

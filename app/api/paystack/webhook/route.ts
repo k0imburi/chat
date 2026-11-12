@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
+import { fulfillPaystackAd } from '@/lib/ad-checkout'
 import { prisma } from "@/lib/prisma"
 import { allocateCredits, type CartItems } from "@/lib/mobile-credits"
 import { resolvePaystackConfig, verifyPaystackSignature } from "@/lib/paystack"
 import { logError } from "@/lib/log-error"
+import { fulfillEntityPlanPurchase } from "@/lib/entity-plan-checkout"
 
 export async function POST(request: Request) {
   const cfg = await resolvePaystackConfig()
@@ -28,6 +30,10 @@ export async function POST(request: Request) {
     if (event.event !== "charge.success") return NextResponse.json({ received: true })
 
     const reference = event.data?.reference || ""
+    if(reference.startsWith('adfund_')) {
+      await fulfillPaystackAd(event.data!)
+      return NextResponse.json({received:true})
+    }
     const purchase = await prisma.creditPurchase.findFirst({
       where: { id: reference, provider: "PAYSTACK" },
     })
@@ -64,7 +70,10 @@ export async function POST(request: Request) {
       })
     }
 
-    if (!purchase.allocated) {
+    const snapshot = purchase.pricingSnapshot as { kind?: string } | null
+    if (!purchase.allocated && snapshot?.kind === "ENTITY_PLAN") {
+      await fulfillEntityPlanPurchase(purchase.id)
+    } else if (!purchase.allocated) {
       await allocateCredits({
         userId: purchase.userId,
         items: purchase.items as CartItems,

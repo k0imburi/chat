@@ -1,0 +1,1 @@
+ALTER TABLE `ChatMessage` ADD COLUMN `albumId` VARCHAR(64) NULL;

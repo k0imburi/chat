@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { withChatIdentity } from "@/lib/chat-identity"
 import { z } from "zod"
 import { deleteMessage, getMessages, sendMessage } from "@/lib/mobile-chats"
 import { getCurrentCustomerUser } from "@/lib/customer-web"
@@ -24,20 +25,25 @@ const bodySchema = z.object({
   videoObjectKey: z.string().max(1024).optional().or(z.literal("")),
   thumbnailUrl: z.string().url().optional().or(z.literal("")),
   thumbnailObjectKey: z.string().max(1024).optional().or(z.literal("")),
+  documentObjectKey: z.string().max(1024).optional().or(z.literal("")),
+  documentName: z.string().max(255).optional(),
+  documentMimeType: z.string().max(191).optional(),
+  documentSizeBytes: z.number().int().nonnegative().optional(),
   replyToId: z.string().optional(),
   replyToText: z.string().optional(),
   replyToSenderId: z.string().optional(),
   replyToSenderName: z.string().optional(),
+  hiddenCodeGroupId: z.string().optional(),
 })
 
-export async function GET(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
+async function GETHandler(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
   const viewer = await getCurrentCustomerUser()
   if (!viewer) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
 
   try {
     const params = paramsSchema.parse(await context.params)
     const { messages, willChargeReply, turnTakingRequired, cycleState, viewerIsInitiator, unlockExpiresAt } =
-      await getMessages(viewer.userId, params.otherUserId)
+      await getMessages(viewer.userId, params.otherUserId, new URL(request.url).searchParams.get("hiddenCodeGroupId") || undefined)
     return NextResponse.json({
       success: true,
       data: messages,
@@ -59,7 +65,7 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
   }
 }
 
-export async function DELETE(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
+async function DELETEHandler(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
   const viewer = await getCurrentCustomerUser()
   if (!viewer) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
 
@@ -80,7 +86,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ othe
   }
 }
 
-export async function POST(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
+async function POSTHandler(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
   const viewer = await getCurrentCustomerUser()
   if (!viewer) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
 
@@ -99,10 +105,15 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       videoObjectKey: body.videoObjectKey,
       thumbnailUrl: body.thumbnailUrl,
       thumbnailObjectKey: body.thumbnailObjectKey,
+      documentObjectKey: body.documentObjectKey,
+      documentName: body.documentName,
+      documentMimeType: body.documentMimeType,
+      documentSizeBytes: body.documentSizeBytes,
       replyToId: body.replyToId,
       replyToText: body.replyToText,
       replyToSenderId: body.replyToSenderId,
       replyToSenderName: body.replyToSenderName,
+      hiddenCodeGroupId: body.hiddenCodeGroupId,
     })
     return NextResponse.json({ success: true, data })
   } catch (error) {
@@ -129,3 +140,7 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
     return NextResponse.json({ success: false, message: msg }, { status: isUserError ? 400 : 500 })
   }
 }
+
+export const GET = withChatIdentity(GETHandler, getCurrentCustomerUser)
+export const POST = withChatIdentity(POSTHandler, getCurrentCustomerUser)
+export const DELETE = withChatIdentity(DELETEHandler, getCurrentCustomerUser)

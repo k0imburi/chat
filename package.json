@@ -2,6 +2,9 @@
   "name": "chat-and-tip-admin",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "node --env-file=.env server.mjs --dev",
     "build": "prisma generate && next build",

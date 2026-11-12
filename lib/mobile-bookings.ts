@@ -667,7 +667,9 @@ export async function bookingAction(userId: string, bookingId: string, action: s
 }
 
 export async function joinBooking(userId: string, bookingId: string) {
-  const booking = await prisma.callBooking.findUnique({ where: { id: bookingId }, include: { creator: { select: { callsRestrictedUntil: true } } } })
+  return prisma.$transaction(async (tx) => {
+  await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${bookingId} FOR UPDATE`
+  const booking = await tx.callBooking.findUnique({ where: { id: bookingId }, include: { creator: { select: { callsRestrictedUntil: true } } } })
   if (!booking || (booking.customerId !== userId && booking.creatorId !== userId) || !["APPROVED", "LIVE"].includes(booking.status)) throw new Error("Booking is not available")
   if (booking.creator.callsRestrictedUntil && booking.creator.callsRestrictedUntil > new Date()) throw new Error("This creator is temporarily unavailable for calls")
   const now = new Date()
@@ -679,9 +681,10 @@ export async function joinBooking(userId: string, bookingId: string) {
     bookingId, userId, side: isCustomer ? "customer" : "creator",
     type: booking.type, wasStatus: booking.status,
   })
-  return prisma.callBooking.update({ where: { id: booking.id }, data: {
-    status: "LIVE", ...(isCustomer ? { customerJoinedAt: now } : { creatorJoinedAt: now }),
+  return tx.callBooking.update({ where: { id: booking.id }, data: {
+    status: "LIVE", ...(isCustomer ? { customerJoinedAt: booking.customerJoinedAt ?? now } : { creatorJoinedAt: booking.creatorJoinedAt ?? now }),
   } })
+  }, { timeout: 20000, maxWait: 10000 })
 }
 
 export async function reconcileBookings() {
@@ -790,16 +793,38 @@ export async function reconcileBookings() {
   }, include: { creator: true, customer: true } })
   for (const b of creatorNoShows) {
     if (b.creator.accountType === "ENTITY") {
-      const expiredCallback = await prisma.callBooking.updateMany({
-        where: { id: b.id, status: { in: ["APPROVED", "LIVE"] } },
-        data: { status: "EXPIRED", completedAt: now },
-      })
-      if (expiredCallback.count) {
+      const expiredCallback = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM CallBooking WHERE id = ${b.id} FOR UPDATE`
+        const current = await tx.callBooking.findUnique({ where: { id: b.id } })
+        if (
+          !current
+          || !["APPROVED", "LIVE"].includes(current.status)
+          || current.creatorJoinedAt
+          || await creatorWasPresent(tx, current.id)
+        ) return false
+        await tx.callBooking.update({
+          where: { id: current.id },
+          data: { status: "EXPIRED", completedAt: now },
+        })
+        return true
+      }, { timeout: 20000, maxWait: 10000 })
+      if (expiredCallback) {
+        await prisma.userNotification.updateMany({
+          where: {
+            type: "booking",
+            metadata: { path: "$.bookingId", equals: b.id },
+            OR: [
+              { message: { contains: "Your booked call starts soon." } },
+              { message: { contains: "live. Join now." } },
+            ],
+          },
+          data: { hiddenAt: now },
+        })
         await notifyBooking(
           b.customerId,
           b.creatorId,
           "Callback request expired",
-          "Your callback request expired before it started.",
+          "Your callback request expired because the creator did not join in time.",
           b.id,
           b.customer.email,
         )

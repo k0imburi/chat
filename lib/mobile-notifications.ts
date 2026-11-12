@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { serializeMobileUser } from "@/lib/mobile-users";
 import { emitChatRealtimeToUser } from "@/lib/realtime";
 import { env } from "@/lib/env";
-import { sendFcmPush } from "@/lib/fcm";
+import { sendFcmPush, sendUserNotificationFcm } from "@/lib/fcm";
 
 // Cache-busted so replacing the logo file actually shows up — browsers, CDNs,
 // and the mobile app's image cache all key on the URL, and the file gets
@@ -47,6 +47,39 @@ const GROUPABLE_ACTIVITY_TYPES = new Set([
   "repost",
   "follow",
 ]);
+
+const NOTIFICATION_CATEGORY: Record<string, string> = {
+  message: "message", booking: "booking", call: "booking", callback: "booking",
+  tip: "tip", tip_request: "tip", like: "social", comment: "social",
+  comment_reply: "social", comment_like: "social", comment_mention: "social",
+  follow: "social", match: "social", repost: "social", reshare: "social",
+  postvideo: "post", post_tag: "post", updatevideo: "post",
+};
+
+function preferenceAllowsPush(value: unknown, type: string) {
+  const preferences = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  if (preferences.notificationsEnabled === false) return false;
+  return preferences[NOTIFICATION_CATEGORY[type] || "system"] !== false;
+}
+
+const NOTIFICATION_SOUND_IDS = new Set([
+  "default",
+  "cat_pulse",
+  "cat_ripple",
+  "cat_glow",
+  "cat_chime",
+]);
+
+function notificationSoundId(preferences: Record<string, unknown>) {
+  const soundId = String(preferences.soundId || "default");
+  return NOTIFICATION_SOUND_IDS.has(soundId) ? soundId : "default";
+}
+
+function notificationIosSound(soundId: string) {
+  return soundId === "default" ? "default" : `${soundId}.wav`;
+}
 
 function mediaIdFromMetadata(metadata: Record<string, unknown>) {
   const raw =
@@ -233,6 +266,15 @@ export async function createUserNotification(input: {
   // pass skipPush to avoid a duplicate push here.
   skipPush?: boolean;
 }) {
+  const hiddenByChat = input.senderId && !["chat_hide_request", "chat_unhide_request", "chat_privacy_decision"].includes(input.type ?? "")
+    ? await prisma.userHiddenChat.findFirst({
+        where: {
+          userId: input.userId,
+          thread: { participants: { some: { userId: input.senderId } } },
+        },
+        select: { id: true },
+      })
+    : null;
   const notification = await prisma.userNotification.create({
     data: {
       userId: input.userId,
@@ -240,6 +282,7 @@ export async function createUserNotification(input: {
       title: input.title || null,
       message: input.message,
       type: input.type || "alert",
+      hiddenAt: hiddenByChat ? new Date() : null,
       metadata: (await enrichMetadataWithMediaPreview(
         input.metadata || {},
       )) as Prisma.InputJsonValue,
@@ -252,6 +295,8 @@ export async function createUserNotification(input: {
   });
 
   const serialized = serializeMobileNotification(notification as never);
+
+  if (hiddenByChat) return serialized;
 
   emitChatRealtimeToUser(input.userId, {
     channel: "notifications",
@@ -267,11 +312,12 @@ export async function createUserNotification(input: {
       try {
         const recipient = await prisma.user.findUnique({
           where: { id: input.userId },
-          select: { deviceToken: true },
+          select: { deviceToken: true, notificationPreferences: true },
         });
-        if (!recipient?.deviceToken) return;
+        if (!recipient || !preferenceAllowsPush(recipient.notificationPreferences, input.type || "alert")) return;
         const pushData: Record<string, string> = {
           type: input.type || "alert",
+          recipientUserId: input.userId,
           notificationId: notification.id,
           senderId: input.senderId || "",
           title: input.title || "ChatAndTip",
@@ -280,7 +326,11 @@ export async function createUserNotification(input: {
         for (const [k, v] of Object.entries(input.metadata || {})) {
           if (v != null) pushData[k] = String(v);
         }
-        await sendFcmPush(recipient.deviceToken, {
+        const preferences = recipient.notificationPreferences && typeof recipient.notificationPreferences === "object"
+          ? recipient.notificationPreferences as Record<string, unknown>
+          : {};
+        const soundId = notificationSoundId(preferences);
+        await sendUserNotificationFcm(input.userId, recipient.deviceToken, {
           title: input.title || "ChatAndTip",
           body: input.message,
           androidIcon:
@@ -288,6 +338,8 @@ export async function createUserNotification(input: {
               ? tipNotificationIcon(input.metadata?.tier)
               : undefined,
           androidDataOnly: input.type === "tip",
+          androidChannelId: `msg_${soundId}`,
+          iosSound: notificationIosSound(soundId),
           data: pushData,
         });
       } catch {
@@ -322,21 +374,47 @@ export async function sendDirectMessagePush(input: {
   senderId: string;
 }) {
   try {
+    const participant = await prisma.chatParticipant.findFirst({
+      where: { userId: input.userId, otherUserId: input.senderId },
+      select: { threadId: true },
+    });
+    if (participant) {
+      const hidden = await prisma.userHiddenChat.findFirst({
+        where: { userId: input.userId, threadId: participant.threadId },
+        select: { id: true },
+      });
+      if (hidden) return false;
+      const muted = await prisma.chatMute.findUnique({
+        where: { userId_threadId: { userId: input.userId, threadId: participant.threadId } },
+        select: { id: true },
+      });
+      if (muted) return false;
+    }
     const recipient = await prisma.user.findUnique({
       where: { id: input.userId },
-      select: { deviceToken: true },
+      select: { deviceToken: true, notificationPreferences: true },
     });
-    if (!recipient?.deviceToken) return false;
-    return await sendFcmPush(recipient.deviceToken, {
+    if (!recipient || !preferenceAllowsPush(recipient.notificationPreferences, "message")) return false;
+    const preferences = recipient.notificationPreferences && typeof recipient.notificationPreferences === "object"
+      ? recipient.notificationPreferences as Record<string, unknown>
+      : {};
+    const soundId = notificationSoundId(preferences);
+    const { publicChatPeerId } = await import("@/lib/chat-identity");
+    const publicSenderId = await publicChatPeerId(input.userId, input.senderId);
+    return (await sendUserNotificationFcm(input.userId, recipient.deviceToken, {
       title: "ChatAndTip",
       body: "You have a new message",
+      androidChannelId: `msg_${soundId}`,
+      iosSound: notificationIosSound(soundId),
       data: {
         type: "message",
-        senderId: input.senderId,
-        threadUserId: input.senderId,
+        recipientUserId: input.userId,
+        senderId: publicSenderId,
+        threadUserId: publicSenderId,
         targetType: "chat",
+        soundId,
       },
-    });
+    })) > 0;
   } catch {
     return false;
   }
@@ -353,7 +431,7 @@ export async function listUserNotifications(input: {
 
   const [notifications, total] = await Promise.all([
     prisma.userNotification.findMany({
-      where: { userId: input.userId },
+      where: { userId: input.userId, hiddenAt: null, type: { notIn: ["broadcast", "postvideo", "support_response", "chat_hide_request", "chat_unhide_request", "chat_privacy_decision"] } },
       include: {
         sender: {
           include: { media: true },
@@ -364,7 +442,7 @@ export async function listUserNotifications(input: {
       take: limit,
     }),
     prisma.userNotification.count({
-      where: { userId: input.userId },
+      where: { userId: input.userId, hiddenAt: null, type: { notIn: ["broadcast", "postvideo", "support_response", "chat_hide_request", "chat_unhide_request", "chat_privacy_decision"] } },
     }),
   ]);
 
@@ -372,14 +450,6 @@ export async function listUserNotifications(input: {
     serializeMobileNotification(notification as never),
   );
   const withPreviews = await enrichSerializedNotificationPreviews(serialized);
-  // Broadcasts are product announcements, not transient activity. Keep them
-  // visible at the top regardless of when the user last opened the tab.
-  withPreviews.sort((a, b) => {
-    const aBroadcast = a.type === "broadcast" ? 1 : 0;
-    const bBroadcast = b.type === "broadcast" ? 1 : 0;
-    return bBroadcast - aBroadcast;
-  });
-
   return {
     data: groupSerializedNotifications(withPreviews),
     page,
@@ -541,7 +611,7 @@ export async function broadcastCampaignNotifications(input: {
         ? { createdAt: { gte: new Date(tf.createdAfter) } }
         : {}),
     },
-    select: { id: true, deviceToken: true },
+    select: { id: true, deviceToken: true, notificationPreferences: true },
     orderBy: { id: "asc" },
     take: Math.min(500, Math.max(1, input.batchSize || 200)),
   });
@@ -626,12 +696,25 @@ export async function broadcastCampaignNotifications(input: {
           });
 
     // FCM push for offline users — fire-and-forget, doesn't block the loop
-    if (createdNotification && user.deviceToken) {
+    if (createdNotification && user.deviceToken && preferenceAllowsPush(user.notificationPreferences, "broadcast")) {
       const push = sendFcmPush(user.deviceToken, {
         title: input.title || "ChatAndTip",
         body: input.message,
+        androidChannelId:
+          user.notificationPreferences &&
+          typeof user.notificationPreferences === "object" &&
+          (user.notificationPreferences as Record<string, unknown>).vibrationEnabled === false
+            ? "chatandtip_silent"
+            : "chatandtip",
+        iosSound:
+          user.notificationPreferences &&
+          typeof user.notificationPreferences === "object" &&
+          (user.notificationPreferences as Record<string, unknown>).vibrationEnabled === false
+            ? null
+            : "default",
         data: {
           type: "broadcast",
+          recipientUserId: user.id,
           senderId: systemUser.id,
           campaignId: input.campaignId,
           title: input.title || "ChatAndTip",
@@ -677,45 +760,4 @@ export async function broadcastCampaignNotifications(input: {
   }
 
   return { created: users.length, lastUserId: users.at(-1)?.id || null };
-}
-
-export async function sendPendingWelcomePush(
-  userId: string,
-  deviceToken: string,
-) {
-  if (!deviceToken.trim()) return;
-  const notification = await prisma.userNotification.findFirst({
-    where: {
-      userId,
-      type: "broadcast",
-      metadata: { path: "$.campaignId", equals: `welcome:${userId}` },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  if (!notification) return;
-  const metadata = normalizeMetadata(notification.metadata);
-  if (metadata.pushDeliveredAt) return;
-
-  await sendFcmPush(deviceToken, {
-    title: notification.title || "Welcome to ChatAndTip",
-    body: notification.message,
-    data: {
-      type: "broadcast",
-      notificationId: notification.id,
-      senderId: notification.senderId || "",
-      campaignId: String(metadata.campaignId || ""),
-      title: notification.title || "Welcome to ChatAndTip",
-      message: notification.message,
-      threadId: String(metadata.threadId || ""),
-    },
-  });
-  await prisma.userNotification.update({
-    where: { id: notification.id },
-    data: {
-      metadata: {
-        ...metadata,
-        pushDeliveredAt: new Date().toISOString(),
-      } as Prisma.InputJsonValue,
-    },
-  });
 }

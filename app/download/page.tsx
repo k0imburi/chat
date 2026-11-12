@@ -8,7 +8,7 @@ import Image from "next/image"
 // are bounced straight to the Play Store; everyone else gets a clean landing.
 const PLAY_STORE_URL =
   process.env.ANDROID_STORE_URL ||
-  "https://play.google.com/store/apps/details?id=com.goldtech.dating"
+  "https://play.google.com/store/apps/details?id=com.chatandtip.app"
 const APP_STORE_URL = process.env.IOS_STORE_URL || ""
 
 export const metadata = {

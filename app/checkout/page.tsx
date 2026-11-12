@@ -67,7 +67,7 @@ function CheckoutInner() {
   const [info, setInfo] = useState<Info | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [qty, setQty] = useState<Record<CreditKind, number>>({
-    KEY: 1,
+    KEY: 1.99,
     CHAT_CREDIT: 5,
     VOICE_SESSION: 0,
     VIDEO_SESSION: 0,

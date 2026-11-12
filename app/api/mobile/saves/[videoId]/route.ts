@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { getCustomerOrMobileSession } from "@/lib/customer-mobile-session"
 import { prisma } from "@/lib/prisma"
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
-  const session = await getMobileSessionFromRequest(request)
+  const session = await getCustomerOrMobileSession(request)
   if (!session) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   }

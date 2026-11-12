@@ -263,7 +263,7 @@ export async function createWithdrawalRequest(input: CreateWithdrawalInput) {
   const withdrawal = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`
     const quote = await getWithdrawalQuote(input.userId, input.amount, tx)
-    if (quote.netUsd.lt(40)) throw new Error("Net withdrawal must be at least USD 40 after fees")
+    if (quote.netUsd.lt(100)) throw new Error("Net withdrawal must be at least USD 100 after fees")
     if (input.expectedRate != null && !quote.rate.eq(input.expectedRate)) throw new Error("The exchange rate changed. Review the updated quote.")
     if (input.expectedFeePercent != null && !quote.feePercent.eq(input.expectedFeePercent)) throw new Error("The withdrawal fee changed. Review the updated quote.")
     if (quote.grossUsd.gt(quote.withdrawableUsd)) throw new Error("Insufficient matured earnings for this withdrawal")

@@ -18,8 +18,26 @@ const ANDROID_PUBLISHER_BASE = "https://androidpublisher.googleapis.com/androidp
 export const PRODUCT_TO_CREDIT_KIND: Record<string, CreditKind> = {
   key: "KEY",
   chat_credit: "CHAT_CREDIT",
+  chat_credit_5: "CHAT_CREDIT",
+  chat_credit_10: "CHAT_CREDIT",
+  chat_credit_20: "CHAT_CREDIT",
+  chat_credit_50: "CHAT_CREDIT",
+  chat_credit_100: "CHAT_CREDIT",
+  chat_credit_200: "CHAT_CREDIT",
+  chat_credit_500: "CHAT_CREDIT",
+  chat_credit_1000: "CHAT_CREDIT",
   voice_session: "VOICE_SESSION",
   video_session: "VIDEO_SESSION",
+}
+export const GOOGLE_PLAY_FIXED_QUANTITIES: Record<string, number> = {
+  chat_credit_5: 5,
+  chat_credit_10: 10,
+  chat_credit_20: 20,
+  chat_credit_50: 50,
+  chat_credit_100: 100,
+  chat_credit_200: 200,
+  chat_credit_500: 500,
+  chat_credit_1000: 1000,
 }
 export const PRODUCT_TO_TIP_TIER: Record<string, TipTier> = {
   tip_pebble: "PEBBLE",

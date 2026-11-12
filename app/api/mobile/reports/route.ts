@@ -1,6 +1,7 @@
+import { withChatIdentity } from "@/lib/chat-identity";
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { getCustomerOrMobileSession } from "@/lib/customer-mobile-session"
 import { reportMedia, reportUserAccount } from "@/lib/mobile-reports"
 import { logError } from "@/lib/log-error"
 
@@ -13,8 +14,8 @@ const schema = z.object({
   mediaId: z.string().optional(),
 })
 
-export async function POST(request: Request) {
-  const session = await getMobileSessionFromRequest(request)
+async function POSTHandler(request: Request) {
+  const session = await getCustomerOrMobileSession(request)
   if (!session) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   }
@@ -43,3 +44,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, message: msg }, { status: known ? 400 : 500 })
   }
 }
+
+export const POST = withChatIdentity(POSTHandler);

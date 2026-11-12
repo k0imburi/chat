@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Gem: smooth green dodecahedron, 3D-like with soft shading -->
+  <defs>
+    <radialGradient id="gm_body" cx="45%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#5EFEC8"/>
+      <stop offset="60%" stop-color="#28DDA0"/>
+      <stop offset="100%" stop-color="#12A870"/>
+    </radialGradient>
+    <radialGradient id="gm_highlight" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#AAFCE0"/>
+      <stop offset="100%" stop-color="#3EEEB4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Main 12-sided body -->
+  <polygon points="100,8 134,16 160,36 178,66 180,100 166,130 142,152 112,166 88,166 58,152 34,130 20,100 22,66 40,36 66,16"
+           fill="url(#gm_body)"/>
+  <!-- Top highlight cap (lighter face) -->
+  <polygon points="100,8 134,16 160,36 140,62 100,68 60,62 40,36 66,16"
+           fill="#5EFECE" opacity="0.75"/>
+  <!-- Centre pentagon highlight -->
+  <polygon points="100,68 130,84 124,116 76,116 70,84"
+           fill="#A8FDE0" opacity="0.65"/>
+  <!-- Left shadow panel -->
+  <polygon points="20,100 22,66 40,36 60,62 70,84 76,116 58,152 34,130"
+           fill="#0E9060" opacity="0.45"/>
+  <!-- Right shadow panel -->
+  <polygon points="180,100 178,66 160,36 140,62 130,84 124,116 142,152 166,130"
+           fill="#0A7850" opacity="0.50"/>
+  <!-- Bottom shadow -->
+  <polygon points="76,116 124,116 142,152 112,166 88,166 58,152"
+           fill="#0C8055" opacity="0.55"/>
+  <!-- Soft highlight overlay on top -->
+  <ellipse cx="85" cy="52" rx="38" ry="22" fill="url(#gm_highlight)" opacity="0.55"/>
+</svg>

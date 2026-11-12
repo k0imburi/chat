@@ -74,7 +74,7 @@ export default async function PaymentPlansPage() {
                 <textarea
                   id="features"
                   name="features"
-                  placeholder={"Unlimited swipes\nPriority visibility\nFeatured badge"}
+                  placeholder={"Unlimited discovery views\nPriority visibility\nFeatured badge"}
                   className="min-h-28 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                 />
               </div>

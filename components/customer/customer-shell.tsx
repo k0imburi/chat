@@ -1,24 +1,28 @@
 import Image from "next/image"
 import Link from "next/link"
 import type { ReactNode } from "react"
-import { Bell, CalendarClock, Compass, FileText, Flame, Info, LifeBuoy, MessageCircle, PlusSquare, ShieldCheck, UserRound, WalletCards } from "lucide-react"
+import { Bell, CalendarClock, Compass, FileText, Flame, Info, LifeBuoy, Megaphone, MessageCircle, PlusSquare, Search, ShieldCheck, UserRound } from "lucide-react"
 import { MobileMenu } from "@/components/customer/mobile-menu"
 import { ModeToggle } from "@/components/customer/mode-toggle"
+import { LanguageSwitcher } from "@/components/customer/language-switcher"
 
 const nav = [
   { href: "/", label: "Discover", icon: Compass },
   { href: "/inbox", label: "Chats", icon: MessageCircle },
   { href: "/create", label: "Create", icon: PlusSquare },
   { href: "/trending", label: "Trending", icon: Flame },
+  { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/sessions", label: "Sessions", icon: CalendarClock },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/account", label: "Account", icon: UserRound },
 ]
+const mobileNav = nav.filter((item) => ["/", "/inbox", "/trending", "/alerts", "/account"].includes(item.href))
 
 // Secondary nav — same row treatment as the primary items above, just
 // grouped below a divider (the TikTok web app pattern: About/Contact/Terms/
 // Privacy get their own full menu rows, not small footer-style text links).
 const secondaryNav = [
+  { href: "/support", label: "Support", icon: LifeBuoy },
   { href: "/contact", label: "Contact Us", icon: LifeBuoy },
   { href: "/about", label: "About", icon: Info },
   { href: "/terms", label: "Terms", icon: FileText },
@@ -41,6 +45,7 @@ export function CustomerShell({
       <header className="sticky top-0 z-30 border-b border-black/10 bg-white/90 backdrop-blur-xl dark:border-white/10 dark:bg-black/90">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-2">
+            <Link href="/search" aria-label="Search" className="grid h-10 w-10 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"><Search className="h-5 w-5" /></Link>
             <div className="lg:hidden">
               <MobileMenu />
             </div>
@@ -50,9 +55,7 @@ export function CustomerShell({
             </Link>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/wallet" className="hidden items-center gap-2 rounded-full border border-black/20 px-4 py-2 text-sm font-bold text-black/80 sm:flex dark:border-white/20 dark:text-white/80">
-              <WalletCards className="h-4 w-4" /> Wallet
-            </Link>
+            <LanguageSwitcher />
             <ModeToggle />
             <Link href={signedIn ? "/account" : "/login"} className="rounded-full bg-[#25d366] px-4 py-2 text-sm font-bold text-white">
               {signedIn ? "Account" : "Sign in"}
@@ -94,12 +97,12 @@ export function CustomerShell({
 
         <section className="min-w-0">{children}</section>
 
-        <aside className="sticky top-22 hidden h-fit lg:block">{aside ?? <WalletAside signedIn={signedIn} />}</aside>
+        <aside className="sticky top-22 hidden h-fit lg:block">{aside ?? <AccountAside signedIn={signedIn} />}</aside>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur-xl dark:border-white/10 dark:bg-black/95 lg:hidden">
         <div className="mx-auto flex max-w-lg justify-around">
-          {nav.map(({ href, label, icon: Icon }) => (
+          {mobileNav.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -107,7 +110,7 @@ export function CustomerShell({
                 active === href ? "text-[#25d366]" : "text-black/50 dark:text-white/50"
               }`}
             >
-              <Icon className="h-5 w-5" /><span className="max-w-18 truncate">{label}</span>
+              <Icon className="h-5 w-5" /><span className="sr-only max-w-18 truncate">{label}</span>
             </Link>
           ))}
         </div>
@@ -116,13 +119,13 @@ export function CustomerShell({
   )
 }
 
-function WalletAside({ signedIn }: { signedIn: boolean }) {
+function AccountAside({ signedIn }: { signedIn: boolean }) {
   return (
     <div className="rounded-3xl border border-black/10 bg-black/5 p-5 dark:border-white/10 dark:bg-white/5">
       <h2 className="font-extrabold">My ChatAndTip</h2>
-      <p className="mt-2 text-sm leading-6 text-black/50 dark:text-white/50">View balances, account activity, KYC and secure web top-ups with M-PESA.</p>
-      <Link href={signedIn ? "/wallet" : "/login"} className="mt-4 flex items-center justify-center rounded-2xl bg-black/10 px-4 py-3 text-sm font-bold text-black dark:bg-white/10 dark:text-white">
-        {signedIn ? "Open wallet" : "Sign in to continue"}
+      <p className="mt-2 text-sm leading-6 text-black/50 dark:text-white/50">Manage your ChatAndTip account.</p>
+      <Link href={signedIn ? "/account" : "/login"} className="mt-4 flex items-center justify-center rounded-2xl bg-black/10 px-4 py-3 text-sm font-bold text-black dark:bg-white/10 dark:text-white">
+        {signedIn ? "Open account" : "Sign in to continue"}
       </Link>
     </div>
   )

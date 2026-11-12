@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240">
+  <!-- Pebble: faceted octagonal gem, thick outlined illustration style -->
+  <g stroke="#1A1827" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Main octagon body -->
+    <polygon points="68,10 132,10 190,60 190,180 132,230 68,230 10,180 10,60"
+             fill="#72748C" stroke-width="10"/>
+    <!-- Top-left upper face -->
+    <polygon points="68,10 132,10 100,75 58,60"
+             fill="#9698B0" stroke-width="6"/>
+    <!-- Top-right upper face -->
+    <polygon points="132,10 190,60 142,60 100,75"
+             fill="#7A7C94" stroke-width="6"/>
+    <!-- Left face -->
+    <polygon points="10,60 58,60 58,180 10,180"
+             fill="#55576C" stroke-width="6"/>
+    <!-- Right face -->
+    <polygon points="190,60 190,180 142,180 142,60"
+             fill="#4C4E62" stroke-width="6"/>
+    <!-- Centre diamond highlight -->
+    <polygon points="100,75 142,120 100,165 58,120"
+             fill="#8688A2" stroke-width="6"/>
+    <!-- Upper-left mid face -->
+    <polygon points="58,60 100,75 58,120"
+             fill="#6E7088" stroke-width="5"/>
+    <!-- Upper-right mid face -->
+    <polygon points="142,60 100,75 142,120"
+             fill="#5A5C72" stroke-width="5"/>
+    <!-- Lower-left mid face -->
+    <polygon points="58,120 100,165 58,180"
+             fill="#5E607A" stroke-width="5"/>
+    <!-- Lower-right mid face -->
+    <polygon points="142,120 100,165 142,180"
+             fill="#4A4C60" stroke-width="5"/>
+    <!-- Bottom-left face -->
+    <polygon points="10,180 58,180 68,230"
+             fill="#565870" stroke-width="6"/>
+    <!-- Bottom-right face -->
+    <polygon points="190,180 132,230 142,180"
+             fill="#464858" stroke-width="6"/>
+    <!-- Bottom face -->
+    <polygon points="68,230 132,230 142,180 100,165 58,180"
+             fill="#626478" stroke-width="6"/>
+    <!-- Spine lines (thick, creating the outlined facet look) -->
+    <line x1="100" y1="10" x2="100" y2="75" stroke-width="7"/>
+    <line x1="100" y1="165" x2="100" y2="230" stroke-width="7"/>
+    <line x1="10" y1="120" x2="58" y2="120" stroke-width="6"/>
+    <line x1="142" y1="120" x2="190" y2="120" stroke-width="6"/>
+    <line x1="68" y1="10" x2="58" y2="60" stroke-width="6"/>
+    <line x1="132" y1="10" x2="142" y2="60" stroke-width="6"/>
+    <line x1="68" y1="230" x2="58" y2="180" stroke-width="6"/>
+    <line x1="132" y1="230" x2="142" y2="180" stroke-width="6"/>
+  </g>
+</svg>

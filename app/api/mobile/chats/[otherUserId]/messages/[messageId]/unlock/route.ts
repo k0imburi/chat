@@ -1,3 +1,4 @@
+import { withChatIdentity } from "@/lib/chat-identity";
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { unlockReply } from "@/lib/mobile-chats"
@@ -10,7 +11,7 @@ const paramsSchema = z.object({
   messageId: z.string().min(1),
 })
 
-export async function POST(
+async function POSTHandler(
   request: Request,
   context: { params: Promise<unknown> },
 ) {
@@ -47,3 +48,6 @@ export async function POST(
     )
   }
 }
+
+
+export const POST = withChatIdentity(POSTHandler);

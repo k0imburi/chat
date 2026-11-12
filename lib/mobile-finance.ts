@@ -128,6 +128,7 @@ export async function financeActivity(userId: string, opts?: { take?: number; si
   const take = opts?.take == null ? undefined : Math.min(Math.max(opts.take, 1), 500)
   const where = {
     userId,
+    hiddenAt: null,
     ...(opts?.since ? { createdAt: { gte: opts.since } } : {}),
   }
   const [lots, settings] = await Promise.all([
@@ -303,7 +304,7 @@ export async function runPayoutBatch() {
     const grossUsd = Number(balance.withdrawableUsd)
     if (grossUsd <= 0) continue
     const quote = await getWithdrawalQuote(user.id, grossUsd)
-    if (quote.netUsd.lt(40)) continue
+    if (quote.netUsd.lt(100)) continue
     const withdrawal = await createWithdrawalRequest({
       userId: user.id,
       amount: grossUsd,

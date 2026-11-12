@@ -69,6 +69,7 @@ const r2Schema = z.object({
   r2PublicBaseUrl: z.string().optional(),
   r2Region: z.string().optional(),
   r2Endpoint: z.string().optional(),
+  freeStorageLimitMb: z.coerce.number().int().min(1).max(1048576),
 })
 
 const notificationSchema = z.object({
@@ -182,6 +183,7 @@ export async function saveR2SettingsAction(
     r2PublicBaseUrl: formData.get("r2PublicBaseUrl") || "",
     r2Region: formData.get("r2Region") || "auto",
     r2Endpoint: formData.get("r2Endpoint") || "",
+    freeStorageLimitMb: formData.get("freeStorageLimitMb") || 1024,
     })
 
     await prisma.appSettings.upsert({

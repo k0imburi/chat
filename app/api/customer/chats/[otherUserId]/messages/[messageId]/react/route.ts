@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { withChatIdentity } from "@/lib/chat-identity"
 import { z } from "zod"
 import { reactToMessage } from "@/lib/mobile-chats"
 import { getCurrentCustomerUser } from "@/lib/customer-web"
@@ -13,7 +14,7 @@ const bodySchema = z.object({
   emoji: z.string().min(1).max(16),
 })
 
-export async function POST(request: Request, context: { params: Promise<unknown> }) {
+async function POSTHandler(request: Request, context: { params: Promise<unknown> }) {
   const viewer = await getCurrentCustomerUser()
   if (!viewer) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
 
@@ -41,3 +42,5 @@ export async function POST(request: Request, context: { params: Promise<unknown>
     )
   }
 }
+
+export const POST = withChatIdentity(POSTHandler, getCurrentCustomerUser)

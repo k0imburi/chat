@@ -5,6 +5,9 @@ import next from "next";
 import Redis from "ioredis";
 import { WebSocket, WebSocketServer } from "ws";
 import { jwtVerify } from "jose";
+import { PrismaClient } from "@prisma/client";
+
+const typingDb = new PrismaClient();
 
 const scriptName = process.env.npm_lifecycle_event ?? "";
 const dev = process.argv.includes("--dev") || scriptName === "dev";
@@ -189,11 +192,40 @@ wss.on("connection", (ws, request, session) => {
     ws.isAlive = true;
   });
 
-  ws.on("message", (raw) => {
+  ws.on("message", async (raw) => {
     try {
       const payload = JSON.parse(raw.toString());
       if (payload?.type === "ping") {
         sendConnectionReadyEvents(ws, session.userId);
+        return;
+      }
+
+      if (
+        payload?.type === "typing" &&
+        typeof payload.otherUserId === "string" &&
+        payload.otherUserId.length > 0 &&
+        payload.otherUserId !== session.userId
+      ) {
+        let peerId = payload.otherUserId;
+        if (peerId.startsWith("anon_")) {
+          const alias = await typingDb.chatParticipant.findFirst({
+            where: { id: peerId.slice(5), otherUserId: session.userId },
+            select: { userId: true },
+          });
+          if (!alias) return;
+          peerId = alias.userId;
+        }
+        const sender = await typingDb.chatParticipant.findFirst({
+          where: { userId: session.userId, otherUserId: peerId },
+          select: { id: true, anonymous: true },
+        });
+        if (!sender) return;
+        emitToUser(peerId, {
+          channel: "chat",
+          type: "typing",
+          otherUserId: sender.anonymous ? `anon_${sender.id}` : session.userId,
+          isTyping: payload.isTyping === true,
+        });
       }
     } catch {
       // Ignore malformed client payloads to keep the realtime channel resilient.
@@ -289,6 +321,8 @@ app
       // balance drops below its configured threshold).
       const runMinutely = () => {
         hitJob("/api/jobs/bookings/reconcile");
+        hitJob("/api/jobs/bookings/privacy-expire");
+        hitJob("/api/jobs/analytics/reports");
         hitJob("/api/jobs/payments/reconcile");
         hitJob("/api/jobs/auto-topup/run");
       };

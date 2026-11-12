@@ -36,6 +36,8 @@ export type FcmPayload = {
   data?: Record<string, string>
   androidIcon?: string
   androidDataOnly?: boolean
+  androidChannelId?: string
+  iosSound?: string | null
 }
 
 /** Send to a single device token. Returns true on success. */
@@ -56,7 +58,7 @@ export async function sendFcmPush(token: string, payload: FcmPayload): Promise<b
           : {
               notification: {
                 icon: payload.androidIcon || "ic_launcher",
-                channelId: "chatandtip",
+                channelId: payload.androidChannelId || "chatandtip",
               },
             }),
       },
@@ -64,7 +66,9 @@ export async function sendFcmPush(token: string, payload: FcmPayload): Promise<b
         payload: {
           aps: {
             alert: { title: payload.title, body: payload.body },
-            sound: "default",
+            ...(payload.iosSound === null
+              ? {}
+              : { sound: payload.iosSound || "default" }),
             badge: 1,
           },
         },
@@ -111,6 +115,64 @@ export async function sendFcmMulticast(tokens: string[], payload: FcmPayload): P
 }
 
 /**
+ * Send an ordinary user notification to every active installation.
+ *
+ * DeviceInstallation is the canonical token store. `User.deviceToken` is
+ * retained only as a compatibility fallback for clients that have not yet
+ * registered an installation. This keeps booking/activity notifications on
+ * the same reliable delivery rail as incoming calls and account switching.
+ */
+export async function sendUserNotificationFcm(
+  userId: string,
+  legacyToken: string | null | undefined,
+  payload: FcmPayload,
+): Promise<number> {
+  const { prisma } = await import("@/lib/prisma")
+  const installations = await prisma.deviceInstallation.findMany({
+    where: { userId, isActive: true, fcmToken: { not: null } },
+    select: { fcmToken: true },
+  })
+  const installationTokens = installations.flatMap((row) => row.fcmToken ? [row.fcmToken] : [])
+  const tokens = [...new Set(installationTokens.length ? installationTokens : legacyToken ? [legacyToken] : [])]
+  if (!tokens.length) {
+    console.warn("[fcm] no active notification installation", { userId })
+    return 0
+  }
+
+  const messaging = getMessaging()
+  if (!messaging) return 0
+  let sent = 0
+  for (let i = 0; i < tokens.length; i += 500) {
+    const batch = tokens.slice(i, i + 500)
+    const result = await messaging.sendEachForMulticast({
+      tokens: batch,
+      ...(payload.androidDataOnly ? {} : { notification: { title: payload.title, body: payload.body } }),
+      data: payload.data,
+      android: {
+        priority: "high",
+        ...(payload.androidDataOnly ? {} : { notification: {
+          icon: payload.androidIcon || "ic_launcher",
+          channelId: payload.androidChannelId || "chatandtip",
+        } }),
+      },
+      apns: { payload: { aps: {
+        alert: { title: payload.title, body: payload.body },
+        ...(payload.iosSound === null ? {} : { sound: payload.iosSound || "default" }),
+        badge: 1,
+      } } },
+    })
+    sent += result.successCount
+    const dead = result.responses.flatMap((response, index) => {
+      const code = (response.error as { code?: string } | undefined)?.code
+      return !response.success && code && DEAD_TOKEN_CODES.has(code) ? [batch[index]] : []
+    })
+    await pruneDeadTokens(dead)
+  }
+  console.info("[fcm] user notification delivery", { userId, attempted: tokens.length, sent })
+  return sent
+}
+
+/**
  * Deactivates device registrations FCM has told us no longer exist.
  *
  * Every reinstall mints a fresh deviceId, so without this the old rows live
@@ -149,12 +211,8 @@ export async function sendIncomingCallFcm(tokens: string[], data: Record<string,
     android: {
       priority: "high",
       ttl: 45_000,
-      notification: {
-        channelId: "chatandtip_calls",
-        priority: "max",
-        visibility: "public",
-        sound: "incoming_call",
-      },
+      // CallKit must render and ring the call, including while locked.
+      // Keep this data-only so FCM cannot consume it as a tray notification.
     },
   })
   const dead = result.responses.flatMap((response, index) => {

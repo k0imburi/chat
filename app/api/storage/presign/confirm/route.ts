@@ -5,6 +5,7 @@ import { getCustomerSession } from "@/lib/customer-auth"
 import { logError } from "@/lib/log-error"
 import { prisma } from "@/lib/prisma"
 import { getPublicUrl, getR2Client } from "@/lib/r2"
+import { assertStorageAvailable } from "@/lib/storage-quota"
 
 const schema = z.object({
   object_key: z.string().min(1),
@@ -36,6 +37,8 @@ export async function POST(request: Request) {
     } catch {
       return NextResponse.json({ success: false, error: "Object not found in R2. Upload may have failed." }, { status: 404 })
     }
+    const existing = await prisma.asset.findUnique({ where: { objectKey: body.object_key }, select: { sizeBytes: true } })
+    await assertStorageAvailable(session.userId, Math.max(0, sizeBytes - Number(existing?.sizeBytes ?? 0)))
 
     const resolvedPublicUrl = body.visibility === "private"
       ? ""

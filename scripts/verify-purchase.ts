@@ -28,7 +28,7 @@ async function main() {
 
   // 1. Pricing (USD base x exchange rate; using rate 130 for these checks)
   console.log("priceCart:")
-  check("1 Key + 5 ChatCredits = 260 KES @ rate 130", priceCart({ KEY: 1, CHAT_CREDIT: 5 }, 130).totalKes === 260)
+  check("1 Key + 5 ChatCredits = 389 KES @ rate 130", priceCart({ KEY: 1, CHAT_CREDIT: 5 }, 130).totalKes === 389)
   check("1 VoiceCall session = 520 KES @ rate 130", priceCart({ VOICE_SESSION: 1 }, 130).totalKes === 520)
   let threw = false
   try { priceCart({ KEY: 1, CHAT_CREDIT: 2 }, 130) } catch { threw = true }

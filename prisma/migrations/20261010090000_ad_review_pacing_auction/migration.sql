@@ -1,0 +1,28 @@
+ALTER TABLE `AdCampaign`
+  ADD COLUMN `dailyBudgetMicros` BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN `pacingTokensMicros` BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN `pacingSpentMicros` BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN `pacingUpdatedAt` DATETIME(3) NULL,
+  ADD COLUMN `pacingDay` VARCHAR(191) NULL,
+  ADD COLUMN `timezoneOffsetMinutes` INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN `pacedSkips` INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN `auctionLosses` INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN `lastDeliveredAt` DATETIME(3) NULL,
+  ADD COLUMN `bidMultiplier` DECIMAL(4, 2) NOT NULL DEFAULT 1,
+  ADD COLUMN `reviewStatus` ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'APPROVED',
+  ADD COLUMN `reviewReason` TEXT NULL,
+  ADD COLUMN `reviewedAt` DATETIME(3) NULL,
+  ADD COLUMN `reviewedById` VARCHAR(191) NULL,
+  MODIFY `status` ENUM('DRAFT', 'PENDING_REVIEW', 'ACTIVE', 'PAUSED', 'COMPLETED', 'REJECTED') NOT NULL DEFAULT 'DRAFT';
+
+ALTER TABLE `AdDelivery`
+  ADD COLUMN `pacingReservedMicros` BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN `auctionScore` DECIMAL(16, 6) NOT NULL DEFAULT 0;
+
+UPDATE `AdCampaign`
+SET `dailyBudgetMicros` = CASE
+  WHEN `startDate` IS NOT NULL AND `endDate` IS NOT NULL AND DATEDIFF(`endDate`, `startDate`) > 0
+    THEN CEIL(`budgetMicros` / DATEDIFF(`endDate`, `startDate`))
+  ELSE `budgetMicros`
+END,
+`reviewStatus` = 'APPROVED';

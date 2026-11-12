@@ -6,9 +6,13 @@ import { mp4Faststart, isMP4Buffer } from "@/lib/mp4-faststart"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { PutObjectCommand } from "@aws-sdk/client-s3"
+import { assertStorageAvailable } from "@/lib/storage-quota"
+import { chatPhotoPrefix, encryptChatPhoto } from "@/lib/chat-photo-storage"
+import { env } from "@/lib/env"
+import { vaultMediaEncryptionHeaders, vaultWebMediaPrefix } from "@/lib/vault-media-storage"
 
-/** 200 MB — hard cap for mobile uploads */
-const MAX_BYTES = 200 * 1024 * 1024
+/** 100 MB — platform-wide media cap */
+const MAX_BYTES = 100 * 1024 * 1024
 
 /**
  * Resolve the correct MIME type for a file.
@@ -36,25 +40,33 @@ export async function POST(request: Request) {
     const formData = await request.formData()
     const file = formData.get("file")
     const dirName = String(formData.get("dir_name") || "uploads")
+    const privateUpload = formData.get("visibility") === "private"
+    const vaultMedia = privateUpload && dirName === "vault"
+    const privatePhoto = privateUpload && dirName === "chats"
 
     if (!(file instanceof File)) {
       return NextResponse.json({ success: false, error: "No file supplied" }, { status: 400 })
     }
 
-    if (file.size > MAX_BYTES) {
+    const contentType = resolveContentType(file.name, file.type)
+    const isPhoto = /^image\/(jpeg|png|gif|webp|heic|heif|bmp|tiff|avif)$/.test(contentType)
+    const isVideo = /^video\/(mp4|quicktime|webm|x-m4v|ogg)$/.test(contentType)
+    if (privateUpload && (!file.size || !(privatePhoto && isPhoto || vaultMedia && (isPhoto || isVideo)))) {
+      return NextResponse.json({ success: false, error: "Choose a supported photo or video." }, { status: 400 })
+    }
+    const maxBytes = privateUpload && isPhoto ? 25 * 1024 * 1024 : MAX_BYTES
+    if (file.size > maxBytes) {
       return NextResponse.json(
-        { success: false, error: `File exceeds the ${MAX_BYTES / 1024 / 1024} MB limit` },
+        { success: false, error: `File exceeds the ${maxBytes / 1024 / 1024} MB limit` },
         { status: 413 },
       )
     }
+    await assertStorageAvailable(session.userId, file.size)
 
     // ── Buffer the upload ─────────────────────────────────────────────────
     // Use Uint8Array view to avoid the Buffer<ArrayBuffer> vs Buffer<ArrayBufferLike>
     // generic mismatch that TypeScript raises with File.arrayBuffer()
     let buffer: Buffer = Buffer.from(new Uint8Array(await file.arrayBuffer()))
-
-    // ── Correct content type (ignore client's application/octet-stream) ──
-    const contentType = resolveContentType(file.name, file.type)
 
     // ── MP4 faststart: move moov before mdat for instant playback ─────────
     // Without this, videos have moov at the end and players show only a few
@@ -74,16 +86,25 @@ export async function POST(request: Request) {
 
     // ── Upload to R2 ──────────────────────────────────────────────────────
     const { client, settings } = await getR2Client()
-    const objectKey = generateR2Key(file.name, `uploads/${session.userId}/${dirName}`)
+    const bucket = settings.bucketName
+    const objectKey = vaultMedia
+      ? generateR2Key("media", vaultWebMediaPrefix)
+      : privatePhoto
+      ? generateR2Key("photo", chatPhotoPrefix)
+      : generateR2Key(file.name, `uploads/${session.userId}/${dirName}`)
+    const payload = privatePhoto
+      ? encryptChatPhoto(buffer, objectKey, contentType, env.JWT_SECRET)
+      : buffer
 
     await client.send(
       new PutObjectCommand({
-        Bucket: settings.bucketName,
+        Bucket: bucket,
         Key: objectKey,
-        Body: buffer,
-        ContentType: contentType,
-        ContentLength: buffer.length,
-        Metadata: {
+        Body: payload,
+        ContentType: privatePhoto ? "application/octet-stream" : contentType,
+        ContentLength: payload.length,
+        ...(vaultMedia ? vaultMediaEncryptionHeaders(objectKey, env.JWT_SECRET) : {}),
+        Metadata: privatePhoto ? { "photo-content-type": contentType } : vaultMedia ? undefined : {
           userId: session.userId,
           dirName,
           source: "mobile-client",
@@ -92,7 +113,7 @@ export async function POST(request: Request) {
       }),
     )
 
-    const url = getPublicUrl(objectKey, settings.publicBaseUrl)
+    const url = privateUpload ? null : getPublicUrl(objectKey, settings.publicBaseUrl)
 
     await prisma.asset.create({
       data: {
@@ -101,17 +122,19 @@ export async function POST(request: Request) {
         url,
         contentType,
         sizeBytes: buffer.length,
-        bucket: settings.bucketName,
+        bucket,
+        visibility: privateUpload ? "private" : "public",
         metadata: { userId: session.userId, dirName, source: "mobile-client" },
       },
     })
 
-    return NextResponse.json({ success: true, file_url: url, object_key: objectKey })
+    return NextResponse.json({ success: true, file_url: url, object_key: objectKey, ...(vaultMedia ? { content_type: contentType } : {}) })
   } catch (error) {
     logError("/api/mobile/storage/upload", error)
+    const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 500
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Upload failed" },
-      { status: 500 },
+      { status },
     )
   }
 }

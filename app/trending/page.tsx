@@ -1,9 +1,10 @@
 import { FeedShell } from "@/components/customer/feed-shell"
 import { FullScreenFeed } from "@/components/customer/full-screen-feed"
-import { getCurrentCustomerUser, getPublicFeed } from "@/lib/customer-web"
+import { getCurrentCustomerUser, getCustomerTrendingFeed } from "@/lib/customer-web"
 
 export default async function TrendingPage() {
-  const [user, feed] = await Promise.all([getCurrentCustomerUser(), getPublicFeed("trending")])
+  const user = await getCurrentCustomerUser()
+  const feed = await getCustomerTrendingFeed(user?.userId)
 
   return (
     <FeedShell active="/trending" signedIn={Boolean(user)}>

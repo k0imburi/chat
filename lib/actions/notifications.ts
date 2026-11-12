@@ -57,6 +57,7 @@ async function _runDelivery(campaignId: string) {
 
   while (true) {
     const result = await broadcastCampaignNotifications({
+      createNotification: false,
       title: campaign.title,
       message: campaign.message,
       campaignId: campaign.id,

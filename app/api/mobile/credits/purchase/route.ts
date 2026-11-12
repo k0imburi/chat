@@ -10,6 +10,7 @@ const bodySchema = z.object({
   phone: z.string().min(6),
   items: z.record(z.nativeEnum(CreditKind), z.number().int().positive()).optional().default({}),
   tipItems: z.record(z.nativeEnum(TipTier), z.number().int().positive()).optional(),
+  recipientUserId: z.string().min(1).optional(),
 })
 
 // Start a credit purchase (MPESA STK). Credits/tip tokens are allocated by
@@ -25,8 +26,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Entity accounts cannot top up credits" }, { status: 403 })
     }
     const body = bodySchema.parse(await request.json())
+    const recipientId = body.recipientUserId ?? session.userId
+    const [buyer, recipient] = await Promise.all([
+      prisma.user.findUnique({ where: { id: session.userId }, select: { accountType: true } }),
+      prisma.user.findUnique({ where: { id: recipientId }, select: { accountType: true } }),
+    ])
+    const creditKinds = Object.entries(body.items).filter(([, amount]) => amount > 0)
+    if (!recipient || recipient.accountType !== "INDIVIDUAL") {
+      return NextResponse.json({ success: false, message: "ChatCredits can only be gifted to individual accounts" }, { status: 400 })
+    }
+    if (recipientId !== session.userId && (buyer?.accountType !== "INDIVIDUAL" || creditKinds.length !== 1 || creditKinds[0][0] !== "CHAT_CREDIT" || Object.keys(body.tipItems ?? {}).length > 0)) {
+      return NextResponse.json({ success: false, message: "Only ChatCredits can be purchased for another individual account" }, { status: 400 })
+    }
     const result = await initiateCreditPurchase({
       userId: session.userId,
+      recipientUserId: recipientId,
       phone: body.phone,
       items: body.items,
       tipItems: body.tipItems,
@@ -58,7 +72,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, message: "purchaseId is required" }, { status: 400 })
   }
   const purchase = await prisma.creditPurchase.findFirst({
-    where: { id: purchaseId, userId: session.userId },
+    where: { id: purchaseId, OR: [{ purchasedById: session.userId }, { userId: session.userId }] },
     select: { id: true, status: true, allocated: true, totalKes: true, items: true },
   })
   if (!purchase) {

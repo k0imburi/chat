@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import { getMobileSessionFromRequest } from "@/lib/mobile-session";
 import { prisma } from "@/lib/prisma";
 import { serializeMediaTags } from "@/lib/mobile-users";
+import { getCustomerOrMobileSession } from "@/lib/customer-mobile-session";
 
 export async function GET(request: Request) {
-  const session = await getMobileSessionFromRequest(request);
+  const session = await getCustomerOrMobileSession(request);
   if (!session) {
     return NextResponse.json(
       { success: false, message: "Unauthorized" },

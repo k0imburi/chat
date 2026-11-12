@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
-import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { getCustomerOrMobileSession } from "@/lib/customer-mobile-session"
 import { prisma } from "@/lib/prisma"
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  const session = await getMobileSessionFromRequest(request)
+  const session = await getCustomerOrMobileSession(request)
   if (!session?.userId) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   const { id } = await context.params
   const media = await prisma.userMedia.findUnique({

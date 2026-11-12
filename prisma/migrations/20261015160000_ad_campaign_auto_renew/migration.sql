@@ -1,0 +1,1 @@
+ALTER TABLE `AdCampaign` ADD COLUMN `autoRenew` BOOLEAN NOT NULL DEFAULT false;

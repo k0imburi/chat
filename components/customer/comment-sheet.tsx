@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { Heart, MessageCircle, Reply, Send, X } from "lucide-react"
+import { Heart, ImagePlus, MessageCircle, Reply, Send, X } from "lucide-react"
 
 export type CommentAuthor = {
   id?: string
@@ -22,6 +22,8 @@ export type CommentItem = {
   isLiked?: boolean
   replyCount?: number
   replies?: CommentItem[]
+  attachmentUrl?: string | null
+  attachmentKind?: string | null
 }
 
 type Props = {
@@ -31,6 +33,7 @@ type Props = {
   viewerAvatarUrl?: string | null
   viewerName?: string | null
   signedIn: boolean
+  onCommentPosted?: () => void
   /** Trigger element is rendered by the parent; this component exposes open() */
   trigger?: (open: () => void) => React.ReactNode
 }
@@ -52,6 +55,7 @@ export function CommentSheet({
   viewerAvatarUrl,
   viewerName,
   signedIn,
+  onCommentPosted,
   trigger,
 }: Props) {
   const [open, setOpen] = useState(false)
@@ -61,6 +65,9 @@ export function CommentSheet({
   const [loadingMore, setLoadingMore] = useState(false)
   const [text, setText] = useState("")
   const [posting, setPosting] = useState(false)
+  const [attachment, setAttachment] = useState<{ url: string; kind: "image" | "gif" | "sticker" } | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
   // The comment being replied to. Mirrors the app: one reply target at a
   // time, cleared on send, dismissible without sending.
   const [replyTarget, setReplyTarget] = useState<CommentItem | null>(null)
@@ -90,7 +97,7 @@ export function CommentSheet({
     setOpen(true)
     setLoading(true)
     try {
-      const res = await fetch(`/api/comments?mediaId=${encodeURIComponent(mediaId)}`)
+      const res = await fetch(signedIn ? `/api/comments?mediaId=${encodeURIComponent(mediaId)}` : `/api/mobile/public/comments?videoId=${encodeURIComponent(mediaId)}`)
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data.comments)) {
@@ -110,7 +117,7 @@ export function CommentSheet({
     setLoadingMore(true)
     try {
       const res = await fetch(
-        `/api/comments?mediaId=${encodeURIComponent(mediaId)}&cursor=${encodeURIComponent(nextCursor)}`,
+        signedIn ? `/api/comments?mediaId=${encodeURIComponent(mediaId)}&cursor=${encodeURIComponent(nextCursor)}` : `/api/mobile/public/comments?videoId=${encodeURIComponent(mediaId)}&cursor=${encodeURIComponent(nextCursor)}`,
       )
       if (res.ok) {
         const data = await res.json()
@@ -130,7 +137,7 @@ export function CommentSheet({
     if (!parent.replyCount || (parent.replies && parent.replies.length > 0)) return
     setLoadingReplies((s) => new Set(s).add(parent.id))
     try {
-      const res = await fetch(`/api/comments/${encodeURIComponent(parent.id)}`)
+      const res = await fetch(signedIn ? `/api/comments/${encodeURIComponent(parent.id)}` : `/api/mobile/public/comments?videoId=${encodeURIComponent(mediaId)}&parentId=${encodeURIComponent(parent.id)}`)
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data.replies)) {
@@ -153,7 +160,7 @@ export function CommentSheet({
   async function handlePost(e: React.FormEvent) {
     e.preventDefault()
     const body = text.trim()
-    if (!body || posting) return
+    if ((!body && !attachment) || posting) return
     setPosting(true)
     setText("")
     const parentId = replyTarget?.id
@@ -161,7 +168,7 @@ export function CommentSheet({
       const res = await fetch("/api/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mediaId, text: body, parentId }),
+        body: JSON.stringify({ mediaId, text: body, parentId, ...attachment }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -183,6 +190,8 @@ export function CommentSheet({
           }
         }
         setReplyTarget(null)
+        setAttachment(null)
+        onCommentPosted?.()
       } else {
         setText(body)
       }
@@ -191,6 +200,23 @@ export function CommentSheet({
     } finally {
       setPosting(false)
       textRef.current?.focus()
+    }
+  }
+
+  async function handleAttachment(file: File) {
+    if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) return
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append("file", file)
+      const uploaded = await fetch("/api/upload", { method: "POST", body: form })
+      const data = await uploaded.json()
+      if (uploaded.ok && data.data?.url) {
+        const kind = file.type === "image/gif" ? "gif" : "image"
+        setAttachment({ url: data.data.url, kind })
+      }
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -273,6 +299,11 @@ export function CommentSheet({
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-700 dark:text-white/85">
               {comment.text}
             </p>
+            {comment.attachmentUrl ? (
+              <a href={comment.attachmentUrl} target="_blank" rel="noreferrer" className="mt-2 block overflow-hidden rounded-xl">
+                <img src={comment.attachmentUrl} alt="Comment attachment" className="max-h-56 w-auto max-w-full object-cover" />
+              </a>
+            ) : null}
           </div>
           <div className="mt-1.5 flex items-center gap-4 pl-3">
             <button
@@ -411,6 +442,7 @@ export function CommentSheet({
         <div className="border-t border-neutral-100 bg-white px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-3 dark:border-white/10 dark:bg-neutral-950">
           {signedIn ? (
             <form onSubmit={handlePost} className="flex items-end gap-3">
+              <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void handleAttachment(file); e.currentTarget.value = "" }} />
               <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-neutral-200 dark:bg-white/10">
                 {viewerAvatarUrl ? (
                   <Image src={viewerAvatarUrl} alt="" fill sizes="36px" className="object-cover" />
@@ -421,6 +453,9 @@ export function CommentSheet({
                 )}
               </div>
               <div className="flex flex-1 items-end gap-2">
+                <button type="button" onClick={() => fileRef.current?.click()} aria-label="Attach image or GIF" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-500 dark:bg-white/10 dark:text-white/70">
+                  <ImagePlus className="h-4 w-4" />
+                </button>
                 <textarea
                   ref={textRef}
                   value={text}
@@ -437,7 +472,7 @@ export function CommentSheet({
                 />
                 <button
                   type="submit"
-                  disabled={!text.trim() || posting}
+                  disabled={(!text.trim() && !attachment) || posting || uploading}
                   aria-label={replyTarget ? "Send reply" : "Post comment"}
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white transition-opacity disabled:opacity-30"
                 >

@@ -129,7 +129,7 @@ export async function getDiscoverFeed(currentUserId: string) {
           : []
       ).filter(
         (v) =>
-          !v.copyrightStatus &&
+          !v.adCampaignId && !v.copyrightStatus &&
           !v.reportStatus &&
           !v.isHiddenByOwner &&
           !hiddenMediaIds.has(String(v.id || "")),
@@ -368,6 +368,7 @@ export async function getTrendingFeed(currentUserId?: string) {
       prisma.user.findMany({
         where: {
           isActive: true,
+          ...(currentUserId ? { id: { not: currentUserId } } : {}),
           OR: [
             { externalId: null },
             { externalId: { not: "system:chatandtip" } },
@@ -425,7 +426,7 @@ export async function getTrendingFeed(currentUserId?: string) {
         : []
     ).filter(
       (v) =>
-        !v.copyrightStatus &&
+        !v.adCampaignId && !v.copyrightStatus &&
         !v.reportStatus &&
         !v.isHiddenByOwner &&
         !hiddenMediaIds.has(String(v.id || "")),

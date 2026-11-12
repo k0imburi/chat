@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { getFollowingFeed } from "@/lib/mobile-feed"
+import { promotionFeed } from "@/lib/ad-delivery"
 import { logError } from "@/lib/log-error"
+import { renewExpiredAds } from "@/lib/ad-lifecycle"
 
 export async function GET(request: Request) {
   const session = await getMobileSessionFromRequest(request)
@@ -10,8 +12,15 @@ export async function GET(request: Request) {
   }
 
   try {
+    await renewExpiredAds()
     const feed = await getFollowingFeed(session.userId)
-    return NextResponse.json({ success: true, data: feed })
+    try {
+      const data = await promotionFeed(session.userId, feed)
+      return NextResponse.json({ success: true, data }, { headers: { "Cache-Control": "no-store" } })
+    } catch (error) {
+      logError("Ad delivery on /api/mobile/feed", error)
+      return NextResponse.json({ success: true, data: feed }, { headers: { "Cache-Control": "no-store" } })
+    }
   } catch (error) {
     logError("/api/mobile/feed", error)
     return NextResponse.json(

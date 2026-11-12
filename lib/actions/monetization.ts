@@ -3,6 +3,7 @@
 import { UserRole } from "@prisma/client"
 import { requireSessionUser } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { createUserNotification } from "@/lib/mobile-notifications"
 import { releaseBookingReservation, settleBookedSession } from "@/lib/mobile-bookings"
 
 async function requireFinanceAdmin() {
@@ -17,6 +18,23 @@ export async function reviewCreatorKycAction(input: { userId: string; approved: 
     status: input.approved ? "APPROVED" : "REJECTED", rejectionReason: input.approved ? null : input.reason || "Verification was not approved",
     reviewedAt: new Date(), reviewerId: reviewer.id,
   } })
+}
+
+export async function reviewAccountVerificationAction(input: { userId: string; approved: boolean; reason?: string }) {
+  const reviewer = await requireFinanceAdmin()
+  const verification = await prisma.accountVerification.update({ where: { userId: input.userId }, data: {
+    status: input.approved ? "APPROVED" : "REJECTED",
+    rejectionReason: input.approved ? null : input.reason || "Verification was not approved",
+    reviewedAt: new Date(),
+    reviewerId: reviewer.id,
+  } })
+  await createUserNotification({
+    userId: input.userId,
+    type: "alert",
+    title: input.approved ? "Verification accepted" : "Verification needs attention",
+    message: input.approved ? "Your identity verification was accepted." : `Your identity verification was declined. ${input.reason || "Please submit all documents again."}`,
+  })
+  return verification
 }
 
 export async function reviewHeldTipAction(input: { tipId: string; decision: "RELEASE" | "REFUND" }) {

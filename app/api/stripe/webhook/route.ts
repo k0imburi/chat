@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { fulfillAdFunding } from '@/lib/ad-checkout'
 import { constructStripeEvent, resolveStripeConfig } from "@/lib/stripe"
 import { prisma } from "@/lib/prisma"
 import { allocateCredits, type CartItems } from "@/lib/mobile-credits"
@@ -14,6 +15,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true })
     }
     const session = event.data.object
+    if (session.metadata?.purpose === 'ad_funding') {
+      if (event.type !== 'checkout.session.async_payment_failed') await fulfillAdFunding(session)
+      return NextResponse.json({received:true})
+    }
     const purchaseId = session.metadata?.purchaseId || session.client_reference_id || ""
     const purchase = await prisma.creditPurchase.findFirst({ where: {
       id: purchaseId, provider: "STRIPE", stripeSessionId: session.id,

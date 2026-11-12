@@ -2,8 +2,10 @@
 // No "server-only" or DB imports here so this can be unit-tested and used
 // by inspection scripts (run with tsx) as well as the server feed.
 
-// Maximum posts returned in a single feed response.
-export const FEED_LIMIT = 150
+// Keep the initial response small enough for Flutter web to decode and paint
+// promptly on mobile browsers. The previous 150-item payload was routinely
+// over 600 KB before media began loading and made the UI appear frozen.
+export const FEED_LIMIT = 40
 
 // Engagement weights for the "hot" score.
 export const W_LIKE = 3

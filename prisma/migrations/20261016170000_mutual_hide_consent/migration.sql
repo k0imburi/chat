@@ -1,0 +1,2 @@
+-- Mutual hide consent changed application behavior only; its schema was created
+-- by the earlier chat privacy migration.

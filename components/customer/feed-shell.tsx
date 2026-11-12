@@ -9,28 +9,34 @@ import {
   Flame,
   Info,
   LifeBuoy,
+  Megaphone,
   MessageCircle,
   PlusSquare,
   ShieldCheck,
+  Search,
   UserRound,
 } from "lucide-react"
 import { MobileMenu } from "@/components/customer/mobile-menu"
 import { ModeToggle } from "@/components/customer/mode-toggle"
+import { LanguageSwitcher } from "@/components/customer/language-switcher"
 
 const nav = [
   { href: "/", label: "Discover", icon: Compass },
   { href: "/inbox", label: "Chats", icon: MessageCircle },
   { href: "/create", label: "Create", icon: PlusSquare },
   { href: "/trending", label: "Trending", icon: Flame },
+  { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/sessions", label: "Sessions", icon: CalendarClock },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/account", label: "Account", icon: UserRound },
 ]
+const mobileNav = nav.filter((item) => ["/", "/inbox", "/trending", "/alerts", "/account"].includes(item.href))
 
 // Secondary nav — same row treatment as the primary items above, just
 // grouped below a divider (the TikTok web app pattern: About/Contact/Terms/
 // Privacy get their own full menu rows, not small footer-style text links).
 const secondaryNav = [
+  { href: "/support", label: "Support", icon: LifeBuoy },
   { href: "/contact", label: "Contact Us", icon: LifeBuoy },
   { href: "/about", label: "About", icon: Info },
   { href: "/terms", label: "Terms", icon: FileText },
@@ -54,10 +60,8 @@ export function FeedShell({
     <div className="relative h-dvh overflow-hidden bg-white text-black dark:bg-black dark:text-white">
 
       {/* ── Mobile-only floating header ──────────────────────────── */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex h-14 items-center justify-between px-4 md:hidden">
-        <div className="pointer-events-auto flex items-center gap-2">
-          <MobileMenu variant="onDark" />
-        </div>
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex min-h-14 items-center justify-between px-4 pt-[env(safe-area-inset-top)] md:hidden">
+        <div className="pointer-events-auto"><MobileMenu variant="onDark" /></div>
         <Link href="/" className="pointer-events-auto flex items-center gap-2 font-extrabold drop-shadow-lg">
           <div className="overflow-hidden rounded-xl bg-white/90 px-1 py-0.5">
             <Image
@@ -71,13 +75,15 @@ export function FeedShell({
           </div>
           <span className="text-white">ChatAndTip</span>
         </Link>
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className="pointer-events-auto flex items-center gap-1.5">
+          <Link href="/search" aria-label="Search" className="grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-black/25 text-white backdrop-blur-md"><Search className="h-5 w-5" /></Link>
           <ModeToggle variant="onDark" />
           <Link
             href={signedIn ? "/account" : "/login"}
-            className="rounded-full bg-white/20 px-4 py-1.5 text-sm font-bold text-white backdrop-blur-sm"
+            className="grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-black/25 text-white backdrop-blur-md"
+            aria-label={signedIn ? "Account" : "Sign in"}
           >
-            {signedIn ? "Account" : "Sign in"}
+            <UserRound className="h-5 w-5" />
           </Link>
         </div>
       </header>
@@ -90,6 +96,7 @@ export function FeedShell({
           reachable, never pushed off-screen by menu length. */}
       <div className="pointer-events-none absolute right-6 top-5 z-40 hidden md:block">
         <div className="pointer-events-auto flex items-center gap-2">
+          <LanguageSwitcher />
           <ModeToggle />
           <Link
             href={signedIn ? "/account" : "/login"}
@@ -175,7 +182,7 @@ export function FeedShell({
       {/* ── Mobile-only bottom nav ────────────────────────────────── */}
       <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/85 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur-md dark:border-white/10 dark:bg-black/70 md:hidden">
         <div className="pointer-events-auto mx-auto flex max-w-[430px] justify-around px-2">
-          {nav.map(({ href, label, icon: Icon }) => (
+          {mobileNav.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -186,7 +193,7 @@ export function FeedShell({
               }`}
             >
               <Icon className="h-5 w-5" />
-              <span className="truncate">{label}</span>
+              <span className="sr-only">{label}</span>
             </Link>
           ))}
         </div>

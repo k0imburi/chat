@@ -6,7 +6,6 @@ import { InvalidUsernameError, UsernameTakenError } from "@/lib/username-rules"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
-import { sendPendingWelcomePush } from "@/lib/mobile-notifications"
 
 const schema = z.object({
   fullName: z.string().min(2).optional(),
@@ -83,14 +82,6 @@ export async function PATCH(request: Request) {
     const ownerSerialized = user.accountType === "ENTITY"
       ? { ...serialized, email: user.email || "", phoneNumber: user.phoneNumber || "" }
       : serialized
-
-    if (parsed.deviceToken?.trim()) {
-      try {
-        await sendPendingWelcomePush(session.userId, parsed.deviceToken)
-      } catch (error) {
-        logError("/api/mobile/profile/welcome-push", error)
-      }
-    }
 
     emitChatRealtimeToUser(session.userId, {
       channel: "profile",

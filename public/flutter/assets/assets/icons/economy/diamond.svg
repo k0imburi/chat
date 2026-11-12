@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 180">
+  <!-- Diamond: flat-design teal gem, clean polygon faces, no outline -->
+  <!-- Crown (top section) -->
+  <!-- Far-left crown triangle -->
+  <polygon points="8,70 42,14 100,44" fill="#00C8D6"/>
+  <!-- Left-centre crown triangle -->
+  <polygon points="42,14 100,14 100,44" fill="#55EEFF"/>
+  <!-- Centre-top crown triangle -->
+  <polygon points="100,14 158,14 100,44" fill="#2ADAEE"/>
+  <!-- Right-centre crown triangle -->
+  <polygon points="158,14 192,70 100,44" fill="#0AAEC0"/>
+  <!-- Crown table (flat top connecting all) -->
+  <polygon points="42,14 158,14 192,70 100,44 8,70" fill="#1EC8DA"/>
+  <!-- Left table fill -->
+  <polygon points="8,70 100,44 100,70" fill="#2DDAE8"/>
+  <!-- Right table fill -->
+  <polygon points="192,70 100,44 100,70" fill="#0898AE"/>
+  <!-- Girdle / waist line -->
+  <polygon points="8,70 192,70 100,70" fill="#00B8CC" opacity="0.4"/>
+  <!-- Pavilion (bottom section pointing down) -->
+  <!-- Far-left lower facet -->
+  <polygon points="8,70 100,70 42,106 100,172" fill="#009EAE"/>
+  <polygon points="8,70 42,106 100,172" fill="#00B8CC"/>
+  <!-- Right lower facet -->
+  <polygon points="192,70 100,70 158,106 100,172" fill="#007888"/>
+  <polygon points="192,70 158,106 100,172" fill="#008EA0"/>
+  <!-- Centre bottom facet -->
+  <polygon points="100,70 42,106 100,172 158,106" fill="#00C2D4"/>
+  <!-- Deep bottom tip highlight -->
+  <polygon points="42,106 100,172 100,155" fill="#00AAC0" opacity="0.6"/>
+  <polygon points="158,106 100,172 100,155" fill="#007890" opacity="0.6"/>
+</svg>

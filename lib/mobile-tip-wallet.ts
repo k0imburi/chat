@@ -5,6 +5,7 @@ import { initiateStkPush, normalizePhone } from "@/lib/mpesa"
 import { TIP_USD, TIP_CREATOR_SHARE, TIP_REVIEW_THRESHOLD } from "@/lib/mobile-credits"
 import { newPaymentIdempotencyKey } from "@/lib/payment-attempts"
 import { createUserNotification } from "@/lib/mobile-notifications"
+import { emitChatRealtimeToUser } from "@/lib/realtime"
 
 export type TipWallet = { pebbles: number; gems: number; diamonds: number }
 
@@ -220,6 +221,12 @@ export async function sendTipFromWallet(input: { senderId: string; receiverId: s
       },
     }
   }, { timeout: 20_000, maxWait: 10_000 })
+
+  emitChatRealtimeToUser(input.receiverId, {
+    channel: "wallet",
+    type: "wallet_refresh",
+    refreshedAt: new Date().toISOString(),
+  })
 
   // A flagged tip is held silently — no notification to either side. It just
   // won't show as available until an admin releases it from Held Tips, at

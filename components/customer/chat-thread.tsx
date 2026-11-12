@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { Lock, Reply, Send, SmilePlus, X } from "lucide-react"
+import { Archive, ArrowLeft, Check, CheckCheck, ChevronDown, ImagePlus, Lock, MoreHorizontal, MoreVertical, Pin, Reply, Search, Send, Share2, ShieldCheck, SmilePlus, Trash2, X } from "lucide-react"
+import { chatSystemText } from "@/lib/chat-system-text"
 
 export type ChatMessage = {
   id: string
@@ -14,12 +15,17 @@ export type ChatMessage = {
   imageUrl: string
   videoUrl: string
   thumbnailUrl: string
+  documentUrl?: string
+  documentName?: string
+  documentMimeType?: string
   replyToId: string
   replyToText: string
   replyToSenderId: string
   replyToSenderName: string
   reactions: Record<string, string[]>
   isRead: boolean
+  deliveredAt?: string | null
+  pinnedAt?: string | null
   locked?: boolean
   lockedContentType?: string
   unlockKind?: string
@@ -134,6 +140,8 @@ export function ChatThread({
   initialMessages,
   initialState,
   broadcastOnly,
+  hiddenCodeGroupId,
+  hiddenForAll = false,
 }: {
   viewerId: string
   otherUserId: string
@@ -142,6 +150,8 @@ export function ChatThread({
   initialMessages: ChatMessage[]
   initialState: ThreadState
   broadcastOnly: boolean
+  hiddenCodeGroupId?: string
+  hiddenForAll?: boolean
 }) {
   // Newest-first, matching the server's own fetch order (see getMessages).
   const [messages, setMessages] = useState(initialMessages)
@@ -152,9 +162,22 @@ export function ChatThread({
   const [insufficientBalance, setInsufficientBalance] = useState(false)
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [reactingTo, setReactingTo] = useState<string | null>(null)
+  const [actionMessageId, setActionMessageId] = useState<string | null>(null)
+  const [otherTyping, setOtherTyping] = useState(false)
   const [imageFile, setImageFile] = useState<File | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [vaultMessage, setVaultMessage] = useState<ChatMessage | null>(null)
+  const [vaultCode, setVaultCode] = useState("")
+  const [privacyAction, setPrivacyAction] = useState<"hide_for_me" | "hide_for_all" | "unhide_for_me" | "unhide_for_all" | null>(null)
+  const [privacyCode, setPrivacyCode] = useState("")
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const messageScrollerRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const endRef = useRef<HTMLDivElement>(null)
 
   const isConversationLocked = computeConversationLocked(messages, viewerId)
   const isAwaitingUnlock = computeAwaitingUnlock(state)
@@ -172,7 +195,8 @@ export function ChatThread({
   // accepts as a token source.
   const refreshMessages = useCallback(async () => {
     try {
-      const res = await fetch(`/api/customer/chats/${encodeURIComponent(otherUserId)}/messages`)
+      const suffix = hiddenCodeGroupId ? `?hiddenCodeGroupId=${encodeURIComponent(hiddenCodeGroupId)}` : ""
+      const res = await fetch(`/api/customer/chats/${encodeURIComponent(otherUserId)}/messages${suffix}`)
       if (!res.ok) return
       const data = await res.json()
       if (Array.isArray(data.data)) setMessages(data.data)
@@ -186,7 +210,7 @@ export function ChatThread({
     } catch {
       // Next realtime event or manual reload will retry.
     }
-  }, [otherUserId])
+  }, [otherUserId, hiddenCodeGroupId])
 
   useEffect(() => {
     if (broadcastOnly) return
@@ -227,6 +251,7 @@ export function ChatThread({
             ) {
               refreshMessages()
             }
+            if (payload.type === "typing") setOtherTyping(Boolean(payload.isTyping))
           } catch {
             // Ignore malformed frames.
           }
@@ -254,8 +279,20 @@ export function ChatThread({
       if (refreshTimer) clearInterval(refreshTimer)
       socket?.close()
       wsRef.current = null
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
     }
   }, [otherUserId, broadcastOnly, refreshMessages])
+
+  function announceTyping(value: string) {
+    if (broadcastOnly || composerDisabled || wsRef.current?.readyState !== WebSocket.OPEN) return
+    wsRef.current.send(JSON.stringify({ type: "typing", otherUserId, isTyping: value.trim().length > 0 }))
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+    if (value.trim().length > 0) {
+      typingTimerRef.current = setTimeout(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "typing", otherUserId, isTyping: false }))
+      }, 2200)
+    }
+  }
 
   // ── Sending ───────────────────────────────────────────────────
   async function handleSend(e: React.FormEvent) {
@@ -276,6 +313,8 @@ export function ChatThread({
 
     try {
       let imageObjectKey: string | undefined
+      let videoObjectKey: string | undefined
+      let documentObjectKey: string | undefined
       if (pendingImage) {
         const form = new FormData()
         form.set("image", pendingImage)
@@ -283,6 +322,8 @@ export function ChatThread({
         const uploadData = await uploadRes.json()
         if (!uploadRes.ok) throw new Error(uploadData.message || "Could not upload the image")
         imageObjectKey = uploadData.imageObjectKey
+        videoObjectKey = uploadData.videoObjectKey
+        documentObjectKey = uploadData.documentObjectKey
       }
 
       const res = await fetch(`/api/customer/chats/${encodeURIComponent(otherUserId)}/messages`, {
@@ -292,10 +333,16 @@ export function ChatThread({
           textMsg: body,
           textLength: body.length,
           imageObjectKey,
+          videoObjectKey,
+          documentObjectKey,
+          documentName: pendingImage?.name,
+          documentMimeType: pendingImage?.type,
+          documentSizeBytes: pendingImage?.size,
           replyToId: pendingReply?.id,
           replyToText: pendingReply ? (pendingReply.textMsg || (pendingReply.imageUrl ? "Photo" : "")) : undefined,
           replyToSenderId: pendingReply?.senderId,
           replyToSenderName: pendingReply ? (pendingReply.senderId === viewerId ? "You" : otherName) : undefined,
+          hiddenCodeGroupId,
         }),
       })
       const data = await res.json()
@@ -377,7 +424,81 @@ export function ChatThread({
     }
   }
 
+  async function pinMessage(message: ChatMessage) {
+    try {
+      const response = await fetch(`/api/mobile/chats/${encodeURIComponent(otherUserId)}/messages/${encodeURIComponent(message.id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pinned: !message.pinnedAt }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || "Could not update pin")
+      await refreshMessages()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not update pin") }
+  }
+
+  async function deleteOne(message: ChatMessage) {
+    try {
+      const response = await fetch(`/api/mobile/chats/${encodeURIComponent(otherUserId)}/messages/${encodeURIComponent(message.id)}?scope=me`, { method: "DELETE" })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || "Could not delete message")
+      await refreshMessages()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete message") }
+  }
+
+  function shareMessage(message: ChatMessage) {
+    const text = message.textMsg || message.documentName || "Shared from ChatAndTip"
+    const url = message.imageUrl || message.videoUrl || message.documentUrl || undefined
+    if (navigator.share) void navigator.share({ text, url }).catch(() => {})
+    else void navigator.clipboard?.writeText([text, url].filter(Boolean).join("\n"))
+  }
+
+  async function moveToVault() {
+    if (!vaultMessage || vaultCode.length !== 4) return
+    try {
+      const response = await fetch("/api/mobile/secure-folder", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otherUserId, messageIds: [vaultMessage.id], code: vaultCode, confirmCode: vaultCode }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || "Could not move message to Vault")
+      setVaultMessage(null); setVaultCode(""); await refreshMessages()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not move message to Vault") }
+  }
+
+  async function updatePrivacy() {
+    if (!privacyAction) return
+    const hiding = privacyAction === "hide_for_me" || privacyAction === "hide_for_all"
+    if (hiding && privacyCode.length !== 4) return
+    try {
+      const response = await fetch(`/api/mobile/chats/${encodeURIComponent(otherUserId)}/hide`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: privacyAction, ...(hiding ? { code: privacyCode } : {}) }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || "Could not hide conversation")
+      window.location.href = "/inbox"
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not hide conversation") }
+  }
+
   const chronological = useMemo(() => [...messages].reverse(), [messages])
+  const visibleMessages = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase()
+    return needle ? chronological.filter((message) => `${message.textMsg} ${message.documentName ?? ""}`.toLowerCase().includes(needle)) : chronological
+  }, [chronological, searchQuery])
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" })
+    setShowScrollToBottom(false)
+  }, [chronological.length])
+
+  function handleMessageScroll() {
+    const scroller = messageScrollerRef.current
+    if (!scroller) return
+    setShowScrollToBottom(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 96)
+  }
+
+  function scrollToLatestMessage() {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    setShowScrollToBottom(false)
+  }
 
   const composerHint = isConversationLocked
     ? `Unlock ${otherName}'s reply to continue with the conversation.`
@@ -390,10 +511,10 @@ export function ChatThread({
         : null
 
   return (
-    <section className="flex h-[calc(100dvh-140px)] flex-col overflow-hidden rounded-3xl border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5 sm:h-[70dvh]">
-      <div className="flex items-center gap-3 border-b border-black/10 p-4 dark:border-white/10">
-        <Link href="/inbox" className="rounded-full border border-black/20 px-3 py-1.5 text-xs font-bold text-black/80 dark:border-white/20 dark:text-white/80">
-          Back
+    <section className="flex h-[calc(100dvh-140px)] flex-col overflow-hidden rounded-[28px] border border-black/10 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.06)] dark:border-white/10 dark:bg-[#101312] sm:h-[78dvh]">
+      <div className="flex items-center gap-3 border-b border-black/10 bg-white/90 p-3 backdrop-blur-xl dark:border-white/10 dark:bg-[#101312]/90">
+        <Link href="/inbox" aria-label="Back to chats" className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10">
+          <ArrowLeft className="h-5 w-5" />
         </Link>
         <div className="relative h-11 w-11 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
           {otherAvatarUrl ? <Image src={otherAvatarUrl} alt="" fill sizes="44px" className="object-cover" /> : null}
@@ -401,13 +522,20 @@ export function ChatThread({
         <div className="min-w-0">
           <h1 className="truncate font-black">{otherName || "ChatAndTip"}</h1>
           <p className="truncate text-xs text-black/50 dark:text-white/50">
-            {broadcastOnly ? "Broadcast-only thread" : "Conversation"}
+            {broadcastOnly ? "Broadcast-only thread" : otherTyping ? "Typing…" : "Conversation"}
           </p>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <button onClick={() => { setSearchOpen((value) => !value); setMenuOpen(false) }} aria-label="Search messages" className="grid h-10 w-10 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"><Search className="h-5 w-5" /></button>
+          <div className="relative"><button onClick={() => setMenuOpen((value) => !value)} aria-label="Conversation options" className="grid h-10 w-10 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"><MoreVertical className="h-5 w-5" /></button>{menuOpen ? <div className="absolute right-0 top-11 z-30 w-56 rounded-2xl border border-black/10 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#202c33]">{hiddenCodeGroupId ? <button onClick={() => { setPrivacyAction(hiddenForAll ? "unhide_for_all" : "unhide_for_me"); setMenuOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold hover:bg-black/5 dark:hover:bg-white/10"><ShieldCheck className="h-4 w-4" /> {hiddenForAll ? "Request unhide for both" : "Unhide for me"}</button> : <><button onClick={() => { setPrivacyAction("hide_for_me"); setMenuOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold hover:bg-black/5 dark:hover:bg-white/10"><ShieldCheck className="h-4 w-4" /> Hide for me</button><button onClick={() => { setPrivacyAction("hide_for_all"); setMenuOpen(false) }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold hover:bg-black/5 dark:hover:bg-white/10"><ShieldCheck className="h-4 w-4" /> Hide for both</button></>}</div> : null}</div>
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto bg-black/[0.03] p-4 dark:bg-black/30">
-        {chronological.map((message) => {
+      {searchOpen ? <div className="flex items-center gap-2 border-b border-black/10 bg-white px-4 py-2 dark:border-white/10 dark:bg-[#101312]"><Search className="h-4 w-4 text-black/35 dark:text-white/35" /><input autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search this conversation" className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none" /><button onClick={() => { setSearchOpen(false); setSearchQuery("") }} aria-label="Close search"><X className="h-4 w-4" /></button></div> : null}
+
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div ref={messageScrollerRef} onScroll={handleMessageScroll} className="h-full space-y-3 overflow-y-auto bg-[#efeae2] bg-[radial-gradient(circle_at_20%_10%,rgba(255,255,255,.72),transparent_35%),radial-gradient(circle_at_80%_80%,rgba(37,211,102,.06),transparent_30%)] p-4 dark:bg-[#0b141a] dark:bg-[radial-gradient(circle_at_20%_10%,rgba(255,255,255,.035),transparent_35%),radial-gradient(circle_at_80%_80%,rgba(37,211,102,.04),transparent_30%)]">
+        {visibleMessages.map((message) => {
           const mine = message.senderId === viewerId
           const reactionEntries = Object.entries(message.reactions).filter(([, users]) => users.length > 0)
           return (
@@ -422,7 +550,8 @@ export function ChatThread({
                     <span className="font-bold">{message.replyToSenderName || "Reply"}:</span> {message.replyToText || "Message"}
                   </div>
                 ) : null}
-                <div className={`rounded-3xl px-4 py-3 text-sm ${mine ? "bg-[#25d366] text-white" : "bg-black/10 text-black dark:bg-white/10 dark:text-white"}`}>
+                {message.pinnedAt ? <span className={`flex items-center gap-1 text-[10px] font-bold text-[#15984c] ${mine ? "self-end" : "self-start"}`}><Pin className="h-3 w-3 fill-current" /> Pinned</span> : null}
+                <div className={`rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${mine ? "rounded-br-md bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-white" : "rounded-bl-md bg-white text-[#111b21] dark:bg-[#202c33] dark:text-white"}`}>
                   {message.locked ? (
                     <div className="min-w-52">
                       <div className="mb-3 flex items-center gap-2 font-black">
@@ -441,12 +570,17 @@ export function ChatThread({
                     // rest of this codebase's chat image rendering — not
                     // something next/image's optimizer can usefully cache.
                     <img src={message.imageUrl} alt="" className="max-h-80 rounded-2xl object-contain" />
+                  ) : message.videoUrl ? (
+                    <video src={message.videoUrl} controls playsInline className="max-h-80 rounded-2xl" />
+                  ) : message.documentUrl || message.documentMimeType ? (
+                    message.documentMimeType?.startsWith("audio/") ? <audio src={message.documentUrl} controls className="max-w-full" /> : <p className="font-semibold">{message.documentName || "Attachment"}</p>
                   ) : (
-                    <p className="whitespace-pre-wrap leading-6">{message.textMsg || "Media message"}</p>
+                    <p className="whitespace-pre-wrap leading-6">{chatSystemText(message.textMsg || "Media message", mine)}</p>
                   )}
-                  <p className={`mt-2 text-[10px] ${mine ? "text-white/70" : "text-black/40 dark:text-white/40"}`}>
-                    {timeLabel(message.sentAt)}
-                  </p>
+                  <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-black/45 dark:text-white/55" : "text-black/40 dark:text-white/40"}`}>
+                    <span>{timeLabel(message.sentAt)}</span>
+                    {mine ? message.isRead ? <CheckCheck className="h-4 w-4 text-sky-500" aria-label="Read" /> : message.deliveredAt ? <CheckCheck className="h-4 w-4" aria-label="Delivered" /> : <Check className="h-3.5 w-3.5" aria-label="Sent" /> : null}
+                  </div>
                 </div>
 
                 {reactionEntries.length > 0 ? (
@@ -468,7 +602,7 @@ export function ChatThread({
                 ) : null}
 
                 {!message.locked && !broadcastOnly ? (
-                  <div className="flex items-center gap-3 opacity-0 transition-opacity group-hover:opacity-100">
+                  <><button type="button" onClick={() => setActionMessageId(actionMessageId === message.id ? null : message.id)} aria-label="Message actions" className={`grid h-7 w-7 place-items-center rounded-full text-black/35 transition hover:bg-black/5 hover:text-black/60 dark:text-white/35 dark:hover:bg-white/10 dark:hover:text-white/70 ${mine ? "self-end" : "self-start"}`}><MoreHorizontal className="h-4 w-4" /></button><div className={`flex max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-white/80 px-2 py-1.5 shadow-sm backdrop-blur dark:bg-[#202c33]/90 ${actionMessageId === message.id ? "flex" : "hidden group-hover:flex"}`}>
                     <button
                       onClick={() => setReactingTo(reactingTo === message.id ? null : message.id)}
                       className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"
@@ -481,7 +615,11 @@ export function ChatThread({
                     >
                       <Reply className="h-3.5 w-3.5" /> Reply
                     </button>
-                  </div>
+                    <button onClick={() => void pinMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Pin className="h-3.5 w-3.5" /> {message.pinnedAt ? "Unpin" : "Pin"}</button>
+                    <button onClick={() => shareMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Share2 className="h-3.5 w-3.5" /> Share</button>
+                    <button onClick={() => setVaultMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Vault</button>
+                    <button onClick={() => void deleteOne(message)} className="flex items-center gap-1 text-[11px] font-semibold text-rose-500/70"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
+                  </div></>
                 ) : null}
 
                 {reactingTo === message.id ? (
@@ -500,6 +638,9 @@ export function ChatThread({
         {!chronological.length ? (
           <p className="py-16 text-center text-sm text-black/50 dark:text-white/50">No messages yet.</p>
         ) : null}
+        <div ref={endRef} />
+      </div>
+      {showScrollToBottom ? <button type="button" onClick={scrollToLatestMessage} aria-label="Scroll to latest message" className="absolute bottom-4 right-4 z-20 grid h-11 w-11 place-items-center rounded-full border border-black/10 bg-[#25d366] text-white shadow-lg shadow-black/20 transition hover:scale-105 active:scale-95 dark:border-white/10"><ChevronDown className="h-6 w-6" strokeWidth={2.5}/></button> : null}
       </div>
 
       {broadcastOnly ? (
@@ -562,11 +703,12 @@ export function ChatThread({
             </div>
           ) : null}
 
-          <form onSubmit={handleSend} className="grid gap-2 border-t border-black/10 p-4 dark:border-white/10 sm:grid-cols-[1fr_auto]">
-            <div className="space-y-1.5">
+          <form onSubmit={handleSend} className="flex items-end gap-2 border-t border-black/10 bg-white p-3 dark:border-white/10 dark:bg-[#101312]">
+            <button type="button" onClick={() => imageInputRef.current?.click()} disabled={composerDisabled} aria-label="Attach media" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-black/5 text-black/55 transition hover:bg-black/10 disabled:opacity-40 dark:bg-white/10 dark:text-white/60"><ImagePlus className="h-5 w-5" /></button>
+            <div className="min-w-0 flex-1 space-y-1.5">
               <textarea
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => { setText(e.target.value); announceTyping(e.target.value) }}
                 disabled={composerDisabled}
                 placeholder={
                   composerDisabled
@@ -576,19 +718,10 @@ export function ChatThread({
                       : "Write a message…"
                 }
                 rows={1}
-                className="min-h-12 w-full resize-none rounded-3xl border border-black/10 bg-white px-4 py-2.5 text-sm disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white"
+                className="min-h-11 w-full resize-none rounded-3xl border-0 bg-black/[0.055] px-4 py-3 text-sm outline-none ring-[#25d366]/40 focus:ring-2 disabled:opacity-50 dark:bg-white/[0.08] dark:text-white"
               />
               <div className="flex items-center justify-between">
-                <label className="cursor-pointer text-xs font-semibold text-black/50 dark:text-white/50">
-                  Attach image
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
+                <input ref={imageInputRef} type="file" accept="image/*,video/*,audio/*,application/pdf" className="hidden" onChange={(e) => setImageFile(e.target.files?.[0] ?? null)} />
                 {needsFirstReplyMinimum ? (
                   <span className={`text-[11px] font-bold ${belowFirstReplyMinimum ? "text-amber-600" : "text-emerald-600"}`}>
                     {draftLength} / {FIRST_REPLY_MINIMUM_CHARACTERS} characters
@@ -599,13 +732,24 @@ export function ChatThread({
             <button
               type="submit"
               disabled={sending || composerDisabled || belowFirstReplyMinimum || (!text.trim() && !imageFile)}
-              className="flex h-11 items-center gap-2 self-end rounded-full bg-[#25d366] px-6 text-sm font-bold text-white disabled:opacity-40"
+              aria-label="Send message"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#25d366] text-white shadow-md shadow-emerald-500/20 disabled:opacity-40"
             >
-              <Send className="h-4 w-4" /> {sending ? "Sending…" : "Send"}
+              <Send className="h-4 w-4" />
             </button>
           </form>
         </>
       )}
+      {vaultMessage ? <CodeDialog title="Move message to Vault" description="Create or enter the 4-digit code used to find this message in Vault." code={vaultCode} setCode={setVaultCode} confirmLabel="Move to Vault" onCancel={() => { setVaultMessage(null); setVaultCode("") }} onConfirm={() => void moveToVault()} /> : null}
+      {privacyAction ? privacyAction.startsWith("unhide") ? <ConfirmDialog title={privacyAction === "unhide_for_all" ? "Unhide chat for both?" : "Unhide this chat?"} description={privacyAction === "unhide_for_all" ? "The other person must accept before the conversation becomes visible for both of you." : "This conversation will return to your normal chat list."} confirmLabel={privacyAction === "unhide_for_all" ? "Send request" : "Unhide"} onCancel={() => setPrivacyAction(null)} onConfirm={() => void updatePrivacy()} /> : <CodeDialog title={privacyAction === "hide_for_all" ? "Hide chat for both" : "Hide chat for me"} description={privacyAction === "hide_for_all" ? "The chat hides for you now and the other person receives a consent request." : "Enter a code to move this conversation to Hidden Chats."} code={privacyCode} setCode={setPrivacyCode} confirmLabel="Hide conversation" onCancel={() => { setPrivacyAction(null); setPrivacyCode("") }} onConfirm={() => void updatePrivacy()} /> : null}
     </section>
   )
+}
+
+function ConfirmDialog({ title, description, confirmLabel, onCancel, onConfirm }: { title: string; description: string; confirmLabel: string; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="fixed inset-0 z-[90] grid place-items-center bg-black/55 p-4"><div className="w-full max-w-sm rounded-[24px] bg-white p-5 text-black shadow-2xl dark:bg-[#202c33] dark:text-white"><h2 className="text-lg font-black">{title}</h2><p className="mt-2 text-sm leading-6 text-black/50 dark:text-white/50">{description}</p><div className="mt-5 flex gap-2"><button onClick={onCancel} className="h-11 flex-1 rounded-xl bg-black/5 text-sm font-bold dark:bg-white/10">Cancel</button><button onClick={onConfirm} className="h-11 flex-1 rounded-xl bg-[#25d366] text-sm font-bold text-white">{confirmLabel}</button></div></div></div>
+}
+
+function CodeDialog({ title, description, code, setCode, confirmLabel, onCancel, onConfirm }: { title: string; description: string; code: string; setCode: (value: string) => void; confirmLabel: string; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="fixed inset-0 z-[90] grid place-items-center bg-black/55 p-4"><div className="w-full max-w-sm rounded-[24px] bg-white p-5 text-black shadow-2xl dark:bg-[#202c33] dark:text-white"><h2 className="text-lg font-black">{title}</h2><p className="mt-2 text-sm leading-6 text-black/50 dark:text-white/50">{description}</p><input autoFocus inputMode="numeric" maxLength={4} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} className="mt-5 h-13 w-full rounded-2xl bg-black/5 text-center text-xl font-black tracking-[0.65em] outline-none ring-[#25d366]/40 focus:ring-2 dark:bg-white/10" placeholder="••••" /><div className="mt-5 flex gap-2"><button onClick={onCancel} className="h-11 flex-1 rounded-xl bg-black/5 text-sm font-bold dark:bg-white/10">Cancel</button><button onClick={onConfirm} disabled={code.length !== 4} className="h-11 flex-1 rounded-xl bg-[#25d366] text-sm font-bold text-white disabled:opacity-40">{confirmLabel}</button></div></div></div>
 }

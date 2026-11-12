@@ -5,6 +5,18 @@ import { createUserNotification } from "@/lib/mobile-notifications"
 import { prisma } from "@/lib/prisma"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
 
+async function isHiddenChatForUser(userId: string, otherUserId: string) {
+  const participant = await prisma.chatParticipant.findFirst({
+    where: { userId, otherUserId },
+    select: { threadId: true },
+  })
+  if (!participant) return false
+  return Boolean(await prisma.userHiddenChat.findFirst({
+    where: { userId, threadId: participant.threadId },
+    select: { id: true },
+  }))
+}
+
 export function serializeTipRequest(request: {
   id: string
   senderId: string
@@ -80,12 +92,14 @@ export async function sendTipRequest(input: {
     otherUserId: input.receiverId,
     data: serialized,
   })
-  emitChatRealtimeToUser(input.receiverId, {
-    channel: "tip_requests",
-    type: "tip_request_created",
-    otherUserId: input.senderId,
-    data: serialized,
-  })
+  if (!(await isHiddenChatForUser(input.receiverId, input.senderId))) {
+    emitChatRealtimeToUser(input.receiverId, {
+      channel: "tip_requests",
+      type: "tip_request_created",
+      otherUserId: input.senderId,
+      data: serialized,
+    })
+  }
 
   return serialized
 }
@@ -123,12 +137,14 @@ export async function markTipAsSent(receiverId: string, tipRequestId: string) {
     otherUserId: request.receiverId,
     data: serialized,
   })
-  emitChatRealtimeToUser(request.receiverId, {
-    channel: "tip_requests",
-    type: "tip_request_updated",
-    otherUserId: request.senderId,
-    data: serialized,
-  })
+  if (!(await isHiddenChatForUser(request.receiverId, request.senderId))) {
+    emitChatRealtimeToUser(request.receiverId, {
+      channel: "tip_requests",
+      type: "tip_request_updated",
+      otherUserId: request.senderId,
+      data: serialized,
+    })
+  }
   return serialized
 }
 
@@ -169,12 +185,14 @@ export async function completePendingTipRequests(userId: string, senderId: strin
       otherUserId: request.receiverId,
       data: serialized,
     })
-    emitChatRealtimeToUser(request.receiverId, {
-      channel: "tip_requests",
-      type: "tip_request_updated",
-      otherUserId: request.senderId,
-      data: serialized,
-    })
+    if (!(await isHiddenChatForUser(request.receiverId, request.senderId))) {
+      emitChatRealtimeToUser(request.receiverId, {
+        channel: "tip_requests",
+        type: "tip_request_updated",
+        otherUserId: request.senderId,
+        data: serialized,
+      })
+    }
   }
 
   return { updated: result.count }

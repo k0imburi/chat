@@ -31,6 +31,9 @@ const adminPrefixes = [
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  // The custom server owns this upgrade. Rewriting it to Flutter makes
+  // Next's upgrade handler match an HTML page and close the socket.
+  if (pathname === "/ws/mobile") return NextResponse.next()
   const hostname = request.headers.get("host")?.split(":")[0]?.toLowerCase() || ""
   const adminHost = (process.env.ADMIN_HOST || "admin.chatandtip.com").toLowerCase()
   const customerHost = (process.env.CUSTOMER_HOST || "www.chatandtip.com").toLowerCase()
@@ -51,6 +54,10 @@ export async function middleware(request: NextRequest) {
   const customerOnlyApi = ["/api/v1/", "/api/mobile/", "/api/app-info", "/api/lnmo/", "/api/checkout/", "/api/tip/", "/api/stripe/", "/api/mpesa/", "/api/jobs/"]
   const customerPagePrefixes = ["/wallet", "/inbox", "/alerts", "/account", "/profiles", "/trending", "/reels", "/sessions", "/availability", "/book", "/create"]
 
+  if (!isAdminHost && (pathname === "/wallet" || pathname.startsWith("/wallet/"))) {
+    return new NextResponse("Wallet is available in the mobile app.", { status: 404 })
+  }
+
   if (!isAdminHost && isAdminPath) return new NextResponse("Not found", { status: 404 })
   if (!isAdminHost && adminOnlyApi.some((prefix) => pathname.startsWith(prefix))) return new NextResponse("Not found", { status: 404 })
   if (isAdminHost && customerOnlyApi.some((prefix) => pathname.startsWith(prefix))) return new NextResponse("Not found", { status: 404 })
@@ -65,11 +72,24 @@ export async function middleware(request: NextRequest) {
 
   if (
     pathname.startsWith("/_next") ||
+    pathname.startsWith("/flutter/") ||
+    pathname.startsWith("/api/") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/public") ||
     bypassPrefixes.some((prefix) => pathname.startsWith(prefix))
   ) {
     return NextResponse.next()
+  }
+
+  // The customer application is Flutter Web. Keep server-owned payment,
+  // public-share, download, legal and contact pages in Next.js, together with
+  // every API route and the isolated admin host.
+  const nextCustomerPages = ["/checkout", "/tip", "/download", "/privacy", "/terms", "/about", "/contact", "/faqs", "/reels"]
+  const keepNextCustomerPage = nextCustomerPages.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  )
+  if (isCustomerHost && !keepNextCustomerPage) {
+    return NextResponse.rewrite(new URL("/flutter/index.html", request.url))
   }
 
   const isPublic = (!isAdminHost && pathname === "/") || publicRoutes.some((route) => pathname === route) || pathname.startsWith("/reels/")

@@ -372,6 +372,31 @@ function ReviewButton({
           <option value="gold">Gold badge</option>
         </select>
       ) : null}
+      {decision === "REJECT" ? (
+        <div className="mb-3 grid gap-2 rounded-md border p-3 text-sm">
+          <p className="font-medium">Select documents requiring replacement</p>
+          {([
+            ["representativeId", "Representative ID"],
+            ["registration", "Registration document"],
+            ["supporting", "Supporting document"],
+          ] as const).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2">
+              <input type="checkbox" name="rejectedDocumentKeys" value={key} />
+              {label}
+            </label>
+          ))}
+          <label className="grid gap-1 text-xs font-medium">
+            Reason for reupload
+            <textarea
+              name="rejectionReason"
+              required
+              maxLength={1000}
+              className="min-h-20 rounded-md border bg-background p-2 text-sm"
+              placeholder="Explain what needs to be corrected"
+            />
+          </label>
+        </div>
+      ) : null}
       <Button
         type="submit"
         variant={decision === "APPROVE" ? "default" : "outline"}

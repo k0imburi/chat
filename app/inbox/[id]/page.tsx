@@ -3,8 +3,9 @@ import { CustomerShell, SignInRequired } from "@/components/customer/customer-sh
 import { ChatThread } from "@/components/customer/chat-thread"
 import { getCurrentCustomerUser, getCustomerProfile } from "@/lib/customer-web"
 import { getMessages } from "@/lib/mobile-chats"
+import { protectChatPayload, resolveChatPeer, publicChatPeerId } from "@/lib/chat-identity"
 
-export default async function InboxThreadPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function InboxThreadPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ hiddenCodeGroupId?: string; hiddenForAll?: string }> }) {
   const viewer = await getCurrentCustomerUser()
   if (!viewer) {
     return (
@@ -15,7 +16,11 @@ export default async function InboxThreadPage({ params }: { params: Promise<{ id
   }
 
   const { id } = await params
-  const other = await getCustomerProfile(id)
+  const { hiddenCodeGroupId, hiddenForAll } = await searchParams
+  let peerId: string
+  try { peerId = await resolveChatPeer(viewer.userId, id) } catch { return notFound() }
+  const publicId = await publicChatPeerId(viewer.userId, peerId)
+  const other = await protectChatPayload(viewer.userId, await getCustomerProfile(peerId))
   if (!other) return notFound()
 
   // Initial paint only — everything after this loads live in ChatThread via
@@ -34,7 +39,7 @@ export default async function InboxThreadPage({ params }: { params: Promise<{ id
     unlockExpiresAt: null as string | null,
   }
   try {
-    const result = await getMessages(viewer.userId, id)
+    const result = await protectChatPayload(viewer.userId, await getMessages(viewer.userId, peerId, hiddenCodeGroupId))
     initialMessages = result.messages
     initialState = {
       willChargeReply: result.willChargeReply,
@@ -53,12 +58,14 @@ export default async function InboxThreadPage({ params }: { params: Promise<{ id
     <CustomerShell active="/inbox" signedIn>
       <ChatThread
         viewerId={viewer.userId}
-        otherUserId={id}
+        otherUserId={publicId}
         otherName={other.fullname || "ChatAndTip"}
         otherAvatarUrl={other.profileAvatarUrl || null}
         initialMessages={initialMessages}
         initialState={initialState}
         broadcastOnly={broadcastOnly}
+        hiddenCodeGroupId={hiddenCodeGroupId}
+        hiddenForAll={hiddenForAll === "1"}
       />
     </CustomerShell>
   )

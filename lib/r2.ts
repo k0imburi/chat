@@ -6,6 +6,10 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import mime from "mime-types"
 import { prisma } from "@/lib/prisma"
+import { isEncryptedChatPhoto } from "@/lib/chat-photo-storage"
+import { isWebVaultMedia } from "@/lib/vault-media-storage"
+import { sealChatMedia } from "@/lib/chat-media-token"
+import { env } from "@/lib/env"
 
 export type PresignedUpload = {
   uploadUrl: string   // PUT this URL directly from the mobile client
@@ -164,7 +168,12 @@ export async function getSignedR2DownloadUrl(objectKey: string, expiresIn = 3600
   )
 }
 
-export async function getSignedPrivateR2DownloadUrl(objectKey: string, expiresIn = 300) {
+export async function getSignedPrivateR2DownloadUrl(objectKey: string, expiresIn = 300, relay = false) {
+  if (isEncryptedChatPhoto(objectKey) || isWebVaultMedia(objectKey) || (relay && objectKey.startsWith("private/"))) {
+    const base = (env.APP_URL || "https://www.chatandtip.com").replace(/\/$/, "")
+    const token = await sealChatMedia(objectKey, env.JWT_SECRET, expiresIn)
+    return `${base}/api/mobile/chat-media?token=${encodeURIComponent(token)}`
+  }
   const { client, settings } = await getR2Client()
   return getSignedUrl(
     client,

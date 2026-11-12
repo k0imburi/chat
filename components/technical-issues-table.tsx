@@ -21,13 +21,13 @@ const statusLabel: Record<TechnicalIssueStatus, string> = {
   RESOLVED: "Resolved",
 }
 
-export function TechnicalIssuesTable({ initialIssues }: { initialIssues: Issue[] }) {
+export function TechnicalIssuesTable({ initialIssues, queue = "technical" }: { initialIssues: Issue[]; queue?: "technical" | "support" }) {
   const [issues, setIssues] = useState(initialIssues)
   const [query, setQuery] = useState("")
   const [isPending, startTransition] = useTransition()
 
   function search() {
-    startTransition(async () => setIssues(await queryTechnicalIssuesAction(query)))
+    startTransition(async () => setIssues(await queryTechnicalIssuesAction(query, queue)))
   }
 
   function setStatus(issueId: string, status: TechnicalIssueStatus) {
@@ -60,7 +60,7 @@ export function TechnicalIssuesTable({ initialIssues }: { initialIssues: Issue[]
       cellClassName: "max-w-xl",
       render: (issue) => (
         <div className="space-y-1">
-          <p className="font-medium">{issue.subject}</p>
+          <Link href={`${queue === "support" ? "/support-tickets" : "/technical-problems"}/${issue.id}`} className="font-medium hover:underline">{issue.subject}</Link>
           <p className="whitespace-pre-wrap text-sm leading-5 text-muted-foreground">{issue.description}</p>
         </div>
       ),
@@ -92,17 +92,22 @@ export function TechnicalIssuesTable({ initialIssues }: { initialIssues: Issue[]
       cellClassName: "text-right",
       render: (issue) => (
         <div className="flex justify-end gap-2">
-          {issue.status === TechnicalIssueStatus.OPEN && (
+          {queue === "support" && (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/support-tickets/${issue.id}`}>Open conversation</Link>
+            </Button>
+          )}
+          {queue === "technical" && issue.status === TechnicalIssueStatus.OPEN && (
             <Button size="sm" variant="outline" disabled={isPending} onClick={() => setStatus(issue.id, TechnicalIssueStatus.IN_PROGRESS)}>
               Start review
             </Button>
           )}
-          {issue.status !== TechnicalIssueStatus.RESOLVED && (
+          {queue === "technical" && issue.status !== TechnicalIssueStatus.RESOLVED && (
             <Button size="sm" disabled={isPending} onClick={() => setStatus(issue.id, TechnicalIssueStatus.RESOLVED)}>
               Resolve
             </Button>
           )}
-          {issue.status === TechnicalIssueStatus.RESOLVED && (
+          {queue === "technical" && issue.status === TechnicalIssueStatus.RESOLVED && (
             <Button size="sm" variant="outline" disabled={isPending} onClick={() => setStatus(issue.id, TechnicalIssueStatus.OPEN)}>
               Reopen
             </Button>
@@ -118,8 +123,8 @@ export function TechnicalIssuesTable({ initialIssues }: { initialIssues: Issue[]
       columns={columns}
       getRowKey={(issue) => issue.id}
       loading={isPending}
-      emptyTitle="No technical problems"
-      emptyDescription="New app problem reports will appear here."
+    emptyTitle={queue === "support" ? "No support conversations" : "No technical problems"}
+      emptyDescription={queue === "support" ? "New conversations from app users will appear here." : "New app problem reports will appear here."}
       toolbar={(
         <div className="flex items-center gap-2.5">
           <div className="relative min-w-0 flex-1">

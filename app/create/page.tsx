@@ -9,7 +9,7 @@ import { getCurrentCustomerUser } from "@/lib/customer-web"
 import { uploadBufferToR2 } from "@/lib/r2"
 import { prisma } from "@/lib/prisma"
 
-const MAX_BYTES = 200 * 1024 * 1024
+const MAX_BYTES = 100 * 1024 * 1024
 const ALLOWED_MEDIA_KINDS = [MediaKind.IMAGE, MediaKind.GALLERY_VIDEO, MediaKind.PROFILE_VIDEO] as const
 
 export default async function CreatePage() {
@@ -50,7 +50,7 @@ export default async function CreatePage() {
 
           <label className="block rounded-[2rem] border-2 border-dashed border-black/20 bg-black/5 p-6 text-center dark:border-white/20 dark:bg-white/5">
             <span className="block text-lg font-black">Choose media file</span>
-            <span className="mt-1 block text-sm text-black/50 dark:text-white/50">Up to 200MB. Images and videos are uploaded to R2.</span>
+            <span className="mt-1 block text-sm text-black/50 dark:text-white/50">Up to 100MB. Images and videos are uploaded to R2.</span>
             <Input name="file" type="file" accept="image/*,video/*" required className="mx-auto mt-4 max-w-md rounded-2xl bg-black/10 dark:bg-white/10" />
           </label>
 
@@ -69,6 +69,11 @@ export default async function CreatePage() {
             <Textarea name="caption" placeholder="Write a caption…" className="min-h-32 rounded-3xl" />
           </label>
 
+          <label className="flex items-start gap-3 rounded-2xl border border-black/10 bg-black/5 p-4 text-sm dark:border-white/10 dark:bg-white/5">
+            <input name="containsAi" type="checkbox" value="true" className="mt-1 h-4 w-4 accent-emerald-500" />
+            <span><span className="block font-bold">AI content</span><span className="mt-1 block text-xs text-black/50 dark:text-white/50">Mark this post when AI was used to create or substantially edit it.</span></span>
+          </label>
+
           <Button type="submit" className="rounded-full px-7">Publish</Button>
         </form>
       </section>
@@ -82,7 +87,7 @@ async function createPost(formData: FormData) {
   if (!viewer || viewer.userId !== String(formData.get("userId") || "")) throw new Error("Sign in required")
   const file = formData.get("file")
   if (!(file instanceof File) || file.size === 0) throw new Error("Choose a media file")
-  if (file.size > MAX_BYTES) throw new Error("File exceeds the 200MB limit")
+  if (file.size > MAX_BYTES) throw new Error("File exceeds the 100MB limit")
   const requestedKind = String(formData.get("kind") || "IMAGE") as MediaKind
   if (!(ALLOWED_MEDIA_KINDS as readonly MediaKind[]).includes(requestedKind)) throw new Error("Unsupported post type")
   const kind = requestedKind as (typeof ALLOWED_MEDIA_KINDS)[number]
@@ -102,6 +107,7 @@ async function createPost(formData: FormData) {
       thumbnailUrl: String(formData.get("thumbnailUrl") || "") || uploaded.url,
       title: String(formData.get("title") || "") || null,
       caption: String(formData.get("caption") || "") || null,
+      containsAi: formData.get("containsAi") === "true",
       mimeType: file.type || null,
       sizeBytes: file.size,
     },

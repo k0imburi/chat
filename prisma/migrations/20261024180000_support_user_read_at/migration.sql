@@ -1,0 +1,1 @@
+ALTER TABLE `TechnicalIssue` ADD COLUMN `userReadAt` DATETIME(3) NULL;

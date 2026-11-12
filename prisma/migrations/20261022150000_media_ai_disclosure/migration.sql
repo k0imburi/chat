@@ -1,0 +1,2 @@
+ALTER TABLE `UserMedia`
+ADD COLUMN `containsAi` BOOLEAN NOT NULL DEFAULT false;

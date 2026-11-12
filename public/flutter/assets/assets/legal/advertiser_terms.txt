@@ -1,0 +1,259 @@
+                                         ChatAndTip
+                           Advertiser Terms and Conditions
+                            Version [1.0] | Effective date: [2nd March 2026]
+
+Please read these terms carefully. By submitting an Ad for publication on ChatAndTip, or by ticking the
+acceptance box, you agree to be bound by them. In particular, Clause 6 explains that the impressions
+shown for your Budget are promised, not guaranteed.
+
+1. Definitions
+1.1     In these terms: "Platform" means ChatAndTip, operated by [Company legal name, registration
+        number, address]; "Advertiser" means the person or business that submits an Ad; "Ad" means
+        any advertisement, creative, text, image, video, link or other content submitted for publication;
+        "Campaign" means the run of an Ad for a chosen Budget, audience and period.
+1.2     "Budget" means the amount in United States dollars (USD) that the Advertiser pays or commits
+        to spend on a Campaign. "Impression" means one instance of an Ad being displayed to a user on
+        the Platform, counted by the Platform’s systems.
+1.3     "Country Tier" means the classification (Tier 1, Tier 2 or Tier 3) assigned by the Platform to the
+        country in which an Ad is targeted, as published by the Platform from time to time and shown
+        when the Advertiser selects a target country. "Promised Range" means the range of Impressions
+        that the Platform states, in the Campaign order or at checkout before the Campaign starts, for
+        the Advertiser’s Budget bracket and Country Tier, made up of the "Promised Minimum" (the
+        lower figure) and the "Estimated Maximum" (the higher figure).
+
+2. Acceptance and Eligibility
+2.1     These terms form a binding agreement between the Advertiser and the Platform from the
+        moment the Advertiser accepts them and submits an Ad.
+2.2     The Advertiser confirms that it is at least 18 years old, has legal capacity to contract, and, if
+        acting for a business, has authority to bind that business.
+2.3     The Advertiser must provide accurate account, contact and billing information and keep it up to
+        date.
+
+3. Ad Content and Review
+3.1     Every Ad is subject to review before and after publication. The Platform may approve, reject,
+        edit, restrict or remove any Ad at its discretion, including for breach of these terms or the
+        Platform’s advertising policies, without liability.
+3.2     The Advertiser must ensure that each Ad and its destination page:
+        (a)   is lawful, truthful, not misleading, and supported by evidence for any claim made;
+        (b)   does not infringe any copyright, trademark, privacy, publicity or other right of any person;
+        (c)   does not contain unlawful, hateful, violent, sexually explicit, deceptive or fraudulent
+              material, malware, or content aimed at minors that is unsuitable for them; and
+
+
+
+
+                              ChatAndTip Advertiser Terms and Conditions | Page 1
+      (d)   complies with the laws and regulations that apply to the Advertiser, the products
+            advertised and each targeted country, including consumer protection and advertising
+            standards.
+3.3   Ads for regulated or restricted goods and services (for example financial services, health
+      products, alcohol, gambling or political content) may require additional approval or may not be
+      accepted.
+3.4   Ads may not be targeted at restricted markets, which the Platform does not serve. These are
+      currently China, North Korea, Iran, Syria, Russia, Belarus and Cuba, and the Platform may update
+      this list.
+3.5   Time spent in review, or delay caused by a rejected or limited Ad, is not a failure by the Platform
+      to deliver and does not extend any promise made in these terms.
+
+4. Budget, Payment and Billing
+4.1   The Advertiser selects a Budget before publication. The Budget bracket the amount falls into,
+      together with the Country Tier of the targeted country, determines the Promised Range stated
+      by the Platform before the Campaign starts.
+4.2   Payment is due in advance in USD by the methods the Platform offers, unless the Platform
+      agrees otherwise in writing. Campaigns start only after payment is confirmed and the Ad is
+      approved.
+4.3   The Budget is exclusive of taxes, bank charges, currency conversion costs and mobile-money or
+      card fees, all of which are the Advertiser’s responsibility unless the Platform states otherwise at
+      checkout.
+4.4   If a Budget does not fall inside a listed bracket, the Platform will apply the nearest lower bracket
+      or quote the Advertiser a custom range in writing.
+4.5   Unspent Budget is dealt with under Clause 13.
+
+5. Country Tiers and Targeting
+5.1   Countries are grouped into Tier 1, Tier 2 and Tier 3 according to advertiser demand, purchasing
+      power and typical advertising costs. The current grouping is published by the Platform and
+      shown when the Advertiser selects a target country. There is no official industry standard, and
+      the Platform’s grouping is the one that applies.
+5.2   Where an Ad targets countries in more than one tier, the Platform will either apply the tier of the
+      largest share of the Budget, or split the Budget by tier and apply the matching Promised Range to
+      each part. The method will be shown before the Campaign starts.
+5.3   The Platform may update a country’s tier or the Promised Ranges for future Campaigns on
+      reasonable notice, as markets and costs change. A change does not alter a Campaign that has
+      already started.
+
+6. Impressions: Promised, Not Guaranteed
+6.1   The Promised Range. For each Campaign, the Platform states a Promised Range in Impressions
+      that reflects the Advertiser’s Budget bracket and Country Tier. The ranges are estimates based
+      on the Platform’s performance model of expected cost per thousand Impressions in each tier.
+
+
+
+
+                            ChatAndTip Advertiser Terms and Conditions | Page 2
+6.2   What the Platform promises. The Platform promises to use commercially reasonable efforts to
+      deliver at least the Promised Minimum over the life of the Campaign. The Estimated Maximum is
+      a forecast of what may be achieved in favourable conditions and is not a promise.
+6.3   What the Platform does not guarantee. The Promised Range is a promise to make reasonable
+      efforts and is not a guarantee of an exact number of Impressions or of any outcome. In
+      particular, the Platform does not guarantee:
+      (a)   delivery of any specific number of Impressions, including the Promised Minimum;
+      (b)   clicks, views, engagement, leads, sales, revenue, return on investment or brand results of
+            any kind; or
+      (c)   delivery on any particular day, at any particular time, to any named individual or to any
+            particular segment of the audience.
+6.4   Factors that affect delivery. Actual Impressions depend on matters that the Platform does not
+      fully control, including: audience size and how narrowly it is targeted; the Advertiser’s creative
+      quality and relevance; competing advertisers and seasonal demand (for example holidays and
+      sales periods); the objective chosen; scheduling and placement limits; edits made to a running
+      Campaign; review or policy decisions; payment or account problems; technical outages; and user
+      behaviour.
+6.5   Measurement. Impressions are counted by the Platform’s systems, and its records are conclusive
+      unless the Advertiser shows a clear error. Duplicate, automated, invalid or fraudulent activity
+      identified by the Platform is not counted. Figures from third-party tools may differ and will not
+      be used to measure delivery.
+6.6   No extension, refund or compensation for a shortfall. If, when a Campaign ends or its Budget is
+      spent, the Impressions delivered are below the Promised Minimum, the Platform will not extend
+      the Campaign period, will not refund any part of the Budget in cash, and will not credit the
+      Advertiser’s account or otherwise compensate the Advertiser for the shortfall. The Advertiser
+      acknowledges that the Promised Range is a promise to use commercially reasonable efforts and
+      not a guarantee, and accepts that the Budget paid for a Campaign is not refundable or adjustable
+      on the basis of the number of Impressions delivered.
+6.7   Shortfalls that are not a failure by the Platform. Without limiting Clause 6.6, a shortfall below
+      the Promised Minimum is not a failure by the Platform to use commercially reasonable efforts
+      where it is caused by the Advertiser or by events beyond the Platform’s reasonable control,
+      including: an Ad that is rejected, limited, paused or removed; changes by the Advertiser to
+      targeting, budget, schedule or creative during the Campaign; bid or cost limits set by the
+      Advertiser; targeting so narrow that the audience cannot absorb the Promised Minimum; an Ad
+      that breaches these terms; failed or reversed payment; or force majeure under Clause 19.4.
+6.8   More than promised. If the Platform delivers more Impressions than the Promised Minimum or
+      the Estimated Maximum, no extra charge is made and no higher level of delivery is promised for
+      future Campaigns.
+6.9   Not a price per Impression. The Advertiser pays the Budget for a Campaign. It is not charged for,
+      and does not buy, a fixed number of Impressions at a fixed price.
+
+7. Campaign Duration and Changes
+7.1   A Campaign runs for the period chosen at set-up, or until the Budget is spent, whichever comes
+      first.
+
+
+                            ChatAndTip Advertiser Terms and Conditions | Page 3
+7.2    The Advertiser may edit or pause a Campaign, but substantial changes to targeting, budget,
+       creative or schedule may restart the Platform’s learning period, slow delivery and move the
+       Campaign to a different Promised Range. The Platform may re-review edited Ads.
+7.3    Increasing a Budget during a Campaign is treated as a top-up, and the Promised Range for the
+       added amount is calculated by the Platform for that amount and the applicable Country Tier.
+
+8. No Guarantee of Results
+8.1    Advertising results depend on the Advertiser’s offer, price, creative, landing page, reputation and
+       market. The Platform makes no promise that any Campaign will be profitable or successful.
+8.2    Any examples, estimates or benchmarks given by the Platform, its staff or its tools are for
+       guidance only.
+
+9. Advertiser Responsibilities
+9.1    The Advertiser is solely responsible for its Ads, products, services, claims, pricing, delivery of
+       goods, customer service and refunds to its own customers.
+9.2    The Advertiser must hold all rights, licences, consents and permissions needed to use the
+       content of its Ads, including music, images, names and likenesses.
+9.3    The Advertiser must not click on its own Ads, use bots or scripts, arrange for others to generate
+       artificial activity, interfere with the Platform’s systems, or try to manipulate delivery or
+       measurement.
+
+10. Intellectual Property and Licence
+10.1   The Advertiser keeps ownership of its Ads. It grants the Platform a worldwide, non-exclusive,
+       royalty-free licence to host, reproduce, adapt (for example resizing or reformatting) and display
+       the Ads for the purpose of running the Campaign and promoting the Platform’s advertising
+       services.
+10.2   The Platform, its name, logo, software, models and tools remain the Platform’s property.
+       Nothing in these terms transfers any such right to the Advertiser.
+
+11. Data Protection and Privacy
+11.1   Each party must comply with the data protection laws that apply to it, including [the Kenya Data
+       Protection Act, 2019, and equivalent laws in targeted countries].
+11.2   The Platform handles personal information as described in its Privacy Policy [link]. The Advertiser
+       will not use the Platform to collect sensitive personal data from users without a lawful basis and
+       any consent required.
+11.3   The Platform may share aggregated and anonymised Campaign performance data with the
+       Advertiser. It will not give the Advertiser personally identifiable information about the users who
+       saw an Ad, unless the user chooses to provide it to the Advertiser.
+
+12. Suspension and Termination
+12.1   The Platform may suspend, pause or end any Campaign, or the Advertiser’s account,
+       immediately and without liability if the Advertiser breaches these terms, the law or the
+
+
+
+
+                             ChatAndTip Advertiser Terms and Conditions | Page 4
+       Platform’s policies, if payment fails or is reversed, or if the Platform reasonably suspects fraud or
+       harm to users or to the Platform.
+12.2   The Advertiser may end a Campaign at any time through its account, subject to Clause 13.
+12.3   Clauses that by their nature should continue after termination, including Clauses 6, 8, 10, 14, 15
+       and 18, will continue.
+
+13. Cancellations and Refunds
+13.1   Budget already spent on delivered Impressions is non-refundable.
+13.2   If the Advertiser cancels before the Campaign starts, the Platform will refund the Budget less any
+       payment processing costs, [or: credit it to the Advertiser’s account].
+13.3   If the Advertiser cancels or pauses a running Campaign, unspent Budget will be [credited to the
+       Advertiser’s account for use within 90 days].
+13.4   If the Platform rejects an Ad or ends a Campaign for the Platform’s own convenience, unspent
+       Budget will be refunded or credited. If the Platform ends a Campaign for the Advertiser’s breach,
+       the Platform may keep the Budget to the extent allowed by law.
+13.5   No refund, credit, extension or other compensation is due for a shortfall in Impressions, as set
+       out in Clause 6.6.
+
+14. Disclaimers and Limitation of Liability
+14.1   To the fullest extent the law allows, the Platform provides its advertising services “as is” and
+       disclaims all warranties not expressly stated in these terms, including any implied warranty of
+       fitness for a particular purpose, uninterrupted service or error-free operation.
+14.2   To the fullest extent the law allows, the Platform is not liable for any indirect, incidental, special
+       or consequential loss, or any loss of profit, revenue, business, goodwill or data, arising from
+       these terms or any Campaign.
+14.3   Subject to Clause 6.6, the Platform’s total liability for any claim relating to a Campaign is limited
+       to the Budget the Advertiser paid for that Campaign.
+14.4   Nothing in these terms excludes or limits liability that cannot lawfully be excluded or limited,
+       such as liability for fraud or for death or personal injury caused by negligence.
+
+15. Indemnity
+15.1   The Advertiser will defend and compensate the Platform, its owners, officers, employees and
+       partners against claims, losses, damages, fines and reasonable legal costs arising from the
+       Advertiser’s Ads, destination pages, products or services, its breach of these terms, or its breach
+       of any law or third-party right.
+
+16. Confidentiality
+16.1   Each party must keep confidential the non-public information of the other that it receives in
+       connection with a Campaign, including pricing arrangements and the Platform’s performance
+       models, and use it only for the purposes of these terms, unless disclosure is required by law.
+
+
+
+
+                              ChatAndTip Advertiser Terms and Conditions | Page 5
+17. Changes to These Terms
+17.1   The Platform may update these terms from time to time by posting the new version and
+       notifying the Advertiser. Changes apply to Campaigns created after the notice. A Campaign that
+       has already started continues on the terms in force when it began.
+
+18. Governing Law and Disputes
+18.1   These terms are governed by the laws of [Republic of Kenya / other jurisdictions].
+18.2   The parties will first try to resolve a dispute in good faith by written notice and discussion for [90]
+       days. If it is not resolved, it will be referred to [mediation / arbitration in Nairobi / the courts of
+       Kenya].
+
+19. General
+19.1   Entire agreement. These terms, with the Campaign order that states the Promised Range, are
+       the whole agreement about the Campaign and replace earlier discussions or statements about it.
+19.2   Severability. If any part of these terms is found unenforceable, the rest remains in force.
+19.3   No waiver and assignment. A delay in enforcing a right is not a waiver of it. The Advertiser may
+       not transfer its rights under these terms without the Platform’s written consent.
+19.4   Force majeure. Neither party is liable for failure or delay caused by events beyond its reasonable
+       control, including outages of internet, power or payment networks, natural disasters,
+       government action, war, strikes, or failure of third-party services.
+19.5   Notices. Notices may be given by email to the address on the Advertiser’s account and to [legal
+       contact email] for the Platform, or by in-app message.
+
+
+
+
+                              ChatAndTip Advertiser Terms and Conditions | Page 6
+

@@ -2,9 +2,11 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { FileText, Info, LifeBuoy, Menu, ShieldCheck, X } from "lucide-react"
+import { FileText, Info, LifeBuoy, Megaphone, Menu, ShieldCheck, X } from "lucide-react"
 
 const items = [
+  { href: "/ads", label: "Ads Center", icon: Megaphone },
+  { href: "/support", label: "Support", icon: LifeBuoy },
   { href: "/contact", label: "Contact Us", icon: LifeBuoy },
   { href: "/about", label: "About", icon: Info },
   { href: "/terms", label: "Terms", icon: FileText },

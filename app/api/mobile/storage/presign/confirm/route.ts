@@ -21,6 +21,7 @@ import { mp4Faststart, isMP4Buffer } from "@/lib/mp4-faststart"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { HeadObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3"
+import { assertStorageAvailable } from "@/lib/storage-quota"
 
 const schema = z.object({
   object_key:   z.string().min(1),
@@ -56,6 +57,8 @@ export async function POST(request: Request) {
         { status: 404 },
       )
     }
+    const existing = await prisma.asset.findUnique({ where: { objectKey: body.object_key }, select: { sizeBytes: true } })
+    await assertStorageAvailable(session.userId, Math.max(0, sizeBytes - Number(existing?.sizeBytes ?? 0)))
 
     // ── Resolve public URL (client may send null if publicBaseUrl wasn't configured) ──
     const resolvedPublicUrl = body.visibility === "private"

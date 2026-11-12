@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  ChatHideRequestAction,
   ChatMessageType,
   CreditKind,
   Prisma,
@@ -18,7 +19,10 @@ import {
   consumeCreditInTransaction,
   getCreditBalances,
 } from "@/lib/mobile-credits";
-import { getSignedPrivateR2DownloadUrl } from "@/lib/r2";
+import { sealChatMedia } from "@/lib/chat-media-token";
+import { env } from "@/lib/env";
+import { expirePendingHideRequests, expireUnansweredUnhideRequests } from "@/lib/mobile-chat-privacy";
+import { chatHideRequestMessageText } from "@/lib/chat-hide-request-status";
 
 type UserWithMedia = Prisma.UserGetPayload<{
   include: { media: true };
@@ -59,6 +63,8 @@ function normalizeReactions(value: unknown) {
 function serializeChatSummary(
   participant: ChatParticipantWithThread,
   receiver: UserWithMedia,
+  secureMessageIds: Set<string> = new Set(),
+  isMuted = false,
 ) {
   const lastMessage = participant.thread.messages.find((message) => {
     const deletedFor = Array.isArray(message.deletedForUserIds)
@@ -70,9 +76,34 @@ function serializeChatSummary(
     return (
       (message.type !== ChatMessageType.SYSTEM ||
         participant.thread.broadcastOnly) &&
+      !secureMessageIds.has(message.id) &&
       !deletedFor.includes(participant.userId)
     );
   });
+  if (
+    participant.thread.kind !== "SELF" &&
+    participant.clearedAt &&
+    (!lastMessage || lastMessage.sentAt <= participant.clearedAt)
+  ) {
+    // A recovered chat stays out of the inbox until a message arrives after
+    // the clear time. Returning an empty summary resurrected it immediately.
+    return null;
+  }
+  if (participant.thread.kind === "SELF" &&
+      (!lastMessage || (participant.clearedAt && lastMessage.sentAt <= participant.clearedAt))) {
+    return {
+      chatUserId: receiver.id,
+      senderId: receiver.id,
+      msgType: "text",
+      lastMsg: "Save messages and notes here.",
+      sentAt: participant.thread.createdAt.toISOString(),
+      unread: 0,
+      broadcastOnly: false,
+      isMuted,
+      threadKind: "self",
+      receiver: serializeMobileUser(receiver),
+    };
+  }
   if (!lastMessage) {
     // A per-user deletion must also remove the conversation from that user's
     // inbox. Returning an empty shell here made a blank "Start chatting"
@@ -96,10 +127,15 @@ function serializeChatSummary(
     lastMsg: contentIsLocked
       ? lockedPreview
       : lastMessage.text ||
-        (lastMessage.type === ChatMessageType.DOCUMENT ? "Document" : ""),
+        (lastMessage.type === ChatMessageType.DOCUMENT
+          ? lastMessage.documentMimeType?.startsWith('audio/') ? 'Voice note' : 'Document'
+          : ""),
     sentAt: lastMessage.sentAt.toISOString(),
+    isRead: lastMessage.isRead,
+    deliveredAt: lastMessage.deliveredAt?.toISOString() ?? null,
     unread: participant.unreadCount,
     broadcastOnly: participant.thread.broadcastOnly,
+    isMuted,
     threadKind: participant.thread.kind.toLowerCase(),
     receiver: serializeMobileUser(receiver),
   };
@@ -133,6 +169,7 @@ function serializeChatMessage(
     previewText?: string | null;
     imageUrl: string | null;
     imageObjectKey?: string | null;
+    albumId?: string | null;
     videoUrl?: string | null;
     videoObjectKey?: string | null;
     thumbnailUrl?: string | null;
@@ -147,6 +184,8 @@ function serializeChatMessage(
     replyToSenderName: string | null;
     reactions: unknown;
     isRead: boolean;
+    deliveredAt?: Date | null;
+    pinnedAt?: Date | null;
     locked?: boolean;
     sentAt: Date;
   },
@@ -180,6 +219,7 @@ function serializeChatMessage(
     type: parseChatMessageType(message.type),
     textMsg: hideContent ? lockedPreview : rawText,
     imageUrl: hideContent ? "" : message.imageUrl || "",
+    albumId: message.albumId || "",
     videoUrl: hideContent ? "" : message.videoUrl || "",
     thumbnailUrl: hideContent ? "" : message.thumbnailUrl || "",
     documentUrl: "",
@@ -192,6 +232,8 @@ function serializeChatMessage(
     replyToSenderName: message.replyToSenderName || "",
     reactions: normalizeReactions(message.reactions),
     isRead: message.isRead,
+    deliveredAt: message.deliveredAt?.toISOString() ?? null,
+    pinnedAt: message.pinnedAt?.toISOString() ?? null,
     locked: hideContent,
     lockedContentType: hideContent ? lockedContentType : "",
     unlockKind: hideContent ? (options?.unlockKind ?? "CHAT_CREDIT") : "",
@@ -205,34 +247,24 @@ async function serializeChatMessageForViewer(
   unlockKind?: "KEY" | "CHAT_CREDIT",
 ) {
   const serialized = serializeChatMessage(message, { viewerId, unlockKind });
-  // All chat media lives in the private bucket, so every unlocked attachment
-  // needs a signed URL. The default 5-minute expiry left media broken in a
-  // chat left open for a while; an hour survives a normal session and media
-  // is re-signed on every fetch anyway.
-  const mediaUrlTtlSeconds = 3600;
+  // Serve private attachments through our own origin. Direct R2 presigned
+  // URLs work in native apps but are not reliably decodable in browsers when
+  // the bucket omits CORS headers. The encrypted capability keeps the object
+  // key private and expires after one hour.
+  const mediaBase = (env.APP_URL || "https://www.chatandtip.com").replace(/\/$/, "");
+  const chatMediaUrl = async (objectKey: string) =>
+    `${mediaBase}/api/mobile/chat-media?token=${encodeURIComponent(await sealChatMedia(objectKey, env.JWT_SECRET))}`;
   if (!serialized.locked && message.imageObjectKey) {
-    serialized.imageUrl = await getSignedPrivateR2DownloadUrl(
-      message.imageObjectKey,
-      mediaUrlTtlSeconds,
-    );
+    serialized.imageUrl = await chatMediaUrl(message.imageObjectKey);
   }
   if (!serialized.locked && message.videoObjectKey) {
-    serialized.videoUrl = await getSignedPrivateR2DownloadUrl(
-      message.videoObjectKey,
-      mediaUrlTtlSeconds,
-    );
+    serialized.videoUrl = await chatMediaUrl(message.videoObjectKey);
   }
   if (!serialized.locked && message.thumbnailObjectKey) {
-    serialized.thumbnailUrl = await getSignedPrivateR2DownloadUrl(
-      message.thumbnailObjectKey,
-      mediaUrlTtlSeconds,
-    );
+    serialized.thumbnailUrl = await chatMediaUrl(message.thumbnailObjectKey);
   }
   if (!serialized.locked && message.documentObjectKey) {
-    serialized.documentUrl = await getSignedPrivateR2DownloadUrl(
-      message.documentObjectKey,
-      mediaUrlTtlSeconds,
-    );
+    serialized.documentUrl = await chatMediaUrl(message.documentObjectKey);
   }
   return serialized;
 }
@@ -343,11 +375,13 @@ async function getChatSummaryForUser(
       where: {
         userId,
         otherUserId,
+        thread: { hiddenBy: { none: { userId } } },
       },
       include: {
         thread: {
           include: {
             messages: {
+              where: { secureCopies: { none: { ownerId: userId } } },
               orderBy: { sentAt: "desc" },
               take: 50,
             },
@@ -372,7 +406,7 @@ async function getChatSummaryForUser(
   );
 }
 
-async function getOrCreateThread(
+export async function getOrCreateThread(
   userId: string,
   otherUserId: string,
   tx: Prisma.TransactionClient,
@@ -424,23 +458,136 @@ async function getOrCreateThread(
   return created.id;
 }
 
+async function ensureSelfChat(userId: string) {
+  const existing = await prisma.chatThread.findUnique({
+    where: { selfOwnerId: userId },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+  try {
+    const created = await prisma.chatThread.create({
+      data: {
+        kind: "SELF",
+        selfOwnerId: userId,
+        initiatorId: userId,
+        participants: { create: { userId, otherUserId: userId } },
+      },
+      select: { id: true },
+    });
+    return created.id;
+  } catch (error) {
+    const raced = await prisma.chatThread.findUnique({
+      where: { selfOwnerId: userId },
+      select: { id: true },
+    });
+    if (raced) return raced.id;
+    throw error;
+  }
+}
+
+async function sendSelfMessage(input: {
+  albumId?: string;
+  senderId: string;
+  textMsg?: string;
+  imageUrl?: string;
+  imageObjectKey?: string;
+  videoUrl?: string;
+  videoObjectKey?: string;
+  thumbnailUrl?: string;
+  thumbnailObjectKey?: string;
+  documentObjectKey?: string;
+  documentName?: string;
+  documentMimeType?: string;
+  documentSizeBytes?: number;
+}) {
+  const user = await getChatUserOrThrow(input.senderId);
+  const threadId = await ensureSelfChat(input.senderId);
+  const hasImage = Boolean(input.imageUrl || input.imageObjectKey);
+  const hasVideo = Boolean(input.videoUrl || input.videoObjectKey);
+  const hasDocument = Boolean(input.documentObjectKey);
+  const type = hasDocument ? ChatMessageType.DOCUMENT : hasVideo ? ChatMessageType.VIDEO : hasImage ? ChatMessageType.IMAGE : ChatMessageType.TEXT;
+  const message = await prisma.$transaction(async (tx) => {
+    const created = await tx.chatMessage.create({
+      data: {
+        threadId,
+        senderId: input.senderId,
+        type,
+        text: input.textMsg?.trim() || null,
+        imageUrl: input.imageUrl || null,
+        imageObjectKey: input.imageObjectKey || null,
+        albumId: hasImage ? input.albumId || null : null,
+        videoUrl: input.videoUrl || null,
+        videoObjectKey: input.videoObjectKey || null,
+        thumbnailUrl: input.thumbnailUrl || null,
+        thumbnailObjectKey: input.thumbnailObjectKey || null,
+        documentObjectKey: input.documentObjectKey || null,
+        documentName: input.documentName || null,
+        documentMimeType: input.documentMimeType || null,
+        documentSizeBytes: input.documentSizeBytes ?? null,
+        isRead: true,
+      },
+    });
+    await tx.chatThread.update({
+      where: { id: threadId },
+      data: {
+        lastMessageAt: created.sentAt,
+        lastMessageText: created.text,
+        lastMessageType: created.type,
+      },
+    });
+    await tx.chatParticipant.updateMany({
+      where: { threadId, userId: input.senderId },
+      data: { archived: false, unreadCount: 0 },
+    });
+    return created;
+  });
+  const serialized = await serializeChatMessageForViewer(message, input.senderId);
+  const summary = await getChatSummaryForUser(prisma, input.senderId, input.senderId);
+  emitChatRealtimeToUser(input.senderId, {
+    channel: "chat",
+    type: "message_created",
+    otherUserId: input.senderId,
+    data: serialized,
+  });
+  if (summary) {
+    emitChatRealtimeToUser(input.senderId, {
+      channel: "chat",
+      type: "chat_updated",
+      otherUserId: input.senderId,
+      data: summary,
+    });
+  }
+  return serialized;
+}
+
 export async function getChats(userId: string, query?: string) {
   await getChatUserOrThrow(userId);
+  await expireUnansweredUnhideRequests(userId);
+  await expirePendingHideRequests(userId);
+  await ensureSelfChat(userId);
 
-  const participants = (await prisma.chatParticipant.findMany({
+  const [participants, securedRows, mutedRows] = await Promise.all([prisma.chatParticipant.findMany({
     where: {
       userId,
-      ...(query?.trim()
-        ? {
-            thread: {
-              messages: {
-                some: {
+      thread: {
+        hiddenBy: { none: { userId } },
+        ...(query?.trim()
+          ? {
+              OR: [
+                { messages: { some: {
                   text: { contains: query.trim() },
-                },
-              },
-            },
-          }
-        : {}),
+                  secureCopies: { none: { ownerId: userId } },
+                  OR: [
+                    { deletedForUserIds: { equals: Prisma.DbNull } },
+                    { NOT: { deletedForUserIds: { array_contains: [userId] } } },
+                  ],
+                } } },
+                { participants: { some: { userId: { not: userId }, anonymous: false, user: { username: { contains: query.trim() } } } } },
+                { participants: { some: { userId: { not: userId }, anonymous: false, user: { fullName: { contains: query.trim() } } } } },
+              ],
+            }
+          : {}),
+      },
     },
     include: {
       thread: {
@@ -457,13 +604,23 @@ export async function getChats(userId: string, query?: string) {
         lastMessageAt: "desc",
       },
     },
-  })) as ChatParticipantWithThread[];
+  }),
+  prisma.secureFolderMessage.findMany({
+    where: { ownerId: userId },
+    select: { messageId: true },
+  }),
+  prisma.chatMute.findMany({ where: { userId }, select: { threadId: true } }),
+  ]);
+  const secureMessageIds = new Set(securedRows.map((row) => row.messageId));
+  const mutedThreadIds = new Set(mutedRows.map((row) => row.threadId));
+  const typedParticipants = participants as ChatParticipantWithThread[];
 
-  const visibleParticipants = participants.filter((participant) => {
-    if (!participant.thread.lastMessageAt) return false;
+  const visibleParticipants = typedParticipants.filter((participant) => {
+    if (!participant.thread.lastMessageAt && participant.thread.kind !== "SELF") return false;
     // A self participant is invalid data. Never expose it even if an old
     // client or a historical import managed to create one.
-    return !participant.archived && participant.otherUserId !== userId;
+    return !participant.archived &&
+      (participant.thread.kind === "SELF" || participant.otherUserId !== userId);
   });
 
   const otherUserIds = Array.from(
@@ -494,12 +651,51 @@ export async function getChats(userId: string, query?: string) {
 
       if (!receiver) return null;
 
-      return serializeChatSummary(participant, receiver);
+      return serializeChatSummary(
+        participant,
+        receiver,
+        secureMessageIds,
+        mutedThreadIds.has(participant.threadId),
+      );
     })
     .filter(Boolean);
 }
 
-export async function getMessages(userId: string, otherUserId: string) {
+export async function getMessages(
+  userId: string,
+  otherUserId: string,
+  hiddenCodeGroupId?: string,
+) {
+  await expireUnansweredUnhideRequests(userId);
+  await expirePendingHideRequests(userId);
+  if (userId === otherUserId) {
+    await getChatUserOrThrow(userId);
+    const threadId = await ensureSelfChat(userId);
+    const selfParticipant = await prisma.chatParticipant.findFirst({ where: { userId, threadId }, select: { clearedAt: true } });
+    const messages = await prisma.chatMessage.findMany({
+      where: {
+        threadId,
+        ...(selfParticipant?.clearedAt ? { sentAt: { gt: selfParticipant.clearedAt } } : {}),
+        secureCopies: { none: { ownerId: userId } },
+        OR: [
+          { deletedForUserIds: { equals: Prisma.DbNull } },
+          { NOT: { deletedForUserIds: { array_contains: [userId] } } },
+        ],
+      },
+      orderBy: { sentAt: "desc" },
+    });
+    const serialized = await Promise.all(messages.map((message) => serializeChatMessageForViewer(message, userId)));
+    return {
+      messages: serialized,
+      willChargeReply: false,
+      turnTakingRequired: false,
+      cycleState: "unlocked",
+      viewerIsInitiator: true,
+      unlockExpiresAt: null,
+      entityCanReply: true,
+      entityChatEnded: false,
+    };
+  }
   // Blocking prevents new messages, but it must not erase the existing
   // conversation. Keep history readable so the mobile client can show it
   // together with its blocked-conversation banner.
@@ -529,6 +725,28 @@ export async function getMessages(userId: string, otherUserId: string) {
     };
   }
 
+  const hiddenChat = await prisma.userHiddenChat.findUnique({
+    where: { userId_threadId: { userId, threadId: participant.threadId } },
+    select: { codeGroupId: true },
+  });
+  if (hiddenChat) {
+    const validCodeGroup = hiddenCodeGroupId === hiddenChat.codeGroupId
+      ? await prisma.chatPrivateCodeGroup.findFirst({
+          where: {
+            id: hiddenCodeGroupId,
+            userId,
+            purpose: "HIDDEN_CHATS",
+          },
+          select: { id: true },
+        })
+      : null;
+    if (!validCodeGroup) {
+      throw new Error(
+        "This action cannot be completed. This may be due to a change in account settings.",
+      );
+    }
+  }
+
   const clearedAt = participant.clearedAt;
 
   const result = await prisma.$transaction(async (tx) => {
@@ -548,6 +766,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       },
       data: {
         isRead: true,
+        deliveredAt: new Date(),
       },
     });
 
@@ -574,7 +793,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       });
     }
 
-    const [messagesRaw, threadState, viewer] = await Promise.all([
+    const [messagesRaw, threadState, viewer, securedMessageRows] = await Promise.all([
       tx.chatMessage.findMany({
         where: {
           threadId: participant.threadId,
@@ -598,15 +817,35 @@ export async function getMessages(userId: string, otherUserId: string) {
         where: { id: userId },
         select: { earningSuspendedUntil: true },
       }),
+      tx.secureFolderMessage.findMany({
+        where: { ownerId: userId, message: { threadId: participant.threadId } },
+        select: { messageId: true },
+      }),
     ]);
 
     // Drop messages the viewer deleted from their own view — see
     // deleteMessage. The other participant's copy is untouched.
-    const messages = messagesRaw.filter((m) => {
+    const movedToFolder = new Set(securedMessageRows.map((row) => row.messageId));
+    const privacyRequestIds = messagesRaw
+      .filter((message) => message.type === ChatMessageType.SYSTEM && message.text?.startsWith("CHAT_") && message.replyToId)
+      .map((message) => message.replyToId)
+      .filter((id): id is string => Boolean(id));
+    const privacyRequests = privacyRequestIds.length
+      ? await tx.chatHideRequest.findMany({
+          where: { id: { in: [...new Set(privacyRequestIds)] } },
+          select: { id: true, action: true, status: true },
+        })
+      : [];
+    const requestById = new Map(privacyRequests.map((request) => [request.id, request]));
+    const messages = messagesRaw.map((message) => {
+      const request = message.replyToId ? requestById.get(message.replyToId) : undefined;
+      if (!request || message.type !== ChatMessageType.SYSTEM) return message;
+      return { ...message, text: chatHideRequestMessageText(message.text, request) };
+    }).filter((m) => {
       const deletedFor = Array.isArray(m.deletedForUserIds)
         ? (m.deletedForUserIds as string[])
         : [];
-      return !deletedFor.includes(userId);
+      return !deletedFor.includes(userId) && !movedToFolder.has(m.id);
     });
 
     // The viewer's next reply needs a fresh Key unlock (and so enforces the
@@ -634,6 +873,7 @@ export async function getMessages(userId: string, otherUserId: string) {
       threadState.initiatorId != null &&
       threadState.initiatorId !== userId &&
       freshIcebreakerExists &&
+      !threadState.cycleLockedReplyId &&
       !unlockWindowValid,
     );
 
@@ -715,6 +955,7 @@ export async function getMessages(userId: string, otherUserId: string) {
 }
 
 export async function sendMessage(input: {
+  albumId?: string;
   senderId: string;
   receiverId: string;
   textMsg?: string;
@@ -734,6 +975,7 @@ export async function sendMessage(input: {
   replyToText?: string;
   replyToSenderId?: string;
   replyToSenderName?: string;
+  hiddenCodeGroupId?: string;
 }) {
   const textMsg = input.textMsg?.trim() || "";
   const previewText = input.previewText?.trim().slice(0, 10) || "";
@@ -767,11 +1009,44 @@ export async function sendMessage(input: {
   if ([hasImage, hasVideo, hasDocument].filter(Boolean).length > 1) {
     throw new Error("Send one attachment type per message");
   }
+  if (input.senderId === input.receiverId) return sendSelfMessage(input);
 
   const { me, other } = await ensureUsersCanChat(
     input.senderId,
     input.receiverId,
   );
+  const existingParticipant = await prisma.chatParticipant.findFirst({
+    where: { userId: input.senderId, otherUserId: input.receiverId },
+    select: { threadId: true },
+  });
+  if (existingParticipant) {
+    const hidden = await prisma.userHiddenChat.findUnique({
+      where: {
+        userId_threadId: {
+          userId: input.senderId,
+          threadId: existingParticipant.threadId,
+        },
+      },
+      select: { codeGroupId: true },
+    });
+    if (hidden) {
+      const authorized = input.hiddenCodeGroupId === hidden.codeGroupId
+        ? await prisma.chatPrivateCodeGroup.findFirst({
+            where: {
+              id: hidden.codeGroupId,
+              userId: input.senderId,
+              purpose: "HIDDEN_CHATS",
+            },
+            select: { id: true },
+          })
+        : null;
+      if (!authorized) {
+        throw new Error(
+          "This action cannot be completed. This may be due to a change in account settings.",
+        );
+      }
+    }
+  }
   const entityChat =
     me.accountType === "ENTITY" || other.accountType === "ENTITY";
 
@@ -869,7 +1144,7 @@ export async function sendMessage(input: {
         : await tx.chatMessage.findFirst({
             where: {
               threadId,
-              type: { not: ChatMessageType.TIP },
+              type: { notIn: [ChatMessageType.TIP, ChatMessageType.SYSTEM] },
             },
             orderBy: { sentAt: "desc" },
             select: { senderId: true, type: true, sentAt: true },
@@ -985,6 +1260,7 @@ export async function sendMessage(input: {
           previewText: previewText || null,
           imageUrl: imageUrl || null,
           imageObjectKey: imageObjectKey || null,
+          albumId: hasImage ? input.albumId || null : null,
           videoUrl: videoUrl || null,
           videoObjectKey: videoObjectKey || null,
           thumbnailUrl: thumbnailUrl || null,
@@ -1320,6 +1596,7 @@ export async function markChatViewed(userId: string, otherUserId: string) {
       },
       data: {
         isRead: true,
+        deliveredAt: new Date(),
       },
     });
 
@@ -1346,6 +1623,38 @@ export async function markChatViewed(userId: string, otherUserId: string) {
   });
 
   return { success: true };
+}
+
+export async function markMessagesDelivered(
+  userId: string,
+  otherUserId: string,
+  messageIds: string[],
+) {
+  const participant = await getParticipant(userId, otherUserId);
+  if (!participant || messageIds.length === 0) return { updated: 0 };
+
+  const deliveredAt = new Date();
+  const result = await prisma.chatMessage.updateMany({
+    where: {
+      id: { in: messageIds },
+      threadId: participant.threadId,
+      senderId: otherUserId,
+      deliveredAt: null,
+    },
+    data: { deliveredAt },
+  });
+
+  if (result.count > 0) {
+    emitChatRealtimeToUser(otherUserId, {
+      channel: "chat",
+      type: "messages_delivered",
+      otherUserId: userId,
+      messageIds,
+      deliveredAt: deliveredAt.toISOString(),
+    });
+  }
+
+  return { updated: result.count, deliveredAt: deliveredAt.toISOString() };
 }
 
 export async function clearChat(userId: string, otherUserId: string) {
@@ -1383,11 +1692,14 @@ export async function endEntityChat(userId: string, otherUserId: string) {
   if (!participant) throw new Error("There is no chat to end");
 
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM ChatThread WHERE id = ${participant.threadId} FOR UPDATE`;
     const thread = await tx.chatThread.findUniqueOrThrow({
       where: { id: participant.threadId },
       select: { entityChatEndedAt: true },
     });
     if (thread.entityChatEndedAt) return { message: null };
+
+    await tx.accountAnalyticsEvent.create({data:{ownerId:otherUserId,kind:'END_CHAT'}});
 
     const sentAt = new Date();
     const text = `${me.username?.trim() || me.fullName.trim() || "This user"} ended the chat.`;
@@ -1467,10 +1779,11 @@ export async function deleteMessage(
   userId: string,
   otherUserId: string,
   messageId: string,
+  scope: "me" | "both" = "me",
 ) {
   const message = await prisma.chatMessage.findUnique({
     where: { id: messageId },
-    include: { thread: { select: { id: true } } },
+    include: { thread: { select: { id: true, kind: true, broadcastOnly: true } } },
   });
   if (!message) throw new Error("Message not found");
   const participant = await prisma.chatParticipant.findFirst({
@@ -1478,6 +1791,33 @@ export async function deleteMessage(
     select: { threadId: true },
   });
   if (!participant) throw new Error("You are not part of this conversation");
+
+  if (scope === "both") {
+    if (message.senderId !== userId || message.thread.kind !== "DIRECT" || message.thread.broadcastOnly
+      || message.type === ChatMessageType.SYSTEM || message.type === ChatMessageType.TIP) {
+      throw new Error("Only your own text and media messages can be deleted for both.");
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.chatMessage.updateMany({
+        where: { threadId: message.threadId, replyToId: messageId },
+        data: { replyToId: null, replyToText: null, replyToSenderId: null, replyToSenderName: null },
+      });
+      // Secure-folder copies cascade with the original; no tombstone is created.
+      await tx.chatMessage.deleteMany({ where: { id: messageId, senderId: userId } });
+    });
+    for (const [viewer, peer] of [[userId, otherUserId], [otherUserId, userId]]) {
+      emitChatRealtimeToUser(viewer, {
+        channel: "chat", type: "message_deleted", otherUserId: peer,
+        messageId, chatId: message.threadId,
+        data: { id: messageId, messageId, chatId: message.threadId, scope: "both" },
+      });
+      const summary = await getChatSummaryForUser(prisma, viewer, peer);
+      if (summary) emitChatRealtimeToUser(viewer, {
+        channel: "chat", type: "chat_updated", otherUserId: peer, data: summary,
+      });
+    }
+    return;
+  }
 
   // Soft delete, scoped to the deleting user only. Either participant may
   // remove a message from their own inbox without changing the other view.
@@ -1499,6 +1839,11 @@ export async function deleteMessage(
     chatId: message.threadId,
     data: { id: messageId, messageId, chatId: message.threadId },
   });
+
+  // Removing a privacy notice only removes that row from this viewer's
+  // timeline. It must not clear the conversation when no regular messages
+  // remain (for example, a chat containing only hide/unhide notices).
+  if (message.type === ChatMessageType.SYSTEM) return;
 
   const hasVisibleMessages = await prisma.chatMessage.findFirst({
     where: {

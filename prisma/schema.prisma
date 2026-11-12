@@ -33,6 +33,27 @@ enum AccountType {
   ENTITY
 }
 
+enum AdBillingMetric {
+  CPC
+  CPM
+  CPE
+}
+
+enum AdCampaignStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  PAUSED
+  COMPLETED
+  REJECTED
+}
+
+enum AdReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum EntityVerificationStatus {
   NOT_SUBMITTED
   PENDING
@@ -103,6 +124,24 @@ enum ChatMessageType {
 enum ChatThreadKind {
   DIRECT
   BROADCAST
+  SELF
+}
+
+enum PrivateCodePurpose {
+  HIDDEN_CHATS
+  SECURE_FOLDER
+}
+
+enum ChatHideRequestAction {
+  HIDE_FOR_ALL
+  UNHIDE_FOR_ALL
+}
+
+enum ChatHideRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
 }
 
 enum BookingType {
@@ -236,10 +275,15 @@ model User {
   id                        String                   @id @default(cuid())
   externalId                String?                  @unique
   fullName                  String
+  nameChangeCount           Int       @default(0)
+  lastNameChangedAt         DateTime?
+  nameHistoryStartedAt      DateTime  @default(now())
   username                  String?                  @unique
   gender                    String
   birthday                  DateTime?
   email                     String?                  @unique
+  analyticsReportSchedule   AnalyticsReportSchedule?
+  analyticsEvents           AccountAnalyticsEvent[]
   passwordHash              String?
   phoneNumber               String?                  @unique
   role                      UserRole                 @default(USER)
@@ -249,6 +293,7 @@ model User {
   bio                       String?                  @db.Text
   deviceToken               String?
   deviceSystem              String?
+  notificationPreferences   Json?
   swipeCount                Int                      @default(0)
   verified                  Boolean                  @default(false)
   lastSwipeDate             DateTime?
@@ -260,6 +305,7 @@ model User {
   officialEmail             String?
   websiteUrl                String?
   entityDocuments           Json?
+  entityDocumentReview      Json?
   entityVerification        EntityVerificationStatus @default(NOT_SUBMITTED)
   entityBadgeColor          String?
   entityPublishedAt         DateTime?
@@ -299,6 +345,7 @@ model User {
   reportsAgainst            Report[]                 @relation("ReportTarget")
   technicalIssues           TechnicalIssue[]
   notificationCampaigns     NotificationCampaign[]   @relation("NotificationCreatedBy")
+  adCampaigns               AdCampaign[]            @relation("AdCampaignOwner")
   notifications             UserNotification[]       @relation("UserNotificationRecipient")
   sentNotifications         UserNotification[]       @relation("UserNotificationSender")
   walletEntries             WalletTransaction[]
@@ -322,6 +369,13 @@ model User {
   sentMatches               UserMatch[]              @relation("MatchSender")
   receivedMatches           UserMatch[]              @relation("MatchReceiver")
   chatParticipants          ChatParticipant[]
+  selfChatThread            ChatThread?              @relation("SelfChatOwner")
+  privateCodeGroups         ChatPrivateCodeGroup[]
+  hiddenChats               UserHiddenChat[]
+  secureFolderMessages      SecureFolderMessage[]
+  chatMuteSettings          ChatMute[]
+  requestedChatHideChanges  ChatHideRequest[]        @relation("ChatHideRequester")
+  receivedChatHideChanges   ChatHideRequest[]        @relation("ChatHideRecipient")
   sentMessages              ChatMessage[]            @relation("ChatMessageSender")
   sentTipRequests           TipRequest[]             @relation("TipRequestSender")
   receivedTipRequests       TipRequest[]             @relation("TipRequestReceiver")
@@ -337,6 +391,7 @@ model User {
   creatorFines              CreatorFine[]
   earningLots               EarningLot[]
   kycProfile                CreatorKyc?
+  accountVerification       AccountVerification?
   payoutProfile             PayoutProfile?
   creatorPayouts            CreatorPayout[]
   paymentAttempts           PaymentAttempt[]
@@ -352,6 +407,115 @@ model User {
   @@index([scheduledDeletionAt, accountPurgedAt])
   @@index([accountType, entityVerification, entityPublishedAt])
   @@map("users")
+}
+
+model AdCampaign {
+  isTest Boolean @default(false)
+  testViewerIds Json?
+  publishedAt DateTime?
+  id          String           @id @default(cuid())
+  ownerId     String
+  name        String
+  caption     String?          @db.Text
+  mediaUrls   Json?
+  websiteUrl  String?
+  ctaLabel    String?
+  language    String           @default("en") @db.VarChar(64)
+  countries   Json?
+  subjects    Json?
+  startDate   DateTime?
+  endDate     DateTime?
+  isBoost     Boolean          @default(false)
+  checkoutPaid Boolean         @default(false)
+  autoRenew Boolean            @default(false)
+  sourceMediaId String?
+  creative Json?
+  budgetMicros BigInt          @default(0)
+  fundedMicros BigInt          @default(0)
+  spentMicros BigInt           @default(0)
+  dailyBudgetMicros BigInt      @default(0)
+  pacingTokensMicros BigInt     @default(0)
+  pacingSpentMicros BigInt      @default(0)
+  pacingUpdatedAt DateTime?
+  pacingDay String?
+  timezoneOffsetMinutes Int     @default(0)
+  pacedSkips Int                @default(0)
+  auctionLosses Int             @default(0)
+  lastDeliveredAt DateTime?
+  bidMultiplier Decimal         @default(1) @db.Decimal(4, 2)
+  reviewStatus AdReviewStatus   @default(APPROVED)
+  reviewReason String?          @db.Text
+  reviewedAt DateTime?
+  reviewedById String?
+  media       UserMedia?
+  funding     AdFunding[]
+  deliveries  AdDelivery[]
+  metric      AdBillingMetric
+  rate        Decimal          @db.Decimal(12, 4)
+  status      AdCampaignStatus @default(DRAFT)
+  impressions Int              @default(0)
+  clicks      Int              @default(0)
+  likes       Int              @default(0)
+  comments    Int              @default(0)
+  shares      Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  owner       User             @relation("AdCampaignOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, status, createdAt])
+}
+
+model AdFeedDay {
+  id String @id
+  lastAdId String?
+}
+
+model FeedExposure {
+  id String @id @default(uuid())
+  userId String
+  mediaId String
+  day String
+  createdAt DateTime @default(now())
+  @@index([userId, day, mediaId])
+}
+
+model AdFunding {
+  id String @id @default(cuid())
+  campaignId String
+  campaign AdCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  requestKey String
+  amountCents Int
+  provider String @default("STRIPE")
+  amountLocalCents Int?
+  stripeSessionId String? @unique
+  checkoutUrl String? @db.Text
+  paidAt DateTime?
+  createdAt DateTime @default(now())
+  @@unique([campaignId, requestKey])
+}
+
+model AdDelivery {
+  id String @id @default(uuid())
+  campaignId String
+  campaign AdCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  viewerId String
+  country String
+  day String
+  createdAt DateTime @default(now())
+  pacingReservedMicros BigInt @default(0)
+  auctionScore Decimal @default(0) @db.Decimal(16, 6)
+  events AdEvent[]
+  @@index([viewerId, day, campaignId])
+}
+
+model AdEvent {
+  id String @id @default(cuid())
+  deliveryId String
+  delivery AdDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  kind String
+  chargeMicros BigInt
+  createdAt DateTime @default(now())
+  @@unique([deliveryId, kind])
 }
 
 model ProviderAccount {
@@ -387,52 +551,98 @@ model VerificationCode {
 }
 
 model UserMedia {
-  id              String         @id @default(cuid())
-  userId          String
-  kind            MediaKind
-  title           String?
-  titlePositionX  Float?         @default(0.5)
-  titlePositionY  Float?         @default(0.5)
-  caption         String?        @db.Text
-  description     String?        @db.Text
-  taggedUserId    String?
-  taggedUsername  String?
-  taggedUserIds   Json?
-  taggedUsernames Json?
-  taggedUserPreviews Json?
+  id                  String             @id @default(cuid())
+  userId              String
+  adCampaignId        String?            @unique
+  adWebsite           String?
+  adCta               String?
+  adCtaColor          String?            @db.VarChar(7)
+  adCampaign          AdCampaign?        @relation(fields: [adCampaignId], references: [id], onDelete: SetNull)
+  kind                MediaKind
+  title               String?
+  titlePositionX      Float?             @default(0.5)
+  titlePositionY      Float?             @default(0.5)
+  caption             String?            @db.Text
+  description         String?            @db.Text
+  containsAi          Boolean            @default(false)
+  taggedUserId        String?
+  taggedUsername      String?
+  taggedUserIds       Json?
+  taggedUsernames     Json?
+  taggedUserPreviews  Json?
   tagApprovalStatuses Json?
-  tagApprovalStatus TagApprovalStatus?
-  objectKey       String?
-  url             String
-  images          Json?
-  thumbnailUrl    String?
-  mimeType        String?
-  sizeBytes       Int?
-  views           Int            @default(0)
-  likes           Int            @default(0)
-  commentCount    Int            @default(0)
-  shareCount      Int            @default(0)
-  repostCount     Int            @default(0)
-  saveCount       Int            @default(0)
-  isHiddenByOwner Boolean        @default(false)
+  tagApprovalStatus   TagApprovalStatus?
+  objectKey           String?
+  url                 String
+  images              Json?
+  thumbnailUrl        String?
+  mimeType            String?
+  sizeBytes           Int?
+  views               Int                @default(0)
+  likes               Int                @default(0)
+  commentCount        Int                @default(0)
+  shareCount          Int                @default(0)
+  repostCount         Int                @default(0)
+  saveCount           Int                @default(0)
+  isHiddenByOwner     Boolean            @default(false)
   // Copyright moderation: null = visible. UNDER_REVIEW / APPEALED / REMOVED
   // hide the post from everyone except its owner until an admin decides.
-  copyrightStatus String?
+  copyrightStatus     String?
   // General content reports (not copyright): null = visible. UNDER_REVIEW
   // hides the post from everyone except its owner pending admin review.
-  reportStatus    String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  likeRecords     VideoLike[]
-  comments        VideoComment[]
-  savedBy         SavedVideo[]
-  hiddenBy        HiddenMedia[]
-  reposts         MediaRepost[]
-  reports         Report[]
+  reportStatus        String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likeRecords         VideoLike[]
+  comments            VideoComment[]
+  savedBy             SavedVideo[]
+  hiddenBy            HiddenMedia[]
+  reposts             MediaRepost[]
+  reports             Report[]
+  analyticsViews      AnalyticsView[]
 
   @@index([userId, kind])
   @@index([taggedUserId])
+}
+
+model AnalyticsView {
+  id          String @id
+  mediaId     String
+  viewerKey   String
+  country     String?
+  watchMs     Int @default(0)
+  durationMs  Int @default(0)
+  completed   Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  media       UserMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@index([mediaId, createdAt])
+  @@index([createdAt])
+}
+
+model AccountAnalyticsEvent {
+  id String @id @default(cuid())
+  ownerId String
+  kind String
+  createdAt DateTime @default(now())
+  owner User @relation(fields:[ownerId],references:[id],onDelete:Cascade)
+  @@index([ownerId,kind,createdAt])
+}
+
+model AnalyticsReportSchedule {
+  userId      String @id
+  enabled     Boolean @default(false)
+  frequency   Int @default(7)
+  nextRunAt   DateTime
+  leasedUntil DateTime?
+  lastSentAt  DateTime?
+  lastError   String?
+  updatedAt   DateTime @updatedAt
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, nextRunAt])
 }
 
 model MediaRepost {
@@ -466,6 +676,9 @@ model Report {
 
 model TechnicalIssue {
   id          String               @id @default(cuid())
+  ticketNumber Int?                @unique
+  replies     TechnicalIssueReply[]
+  typing      TechnicalIssueTyping[]
   userId      String
   subject     String
   description String               @db.Text
@@ -476,10 +689,37 @@ model TechnicalIssue {
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
   resolvedAt  DateTime?
+  userReadAt  DateTime?
   user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+}
+
+model SupportTicketSequence {
+  id    Int @id
+  value Int
+}
+
+model TechnicalIssueReply {
+  id        String @id @default(cuid())
+  issueId   String
+  authorId  String
+  message   String @db.Text
+  fromAdmin Boolean
+  createdAt DateTime @default(now())
+  issue     TechnicalIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@index([issueId, createdAt, id])
+}
+
+model TechnicalIssueTyping {
+  issueId   String
+  agentId   String
+  expiresAt DateTime
+  issue     TechnicalIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, agentId])
 }
 
 model PaymentPlan {
@@ -515,20 +755,21 @@ model NotificationCampaign {
 }
 
 model UserNotification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   senderId  String?
   title     String?
-  message   String   @db.Text
-  type      String   @default("alert")
-  isRead    Boolean  @default(false)
+  message   String    @db.Text
+  type      String    @default("alert")
+  isRead    Boolean   @default(false)
+  hiddenAt  DateTime?
   metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation("UserNotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
-  sender    User?    @relation("UserNotificationSender", fields: [senderId], references: [id], onDelete: SetNull)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation("UserNotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  sender    User?     @relation("UserNotificationSender", fields: [senderId], references: [id], onDelete: SetNull)
 
-  @@index([userId, createdAt])
+  @@index([userId, hiddenAt, createdAt])
   @@index([senderId])
 }
 
@@ -649,6 +890,7 @@ model CreditLedger {
 model CreditPurchase {
   id                      String          @id @default(cuid())
   userId                  String
+  purchasedById           String?
   checkoutRequestId       String?         @unique
   stripeSessionId         String?         @unique
   googlePlayPurchaseToken String?         @unique
@@ -667,6 +909,7 @@ model CreditPurchase {
   paymentAttempt          PaymentAttempt? @relation(fields: [paymentAttemptId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
+  @@index([purchasedById, createdAt])
 }
 
 // Tips go straight to the creator at 50% of the sent value. Capped at 5 per
@@ -791,6 +1034,8 @@ model VideoLike {
 }
 
 model VideoComment {
+  attachmentUrl  String? @db.Text
+  attachmentKind String?
   id        String         @id @default(cuid())
   mediaId   String
   authorId  String
@@ -876,15 +1121,16 @@ model UserMatch {
 }
 
 model ChatThread {
-  id                 String            @id @default(cuid())
-  kind               ChatThreadKind    @default(DIRECT)
-  broadcastOnly      Boolean           @default(false)
-  campaignId         String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  lastMessageText    String?           @db.Text
-  lastMessageType    ChatMessageType?
-  lastMessageAt      DateTime?
+  id                  String            @id @default(cuid())
+  kind                ChatThreadKind    @default(DIRECT)
+  selfOwnerId         String?           @unique
+  broadcastOnly       Boolean           @default(false)
+  campaignId          String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  lastMessageText     String?           @db.Text
+  lastMessageType     ChatMessageType?
+  lastMessageAt       DateTime?
   // Credits gating: the participant who sent the first message (the paying
   // "user"); the other party's replies are charged to them.
   // `unlockedAt` is the start of the current fixed 24h access grant — set
@@ -893,16 +1139,20 @@ model ChatThread {
   // unlocked; otherwise a reply is locked and needs a Key to open, which
   // refreshes this window. `icebreakerUnlocked` is kept only as a legacy
   // "has this thread ever been unlocked at least once" marker.
-  initiatorId        String?
-  icebreakerUnlocked Boolean           @default(false)
-  unlockedAt         DateTime?
-  cycleStartedAt     DateTime?
-  cycleIcebreakerId  String?
-  cycleLockedReplyId String?
+  initiatorId         String?
+  icebreakerUnlocked  Boolean           @default(false)
+  unlockedAt          DateTime?
+  cycleStartedAt      DateTime?
+  cycleIcebreakerId   String?
+  cycleLockedReplyId  String?
   entityChatEndedAt   DateTime?
   entityChatEndedById String?
-  participants       ChatParticipant[]
-  messages           ChatMessage[]
+  participants        ChatParticipant[]
+  messages            ChatMessage[]
+  hiddenBy            UserHiddenChat[]
+  hideRequests        ChatHideRequest[]
+  muteSettings        ChatMute[]
+  selfOwner           User?             @relation("SelfChatOwner", fields: [selfOwnerId], references: [id], onDelete: Cascade)
 }
 
 model ChatParticipant {
@@ -911,6 +1161,7 @@ model ChatParticipant {
   userId      String
   otherUserId String?
   archived    Boolean    @default(false)
+  anonymous   Boolean    @default(false)
   unreadCount Int        @default(0)
   clearedAt   DateTime?
   joinedAt    DateTime   @default(now())
@@ -921,14 +1172,90 @@ model ChatParticipant {
   @@index([userId, otherUserId])
 }
 
+model ChatPrivateCodeGroup {
+  id          String                @id @default(cuid())
+  userId      String
+  purpose     PrivateCodePurpose
+  codeHash    String                @db.Char(64)
+  createdAt   DateTime              @default(now())
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hiddenChats UserHiddenChat[]
+  messages    SecureFolderMessage[]
+
+  @@unique([userId, purpose, codeHash])
+  @@index([userId, purpose])
+}
+
+model UserHiddenChat {
+  id          String               @id @default(cuid())
+  userId      String
+  threadId    String
+  codeGroupId String
+  hideForAll  Boolean              @default(false)
+  hiddenAt    DateTime             @default(now())
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread      ChatThread           @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  codeGroup   ChatPrivateCodeGroup @relation(fields: [codeGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, threadId])
+  @@index([userId, codeGroupId])
+  @@index([threadId])
+}
+
+model ChatHideRequest {
+  id          String                @id @default(cuid())
+  threadId    String
+  requesterId String
+  recipientId String
+  action      ChatHideRequestAction
+  status      ChatHideRequestStatus @default(PENDING)
+  expiresAt   DateTime?
+  respondedAt DateTime?
+  createdAt   DateTime              @default(now())
+  thread      ChatThread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  requester   User                  @relation("ChatHideRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipient   User                  @relation("ChatHideRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, status, createdAt])
+  @@index([requesterId, threadId, createdAt])
+  @@index([expiresAt, status])
+}
+
+model SecureFolderMessage {
+  id          String               @id @default(cuid())
+  ownerId     String
+  messageId   String
+  codeGroupId String
+  movedAt     DateTime             @default(now())
+  owner       User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  message     ChatMessage          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  codeGroup   ChatPrivateCodeGroup @relation(fields: [codeGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, messageId])
+  @@index([ownerId, codeGroupId, movedAt])
+}
+
+model ChatMute {
+  id       String     @id @default(cuid())
+  userId   String
+  threadId String
+  mutedAt  DateTime   @default(now())
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread   ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, threadId])
+  @@index([threadId])
+}
+
 model ChatMessage {
-  id                  String          @id @default(cuid())
+  id                  String                @id @default(cuid())
   threadId            String
   senderId            String
-  type                ChatMessageType @default(TEXT)
-  text                String?         @db.Text
+  type                ChatMessageType       @default(TEXT)
+  text                String?               @db.Text
   imageUrl            String?
   imageObjectKey      String?
+  albumId             String?               @db.VarChar(64)
   videoUrl            String?
   videoObjectKey      String?
   thumbnailUrl        String?
@@ -938,14 +1265,17 @@ model ChatMessage {
   documentMimeType    String?
   documentSizeBytes   Int?
   replyToId           String?
-  replyToText         String?         @db.Text
+  replyToText         String?               @db.Text
   replyToSenderId     String?
   replyToSenderName   String?
   reactions           Json?
-  isRead              Boolean         @default(false)
+  isRead              Boolean               @default(false)
+  deliveredAt         DateTime?
+  pinnedAt            DateTime?
+  pinnedById          String?
   // Credits gating: a reply from the non-initiator is locked until the
   // thread initiator spends a Key (first) or ChatCredit (subsequent) to unlock.
-  locked              Boolean         @default(false)
+  locked              Boolean               @default(false)
   // Plaintext preview (~10 chars) captured client-side before encryption, so
   // locked E2E-encrypted messages can still show a teaser server-side.
   previewText         String?
@@ -954,11 +1284,13 @@ model ChatMessage {
   // view. Deleting your own sent message never removes it for the other
   // participant — only the deleting user's copy disappears.
   deletedForUserIds   Json?
-  sentAt              DateTime        @default(now())
-  thread              ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  sender              User            @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  sentAt              DateTime              @default(now())
+  thread              ChatThread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender              User                  @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  secureCopies        SecureFolderMessage[]
 
   @@index([threadId, sentAt])
+  @@index([threadId, senderId, deliveredAt])
   @@index([broadcastCampaignId])
 }
 
@@ -1070,6 +1402,7 @@ model EarningLot {
   settledAt   DateTime           @default(now())
   availableAt DateTime
   heldReason  String?
+  hiddenAt    DateTime?
   payoutId    String?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
@@ -1079,6 +1412,7 @@ model EarningLot {
 
   @@unique([source, sourceId, userId])
   @@index([userId, status, availableAt])
+  @@index([userId, hiddenAt, createdAt])
 }
 
 model CreatorKyc {
@@ -1095,6 +1429,24 @@ model CreatorKyc {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AccountVerification {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  status           KycStatus @default(NOT_SUBMITTED)
+  idFrontObjectKey String?
+  idBackObjectKey  String?
+  selfieObjectKey  String?
+  rejectionReason  String?   @db.Text
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewerId       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, submittedAt])
 }
 
 enum LivenessStatus {
@@ -1302,6 +1654,7 @@ model AppSettings {
   id                           Int      @id @default(1)
   appName                      String   @default("ChatAndTip")
   maxVideosUpload              Int      @default(10)
+  freeStorageLimitMb           Int      @default(1024)
   contactEmail                 String?
   contactPhone                 String?
   address                      String?
@@ -1413,12 +1766,12 @@ model SavedVideo {
 // A viewer-level preference: unlike moderation or an owner hiding their own
 // work, this affects only the account that selected "Not interested".
 model HiddenMedia {
-  id        String    @id @default(cuid())
-  userId    String
-  mediaId   String
-  hiddenAt  DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  media     UserMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  id       String    @id @default(cuid())
+  userId   String
+  mediaId  String
+  hiddenAt DateTime  @default(now())
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media    UserMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
 
   @@unique([userId, mediaId])
   @@index([userId, hiddenAt])

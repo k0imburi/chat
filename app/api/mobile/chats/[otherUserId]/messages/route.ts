@@ -1,6 +1,7 @@
+import { withChatIdentity } from "@/lib/chat-identity";
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import { getMessages, sendMessage, deleteMessage } from "@/lib/mobile-chats"
+import { getMessages, sendMessage, deleteMessage, markMessagesDelivered } from "@/lib/mobile-chats"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { logError } from "@/lib/log-error"
 
@@ -9,6 +10,7 @@ const paramsSchema = z.object({
 })
 
 const bodySchema = z.object({
+  albumId: z.string().regex(/^[a-f0-9]{32}$/).optional(),
   textMsg: z.string().optional(),
   previewText: z.string().max(20).optional(),
   textLength: z.number().int().nonnegative().optional(),
@@ -26,9 +28,10 @@ const bodySchema = z.object({
   replyToText: z.string().optional(),
   replyToSenderId: z.string().optional(),
   replyToSenderName: z.string().optional(),
+  hiddenCodeGroupId: z.string().optional(),
 })
 
-export async function GET(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
+async function GETHandler(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
   const session = await getMobileSessionFromRequest(request)
   if (!session?.userId) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
@@ -45,7 +48,11 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
       unlockExpiresAt,
       entityCanReply,
       entityChatEnded,
-    } = await getMessages(session.userId, params.otherUserId)
+    } = await getMessages(
+      session.userId,
+      params.otherUserId,
+      new URL(request.url).searchParams.get("hiddenCodeGroupId") || undefined,
+    )
     return NextResponse.json({
       success: true,
       data: messages,
@@ -63,14 +70,15 @@ export async function GET(request: Request, context: { params: Promise<{ otherUs
     }
 
     logError("/api/mobile/chats/[otherUserId]/messages", error)
+    const message = error instanceof Error ? error.message : "Failed to load messages"
     return NextResponse.json(
-      { success: false, message: error instanceof Error ? error.message : "Failed to load messages" },
-      { status: 500 },
+      { success: false, message },
+      { status: message.includes("This action cannot be completed") ? 403 : 500 },
     )
   }
 }
 
-export async function DELETE(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
+async function DELETEHandler(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
   const session = await getMobileSessionFromRequest(request)
   if (!session?.userId) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
@@ -93,7 +101,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ othe
   }
 }
 
-export async function POST(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
+async function POSTHandler(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
   const session = await getMobileSessionFromRequest(request)
   if (!session?.userId) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
@@ -104,6 +112,7 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
     const body = bodySchema.parse(await request.json())
     const data = await sendMessage({
       senderId: session.userId,
+      albumId: body.albumId,
       receiverId: params.otherUserId,
       textMsg: body.textMsg,
       previewText: body.previewText,
@@ -122,6 +131,7 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
       replyToText: body.replyToText,
       replyToSenderId: body.replyToSenderId,
       replyToSenderName: body.replyToSenderName,
+      hiddenCodeGroupId: body.hiddenCodeGroupId,
     })
     return NextResponse.json({ success: true, data })
   } catch (error) {
@@ -166,3 +176,8 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
     return NextResponse.json({ success: false, message: msg }, { status: isUserError ? 400 : 500 })
   }
 }
+
+
+export const GET = withChatIdentity(GETHandler);
+export const DELETE = withChatIdentity(DELETEHandler);
+export const POST = withChatIdentity(POSTHandler);

@@ -169,7 +169,7 @@ export function serializeMediaTags(media: UserMedia) {
   };
 }
 
-function serializeVideo(media?: UserMedia | null) {
+export function serializeVideo(media?: UserMedia | null) {
   if (!media) {
     return {
       id: "",
@@ -182,6 +182,7 @@ function serializeVideo(media?: UserMedia | null) {
       titlePositionY: 0.5,
       caption: "",
       description: "",
+      containsAi: false,
       taggedUserId: "",
       taggedUsername: "",
       taggedUserIds: [],
@@ -208,6 +209,10 @@ function serializeVideo(media?: UserMedia | null) {
   const mediaTags = serializeMediaTags(media);
   return {
     id: media.id,
+    adCampaignId: media.adCampaignId,
+    adWebsite: media.adWebsite,
+    adCta: media.adCta,
+    adCtaColor: media.adCtaColor,
     videoUrl: isImage ? "" : media.url,
     imageUrl: isImage ? media.url : "",
     images,
@@ -217,6 +222,7 @@ function serializeVideo(media?: UserMedia | null) {
     titlePositionY: media.titlePositionY ?? 0.5,
     caption: media.caption || "",
     description: media.description || "",
+    containsAi: media.containsAi,
     ...mediaTags,
     views: media.views,
     likes: media.likes,
@@ -225,7 +231,7 @@ function serializeVideo(media?: UserMedia | null) {
     repostCount: media.repostCount,
     isReposted: false,
     bookmarkCount: media.saveCount,
-    createdAt: media.createdAt.toISOString(),
+    createdAt: media.adCampaignId ? null : media.createdAt.toISOString(),
     isLiked: false,
     copyrightStatus: media.copyrightStatus ?? null,
     reportStatus: media.reportStatus ?? null,
@@ -242,7 +248,8 @@ export function serializeMobileUser(user: UserWithMedia) {
   const gallery = user.media
     .filter(
       (item) =>
-        item.kind === MediaKind.GALLERY_VIDEO || item.kind === MediaKind.IMAGE,
+        !item.adCampaignId &&
+        (item.kind === MediaKind.GALLERY_VIDEO || item.kind === MediaKind.IMAGE),
     )
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     .map(serializeVideo);

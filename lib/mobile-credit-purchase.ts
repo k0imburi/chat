@@ -34,6 +34,7 @@ function priceTipCart(tipItems: TipCartItems, usdToKesRate: number): { totalKes:
  */
 export async function initiateCreditPurchase(input: {
   userId: string
+  recipientUserId?: string
   phone: string
   items: CartItems
   tipItems?: TipCartItems
@@ -50,7 +51,7 @@ export async function initiateCreditPurchase(input: {
   let creditTotal = 0
   let normalizedCredits: CartItems = {}
   if (hasCreditItems) {
-    const r = priceCart(input.items, rate)
+    const r = priceCart(input.items, rate, Boolean(input.recipientUserId && input.recipientUserId !== input.userId))
     creditTotal = r.totalKes
     normalizedCredits = r.normalized
   }
@@ -75,7 +76,9 @@ export async function initiateCreditPurchase(input: {
       metadata: { items: normalizedCredits, tipItems: normalizedTips } as Prisma.InputJsonValue,
     } })
     return tx.creditPurchase.create({ data: {
-      userId: input.userId, phone: normalizedPhone, items: normalizedCredits as Prisma.InputJsonValue,
+      userId: input.recipientUserId ?? input.userId,
+      purchasedById: input.userId,
+      phone: normalizedPhone, items: normalizedCredits as Prisma.InputJsonValue,
       totalKes: new Prisma.Decimal(totalKes), status: "PENDING", provider: "MPESA",
       paymentAttemptId: attempt.id, exchangeRate: settings?.usdToKesRate || null,
       pricingSnapshot: {

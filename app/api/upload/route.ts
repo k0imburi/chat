@@ -1,27 +1,33 @@
 import { NextResponse } from "next/server"
 import { getSessionUser } from "@/lib/auth"
+import { getCustomerSession } from "@/lib/customer-auth"
 import { uploadBufferToR2 } from "@/lib/r2"
+import { assertStorageAvailable } from "@/lib/storage-quota"
 
 export async function POST(request: Request) {
   const session = await getSessionUser()
-  if (!session) {
+  const customer = session ? null : await getCustomerSession()
+  if (!session && !customer) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   }
 
   const formData = await request.formData()
   const file = formData.get("file")
-  const prefix = String(formData.get("prefix") || "uploads")
+  const requestedPrefix = String(formData.get("prefix") || "uploads")
+  const prefix = customer ? `uploads/${customer.userId}/${requestedPrefix}` : requestedPrefix
 
   if (!(file instanceof File)) {
     return NextResponse.json({ success: false, message: "No file supplied" }, { status: 400 })
   }
+  if (customer) await assertStorageAvailable(customer.userId, file.size)
 
   const buffer = Buffer.from(await file.arrayBuffer())
   const result = await uploadBufferToR2(buffer, file.name, {
     contentType: file.type,
     prefix,
     metadata: {
-      uploadedBy: session.id,
+      uploadedBy: session?.id ?? customer!.userId,
+      ...(customer ? { userId: customer.userId } : {}),
     },
   })
 

@@ -1,3 +1,4 @@
+import { withChatIdentity } from "@/lib/chat-identity";
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { endEntityChat } from "@/lib/mobile-chats"
@@ -6,7 +7,7 @@ import { logError } from "@/lib/log-error"
 
 const paramsSchema = z.object({ otherUserId: z.string().min(1) })
 
-export async function POST(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
+async function POSTHandler(request: Request, context: { params: Promise<{ otherUserId: string }> }) {
   const session = await getMobileSessionFromRequest(request)
   if (!session?.userId) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
@@ -21,3 +22,6 @@ export async function POST(request: Request, context: { params: Promise<{ otherU
     return NextResponse.json({ success: false, message }, { status: 400 })
   }
 }
+
+
+export const POST = withChatIdentity(POSTHandler);

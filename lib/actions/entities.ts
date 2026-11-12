@@ -23,6 +23,8 @@ const reviewSchema = z.object({
   userId: z.string().min(1),
   decision: z.enum(["APPROVE", "REJECT"]),
   badgeColor: z.enum(["blue", "gold"]).optional(),
+  rejectedDocumentKeys: z.array(z.enum(["representativeId", "registration", "supporting"])).default([]),
+  rejectionReason: z.string().trim().max(1000).optional(),
 });
 
 export async function reviewEntityDocumentsAction(
@@ -43,20 +45,34 @@ export async function reviewEntityDocumentsAction(
       userId: formData.get("userId"),
       decision: formData.get("decision"),
       badgeColor: formData.get("badgeColor") || undefined,
+      rejectedDocumentKeys: formData.getAll("rejectedDocumentKeys"),
+      rejectionReason: String(formData.get("rejectionReason") || "").trim() || undefined,
     });
     const approved = input.decision === "APPROVE";
     if (approved && !input.badgeColor) {
       throw new Error("Choose a verification badge color");
     }
+    if (!approved && input.rejectedDocumentKeys.length === 0) {
+      throw new Error("Select each document that needs to be reuploaded");
+    }
+    if (!approved && !input.rejectionReason) {
+      throw new Error("Add a reason for the requested document changes");
+    }
 
     const entity = await prisma.user.findFirst({
       where: { id: input.userId, accountType: AccountType.ENTITY },
-      select: { id: true, entityDocuments: true },
+      select: { id: true, entityDocuments: true, entityDocumentReview: true },
     });
     if (!entity) throw new Error("Entity account not found");
     if (!entity.entityDocuments)
       throw new Error("No entity documents were submitted");
 
+    const docKeys = ["representativeId", "registration", "supporting"] as const;
+    const entityDocumentReview = Object.fromEntries(docKeys.map((key) => [key,
+      !approved && input.rejectedDocumentKeys.includes(key)
+        ? { status: "REJECTED", reason: input.rejectionReason }
+        : { status: "APPROVED", reason: null },
+    ]));
     await prisma.user.update({
       where: { id: entity.id },
       data: approved
@@ -65,12 +81,14 @@ export async function reviewEntityDocumentsAction(
             entityVerification: EntityVerificationStatus.APPROVED,
             entityPublishedAt: new Date(),
             entityBadgeColor: input.badgeColor,
+            entityDocumentReview,
           }
         : {
             verified: false,
             entityVerification: EntityVerificationStatus.REJECTED,
             entityPublishedAt: null,
             entityBadgeColor: null,
+            entityDocumentReview,
           },
     });
 
@@ -88,7 +106,7 @@ export async function reviewEntityDocumentsAction(
       title: approved ? "Entity verified" : "Entity verification update",
       message: approved
         ? "Your entity documents were approved. Your verified badge is now active."
-        : "Your entity documents were not approved. Please review and resubmit them.",
+        : `Please review and replace the declined documents: ${input.rejectedDocumentKeys.join(", ")}.`,
     });
 
     revalidatePath("/entities");

@@ -11,9 +11,12 @@ const getSchema = z.object({
 
 const postSchema = z.object({
   videoId: z.string().min(1),
-  text: z.string().min(1).max(1000),
+  text: z.string().trim().max(1000),
+  attachmentUrl: z.string().url().optional(),
+  attachmentKind: z.enum(['image','gif','sticker']).optional(),
   parentId: z.string().optional(),
-})
+}).refine(value => value.text.length > 0 || Boolean(value.attachmentUrl && value.attachmentKind), 'Add text or an attachment')
+  .refine(value => Boolean(value.attachmentUrl) === Boolean(value.attachmentKind), 'Choose an attachment type')
 
 export async function GET(request: Request) {
   const session = await getMobileSessionFromRequest(request)
@@ -48,7 +51,8 @@ export async function POST(request: Request) {
 
   try {
     const parsed = postSchema.parse(await request.json())
-    const comment = await createComment(parsed.videoId, session.userId, parsed.text, parsed.parentId)
+    const comment = await createComment(parsed.videoId, session.userId, parsed.text, parsed.parentId,
+      parsed.attachmentUrl ? {url:parsed.attachmentUrl,kind:parsed.attachmentKind!} : undefined)
     return NextResponse.json({ success: true, comment })
   } catch (error) {
     if (error instanceof z.ZodError) {

@@ -25,7 +25,6 @@ export default async function SessionsPage() {
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/60">Review proposals, join approved rooms, manage cancellations and set your creator availability.</p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link href="/availability" className="rounded-full bg-[#25d366] px-5 py-3 text-sm font-black text-white">Set availability</Link>
-            <Link href="/wallet" className="rounded-full border border-white/15 px-5 py-3 text-sm font-black text-white">Check session credits</Link>
           </div>
         </section>
 

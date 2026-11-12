@@ -2,6 +2,7 @@ import { MediaKind, Prisma, TagApprovalStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getMobileSessionFromRequest } from "@/lib/mobile-session";
+import { getCustomerOrMobileSession } from "@/lib/customer-mobile-session";
 import { findMobileUserById, serializeMobileUser } from "@/lib/mobile-users";
 import { prisma } from "@/lib/prisma";
 import { logError } from "@/lib/log-error";
@@ -18,6 +19,7 @@ const createSchema = z.object({
   titlePositionY: z.coerce.number().min(0).max(1).optional(),
   caption: z.string().max(2200).optional(),
   description: z.string().max(2200).optional(),
+  containsAi: z.boolean().optional(),
   taggedUserId: z.string().min(1).optional(), // legacy client support
   taggedUserIds: z.array(z.string().min(1)).max(5).optional(),
   mimeType: z.string().optional(),
@@ -34,6 +36,7 @@ const updateSchema = z.object({
   title: z.string().max(300).optional(),
   caption: z.string().max(2200).optional(),
   description: z.string().max(2200).optional(),
+  containsAi: z.boolean().optional(),
   titlePositionX: z.coerce.number().min(0).max(1).optional(),
   titlePositionY: z.coerce.number().min(0).max(1).optional(),
   taggedUserIds: z.array(z.string().min(1)).max(5).optional(),
@@ -115,7 +118,7 @@ function tagFields(users: Awaited<ReturnType<typeof resolveTaggedUsers>>) {
 }
 
 export async function POST(request: Request) {
-  const session = await getMobileSessionFromRequest(request);
+  const session = await getCustomerOrMobileSession(request);
   if (!session) {
     return NextResponse.json(
       { success: false, message: "Unauthorized" },
@@ -166,6 +169,7 @@ export async function POST(request: Request) {
             titlePositionY: parsed.titlePositionY,
             caption: parsed.caption,
             description: parsed.description,
+            ...(parsed.containsAi !== undefined ? { containsAi: parsed.containsAi } : {}),
             taggedUserId: null,
             taggedUsername: null,
             taggedUserIds: Prisma.DbNull,
@@ -189,6 +193,7 @@ export async function POST(request: Request) {
             titlePositionY: parsed.titlePositionY,
             caption: parsed.caption,
             description: parsed.description,
+            containsAi: parsed.containsAi ?? false,
             ...tagFields(taggedUsers),
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
@@ -203,51 +208,12 @@ export async function POST(request: Request) {
       // The post is already durable. Activity notifications must never change
       // that result into a 500 or encourage the creator to post it again.
       try {
-        const [actor, followers] = await Promise.all([
-          prisma.user.findUnique({
-            where: { id: session.userId },
-            select: { fullName: true, username: true },
-          }),
-          prisma.follow.findMany({
-            where: {
-              followedId: session.userId,
-              follower: {
-                isActive: true,
-                status: { notIn: ["BLOCKED", "HIDDEN"] },
-              },
-            },
-            select: { followerId: true },
-          }),
-        ]);
+        const actor = await prisma.user.findUnique({
+          where: { id: session.userId },
+          select: { fullName: true, username: true },
+        });
         const actorName =
           actor?.username?.trim() || actor?.fullName?.trim() || "Someone";
-        await Promise.all(
-          followers.map(async ({ followerId }) => {
-            // Upload retries must not create a second activity card for the same post.
-            const existingNotification =
-              await prisma.userNotification.findFirst({
-                where: {
-                  userId: followerId,
-                  senderId: session.userId,
-                  type: "postvideo",
-                  metadata: { path: "$.mediaId", equals: savedMedia.id },
-                },
-                select: { id: true },
-              });
-            if (existingNotification) return;
-            await createUserNotification({
-              userId: followerId,
-              senderId: session.userId,
-              type: "postvideo",
-              title: actorName,
-              message: "added a new post",
-              metadata: {
-                mediaId: savedMedia.id,
-                thumbnailUrl: savedMedia.thumbnailUrl || savedMedia.url,
-              },
-            });
-          }),
-        );
         for (const taggedUser of taggedUsers) {
           await createUserNotification({
             userId: taggedUser.id,
@@ -295,7 +261,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const session = await getMobileSessionFromRequest(request);
+  const session = await getCustomerOrMobileSession(request);
   if (!session) {
     return NextResponse.json(
       { success: false, message: "Unauthorized" },
@@ -427,6 +393,7 @@ export async function PATCH(request: Request) {
       "title",
       "caption",
       "description",
+      "containsAi",
       "titlePositionX",
       "titlePositionY",
       "taggedUserIds",

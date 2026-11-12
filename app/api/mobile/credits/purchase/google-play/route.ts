@@ -9,6 +9,7 @@ import {
   resolveGooglePlayConfig,
   PRODUCT_TO_CREDIT_KIND,
   PRODUCT_TO_TIP_TIER,
+  GOOGLE_PLAY_FIXED_QUANTITIES,
 } from "@/lib/google-play"
 import { allocateCredits, purchasePriceKesFor, TIP_USD } from "@/lib/mobile-credits"
 import { creditTipTokensInTransaction } from "@/lib/mobile-tip-wallet"
@@ -17,7 +18,8 @@ import { logError } from "@/lib/log-error"
 const bodySchema = z.object({
   productId: z.string().min(1),
   purchaseToken: z.string().min(1),
-  quantity: z.coerce.number().int().min(1).max(999).default(1),
+  quantity: z.coerce.number().int().min(1).max(1).default(1),
+  recipientUserId: z.string().min(1).optional(),
 })
 
 // Android-only Google Play Billing purchases. Unlike Paystack/Flutterwave,
@@ -40,6 +42,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Entity accounts cannot top up credits" }, { status: 403 })
     }
     const body = bodySchema.parse(await request.json())
+    const recipientId = body.recipientUserId ?? session.userId
+    const [buyer, recipient] = await Promise.all([
+      prisma.user.findUnique({ where: { id: session.userId }, select: { accountType: true } }),
+      prisma.user.findUnique({ where: { id: recipientId }, select: { accountType: true } }),
+    ])
+    if (!recipient || recipient.accountType !== "INDIVIDUAL") {
+      return NextResponse.json({ success: false, message: "ChatCredits can only be gifted to individual accounts" }, { status: 400 })
+    }
+    if (recipientId !== session.userId && buyer?.accountType !== "INDIVIDUAL") {
+      return NextResponse.json({ success: false, message: "This account cannot buy credits for others" }, { status: 403 })
+    }
 
     // Idempotent — a client retry after a dropped response must not
     // double-credit the same purchase token.
@@ -52,6 +65,7 @@ export async function POST(request: Request) {
 
     const creditKind = PRODUCT_TO_CREDIT_KIND[body.productId]
     const tipTier = PRODUCT_TO_TIP_TIER[body.productId]
+    const quantity = GOOGLE_PLAY_FIXED_QUANTITIES[body.productId] ?? 1
     if (!creditKind && !tipTier) {
       return NextResponse.json({ success: false, message: "Unknown product" }, { status: 400 })
     }
@@ -65,28 +79,29 @@ export async function POST(request: Request) {
     const rate = Number(settings?.usdToKesRate) || 130
     // Same per-unit KES pricing checkout already uses — no second price table.
     const priceKes = creditKind ? purchasePriceKesFor(rate)[creditKind] : Math.round(TIP_USD[tipTier!] * rate)
-    const totalKes = priceKes * body.quantity
+    const totalKes = priceKes * quantity
 
     const purchaseRow = await prisma.creditPurchase.create({
       data: {
-        userId: session.userId,
+        userId: recipientId,
+        purchasedById: session.userId,
         phone: "",
         provider: "GOOGLE_PLAY",
         status: "PENDING",
         googlePlayPurchaseToken: body.purchaseToken,
-        items: (creditKind ? { [creditKind]: body.quantity } : {}) as Prisma.InputJsonValue,
+        items: (creditKind ? { [creditKind]: quantity } : {}) as Prisma.InputJsonValue,
         totalKes: new Prisma.Decimal(totalKes),
         exchangeRate: rate,
         pricingSnapshot: {
           productId: body.productId,
-          quantity: body.quantity,
+          quantity,
           orderId: purchase.orderId ?? null,
         } as Prisma.InputJsonValue,
       },
     })
 
     if (creditKind) {
-      await allocateCredits({ userId: session.userId, items: { [creditKind]: body.quantity }, transactionId: purchaseRow.id })
+      await allocateCredits({ userId: recipientId, items: { [creditKind]: quantity }, transactionId: purchaseRow.id })
     } else if (tipTier) {
       await prisma.$transaction((tx) => creditTipTokensInTransaction(tx, session.userId, tipTier, body.quantity))
     }

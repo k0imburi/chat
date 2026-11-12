@@ -3,7 +3,7 @@ import { AlertTriangle, BadgeCheck, FileCheck2, ShieldQuestion } from "lucide-re
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { reviewCreatorKycAction } from "@/lib/actions/monetization"
+import { reviewAccountVerificationAction, reviewCreatorKycAction } from "@/lib/actions/monetization"
 import { prisma } from "@/lib/prisma"
 
 const badgeStyles: Record<string, string> = {
@@ -16,8 +16,10 @@ const badgeStyles: Record<string, string> = {
 export default async function CreatorVerificationsPage() {
   let migrationRequired = false
   let rows: Awaited<ReturnType<typeof loadKycQueue>> = []
+  let accountRows: Awaited<ReturnType<typeof loadAccountVerificationQueue>> = []
   try {
     rows = await loadKycQueue()
+    accountRows = await loadAccountVerificationQueue()
   } catch {
     migrationRequired = true
   }
@@ -103,6 +105,30 @@ export default async function CreatorVerificationsPage() {
           </table>
         </div>
       </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Verification Center submissions</h2>
+          <p className="text-sm text-muted-foreground">Individual identity review, separate from payout KYC.</p>
+        </div>
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-left text-sm">
+              <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-5 py-3">Account</th><th className="px-5 py-3">Submitted</th><th className="px-5 py-3">Documents</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Decision</th></tr></thead>
+              <tbody className="divide-y">
+                {accountRows.map((row) => <tr key={row.id} className="align-top hover:bg-muted/30">
+                  <td className="px-5 py-4"><p className="font-medium">{row.user.fullName || "Unnamed account"}</p><p className="text-xs text-muted-foreground">@{row.user.username || row.user.id}</p></td>
+                  <td className="whitespace-nowrap px-5 py-4 text-muted-foreground">{formatDate(row.submittedAt || row.createdAt)}</td>
+                  <td className="px-5 py-4"><div className="flex flex-col gap-2"><DocumentKey label="ID front" value={row.idFrontObjectKey} /><DocumentKey label="ID back" value={row.idBackObjectKey} /><DocumentKey label="Live selfie" value={row.selfieObjectKey} /></div></td>
+                  <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${badgeStyles[row.status] || badgeStyles.NOT_SUBMITTED}`}>{row.status.replaceAll("_", " ")}</span>{row.rejectionReason ? <p className="mt-2 max-w-xs text-xs text-rose-700">{row.rejectionReason}</p> : null}</td>
+                  <td className="px-5 py-4">{row.status === "PENDING" ? <div className="grid min-w-[280px] gap-2"><form action={approveAccountVerification} className="inline-flex"><input type="hidden" name="userId" value={row.userId} /><Button size="sm" type="submit">Accept</Button></form><form action={rejectAccountVerification} className="space-y-2"><input type="hidden" name="userId" value={row.userId} /><Textarea name="reason" placeholder="Reason shown to the account" className="min-h-20" required /><Button size="sm" variant="destructive" type="submit">Decline</Button></form></div> : <span className="text-xs text-muted-foreground">Reviewed {formatDate(row.reviewedAt)}</span>}</td>
+                </tr>)}
+                {!accountRows.length ? <tr><td colSpan={5} className="px-5 py-10 text-center text-muted-foreground">No Verification Center submissions yet.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
@@ -123,11 +149,31 @@ async function rejectKyc(formData: FormData) {
   revalidatePath("/creator-verifications")
 }
 
+async function approveAccountVerification(formData: FormData) {
+  "use server"
+  await reviewAccountVerificationAction({ userId: String(formData.get("userId") || ""), approved: true })
+  revalidatePath("/creator-verifications")
+}
+
+async function rejectAccountVerification(formData: FormData) {
+  "use server"
+  await reviewAccountVerificationAction({ userId: String(formData.get("userId") || ""), approved: false, reason: String(formData.get("reason") || "Verification was not approved") })
+  revalidatePath("/creator-verifications")
+}
+
 function loadKycQueue() {
   return prisma.creatorKyc.findMany({
     orderBy: [{ status: "desc" }, { submittedAt: "desc" }, { createdAt: "desc" }],
     take: 100,
     include: { user: { select: { id: true, fullName: true, email: true, phoneNumber: true } } },
+  })
+}
+
+function loadAccountVerificationQueue() {
+  return prisma.accountVerification.findMany({
+    orderBy: [{ status: "desc" }, { submittedAt: "desc" }, { createdAt: "desc" }],
+    take: 100,
+    include: { user: { select: { id: true, fullName: true, username: true } } },
   })
 }
 
@@ -160,7 +206,6 @@ function DocumentKey({ label, value }: { label: string; value: string | null }) 
       className="flex items-center gap-2 text-xs hover:opacity-80"
       title={`${label} — open full size`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={href}
         alt={label}

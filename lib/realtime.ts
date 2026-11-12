@@ -1,6 +1,12 @@
 import "server-only"
+import { protectChatPayload } from "@/lib/chat-identity"
 
 export type ChatRealtimeEvent =
+  | {
+      channel: "chat"
+      type: "chat_privacy_updated"
+      otherUserId: string
+    }
   | {
       channel: "chat"
       type: "connection_ready"
@@ -21,6 +27,12 @@ export type ChatRealtimeEvent =
     }
   | {
       channel: "chat"
+      type: "typing"
+      otherUserId: string
+      isTyping: boolean
+    }
+  | {
+      channel: "chat"
       type: "message_updated"
       otherUserId: string
       data: Record<string, unknown>
@@ -30,6 +42,13 @@ export type ChatRealtimeEvent =
       type: "messages_read"
       otherUserId: string
       readAt: string
+    }
+  | {
+      channel: "chat"
+      type: "messages_delivered"
+      otherUserId: string
+      messageIds: string[]
+      deliveredAt: string
     }
   | {
       channel: "chat"
@@ -189,10 +208,25 @@ function getHub() {
   return globalThis.__chatRealtimeHub
 }
 
+const chatDeliveryQueues = new Map<string, Promise<void>>()
+
 export function emitChatRealtimeToUser(userId: string, event: ChatRealtimeEvent) {
+  if (event.channel === "chat" && "otherUserId" in event) {
+    const delivery = (chatDeliveryQueues.get(userId) ?? Promise.resolve()).then(async () => {
+      const safe = await protectChatPayload(userId, event)
+      getHub()?.emitToUser(userId, safe as ChatRealtimeEvent)
+    }).catch((error) => {
+      console.error("Chat identity lookup failed; event withheld", error instanceof Error ? error.name : "unknown")
+    })
+    chatDeliveryQueues.set(userId, delivery)
+    void delivery.finally(() => {
+      if (chatDeliveryQueues.get(userId) === delivery) chatDeliveryQueues.delete(userId)
+    })
+    return
+  }
   getHub()?.emitToUser(userId, event)
 }
 
 export function emitChatRealtimeToUsers(userIds: string[], event: ChatRealtimeEvent) {
-  getHub()?.emitToUsers(userIds, event)
+  for (const userId of userIds) emitChatRealtimeToUser(userId, event)
 }
