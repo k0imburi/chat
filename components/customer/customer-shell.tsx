@@ -1,7 +1,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import type { ReactNode } from "react"
-import { Bell, CalendarClock, Compass, FileText, Flame, Info, LifeBuoy, Megaphone, MessageCircle, PlusSquare, Search, ShieldCheck, UserRound } from "lucide-react"
+import { Bell, CalendarClock, Compass, FileText, Info, LifeBuoy, Megaphone, MessageCircle, PlusSquare, Search, ShieldCheck, Users } from "lucide-react"
 import { MobileMenu } from "@/components/customer/mobile-menu"
 import { ModeToggle } from "@/components/customer/mode-toggle"
 import { LanguageSwitcher } from "@/components/customer/language-switcher"
@@ -10,13 +10,13 @@ const nav = [
   { href: "/", label: "Discover", icon: Compass },
   { href: "/inbox", label: "Chats", icon: MessageCircle },
   { href: "/create", label: "Create", icon: PlusSquare },
-  { href: "/trending", label: "Trending", icon: Flame },
+  { href: "/trending", label: "Community", icon: Users },
   { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/sessions", label: "Sessions", icon: CalendarClock },
   { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/account", label: "Account", icon: UserRound },
+  { href: "/account", label: "Account", icon: null },
 ]
-const mobileNav = nav.filter((item) => ["/", "/inbox", "/trending", "/alerts", "/account"].includes(item.href))
+const mobileNavHrefs = ["/", "/inbox", "/trending", "/alerts", "/account"]
 
 // Secondary nav — same row treatment as the primary items above, just
 // grouped below a divider (the TikTok web app pattern: About/Contact/Terms/
@@ -102,17 +102,32 @@ export function CustomerShell({
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur-xl dark:border-white/10 dark:bg-black/95 lg:hidden">
         <div className="mx-auto flex max-w-lg justify-around">
-          {mobileNav.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={`flex min-w-15 flex-col items-center gap-1 px-2 py-1 text-[10px] font-bold ${
-                active === href ? "text-[#25d366]" : "text-black/50 dark:text-white/50"
-              }`}
-            >
-              <Icon className="h-5 w-5" /><span className="sr-only max-w-18 truncate">{label}</span>
-            </Link>
-          ))}
+          {mobileNavHrefs.map((href) => {
+            const item = nav.find((n) => n.href === href)!
+            const isActive = active === href
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`flex min-w-[52px] flex-col items-center gap-1 px-2 py-1 transition-colors ${
+                  isActive ? "text-[#25d366]" : "text-black/50 dark:text-white/50"
+                }`}
+              >
+                {item.icon ? (
+                  <item.icon className="h-6 w-6" />
+                ) : (
+                  <Image
+                    src="/chatandtip-logo.jpg"
+                    alt=""
+                    width={24}
+                    height={24}
+                    className={`h-6 w-6 rounded-md object-contain ${isActive ? "opacity-100" : "opacity-50"}`}
+                  />
+                )}
+                <span className="sr-only">{item.label}</span>
+              </Link>
+            )
+          })}
         </div>
       </nav>
     </main>

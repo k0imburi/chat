@@ -6,7 +6,6 @@ import {
   CalendarClock,
   Compass,
   FileText,
-  Flame,
   Info,
   LifeBuoy,
   Megaphone,
@@ -14,7 +13,7 @@ import {
   PlusSquare,
   ShieldCheck,
   Search,
-  UserRound,
+  Users,
 } from "lucide-react"
 import { MobileMenu } from "@/components/customer/mobile-menu"
 import { ModeToggle } from "@/components/customer/mode-toggle"
@@ -24,13 +23,13 @@ const nav = [
   { href: "/", label: "Discover", icon: Compass },
   { href: "/inbox", label: "Chats", icon: MessageCircle },
   { href: "/create", label: "Create", icon: PlusSquare },
-  { href: "/trending", label: "Trending", icon: Flame },
+  { href: "/trending", label: "Community", icon: Users },
   { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/sessions", label: "Sessions", icon: CalendarClock },
   { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/account", label: "Account", icon: UserRound },
+  { href: "/account", label: "Account", icon: null },
 ]
-const mobileNav = nav.filter((item) => ["/", "/inbox", "/trending", "/alerts", "/account"].includes(item.href))
+const mobileNav = ["/", "/inbox", "/trending", "/alerts", "/account"]
 
 // Secondary nav — same row treatment as the primary items above, just
 // grouped below a divider (the TikTok web app pattern: About/Contact/Terms/
@@ -182,20 +181,32 @@ export function FeedShell({
       {/* ── Mobile-only bottom nav ────────────────────────────────── */}
       <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/85 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur-md dark:border-white/10 dark:bg-black/70 md:hidden">
         <div className="pointer-events-auto mx-auto flex max-w-[430px] justify-around px-2">
-          {mobileNav.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={`flex min-w-[52px] flex-col items-center gap-1 px-2 py-1 text-[10px] font-bold transition-colors ${
-                active === href
-                  ? "text-black dark:text-white"
-                  : "text-black/50 dark:text-white/45"
-              }`}
-            >
-              <Icon className="h-5 w-5" />
-              <span className="sr-only">{label}</span>
-            </Link>
-          ))}
+          {mobileNav.map((href) => {
+            const item = nav.find((n) => n.href === href)!
+            const isActive = active === href
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`flex min-w-[52px] flex-col items-center gap-1 px-2 py-1 transition-colors ${
+                  isActive ? "text-[#25d366]" : "text-black/50 dark:text-white/45"
+                }`}
+              >
+                {item.icon ? (
+                  <item.icon className="h-6 w-6" />
+                ) : (
+                  <Image
+                    src="/chatandtip-logo.jpg"
+                    alt=""
+                    width={24}
+                    height={24}
+                    className={`h-6 w-6 rounded-md object-contain ${isActive ? "opacity-100" : "opacity-50"}`}
+                  />
+                )}
+                <span className="sr-only">{item.label}</span>
+              </Link>
+            )
+          })}
         </div>
       </nav>
     </div>
