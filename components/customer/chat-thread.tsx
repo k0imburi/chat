@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { Archive, ArrowLeft, Check, CheckCheck, ChevronDown, ImagePlus, Lock, MoreHorizontal, MoreVertical, Pin, Reply, Search, Send, Share2, ShieldCheck, SmilePlus, Trash2, X } from "lucide-react"
+import { ArrowLeft, Check, CheckCheck, ChevronDown, ImagePlus, Lock, MoreHorizontal, MoreVertical, Pin, Reply, Search, Send, Share2, ShieldCheck, SmilePlus, Trash2, X } from "lucide-react"
 import { chatSystemText } from "@/lib/chat-system-text"
 import { VaultCopyDialog } from "@/components/customer/vault-copy-dialog"
+import { VaultIcon } from "@/components/vault-icon"
 
 export type ChatMessage = {
   id: string
@@ -181,6 +182,13 @@ export function ChatThread({
   const wsRef = useRef<WebSocket | null>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!actionMessageId) return
+    const handleClick = () => setActionMessageId(null)
+    window.addEventListener("click", handleClick)
+    return () => window.removeEventListener("click", handleClick)
+  }, [actionMessageId])
 
   const isConversationLocked = computeConversationLocked(messages, viewerId)
   const isAwaitingUnlock = computeAwaitingUnlock(state)
@@ -567,7 +575,22 @@ export function ChatThread({
                   </div>
                 ) : null}
                 {message.pinnedAt ? <span className={`flex items-center gap-1 text-[10px] font-bold text-[#15984c] ${mine ? "self-end" : "self-start"}`}><Pin className="h-3 w-3 fill-current" /> Pinned</span> : null}
-                <div className={`rounded-2xl px-3.5 py-2.5 text-sm shadow-sm ${mine ? "rounded-br-md bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-white" : "rounded-bl-md bg-white text-[#111b21] dark:bg-[#202c33] dark:text-white"}`}>
+                <div className={`relative rounded-2xl pl-3.5 pr-8 py-2.5 text-sm shadow-sm ${mine ? "rounded-br-md bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-white" : "rounded-bl-md bg-white text-[#111b21] dark:bg-[#202c33] dark:text-white"}`}>
+                  {!message.locked && !broadcastOnly ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setActionMessageId(actionMessageId === message.id ? null : message.id)
+                      }}
+                      aria-label="Message options"
+                      className={`absolute top-1.5 right-1.5 z-10 grid h-6 w-6 place-items-center rounded-full bg-black/10 text-black/70 backdrop-blur-sm transition-all hover:bg-black/20 group-hover:opacity-100 sm:opacity-0 ${
+                        actionMessageId === message.id ? "opacity-100" : ""
+                      } dark:bg-black/40 dark:text-white/80 dark:hover:bg-black/60`}
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
                   {message.locked ? (
                     <div className="min-w-52">
                       <div className="mb-3 flex items-center gap-2 font-black">
@@ -599,44 +622,78 @@ export function ChatThread({
                   </div>
                 </div>
 
-                {reactionEntries.length > 0 ? (
-                  <div className={`flex flex-wrap gap-1 ${mine ? "justify-end" : "justify-start"}`}>
-                    {reactionEntries.map(([emoji, users]) => (
+                {!message.locked && !broadcastOnly && actionMessageId === message.id ? (
+                  <div
+                    className={`absolute ${mine ? "right-0" : "left-0"} top-full z-30 mt-1 min-w-[210px] overflow-hidden rounded-2xl border border-black/10 bg-white/95 py-1.5 text-xs font-semibold shadow-2xl backdrop-blur-md dark:border-white/10 dark:bg-[#233138]/95 dark:text-white`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => {
+                        setReactingTo(reactingTo === message.id ? null : message.id)
+                        setActionMessageId(null)
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      <SmilePlus className="h-4 w-4 text-black/60 dark:text-white/60" /> React
+                    </button>
+                    <button
+                      onClick={() => {
+                        setReplyTo(message)
+                        setActionMessageId(null)
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      <Reply className="h-4 w-4 text-black/60 dark:text-white/60" /> Reply
+                    </button>
+                    <button
+                      onClick={() => {
+                        void pinMessage(message)
+                        setActionMessageId(null)
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      <Pin className="h-4 w-4 text-black/60 dark:text-white/60" /> {message.pinnedAt ? "Unpin" : "Pin"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        shareMessage(message)
+                        setActionMessageId(null)
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      <Share2 className="h-4 w-4 text-black/60 dark:text-white/60" /> Share
+                    </button>
+                    <button
+                      onClick={() => {
+                        startMoveToVault(message)
+                        setActionMessageId(null)
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      <VaultIcon className="h-4 w-4 text-[#159a49]" /> Vault
+                    </button>
+                    {message.imageUrl || message.videoUrl || message.documentUrl ? (
                       <button
-                        key={emoji}
-                        onClick={() => react(message, emoji)}
-                        className={`rounded-full border px-1.5 py-0.5 text-xs ${
-                          users.includes(viewerId)
-                            ? "border-emerald-500/50 bg-emerald-500/10"
-                            : "border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5"
-                        }`}
+                        onClick={() => {
+                          setCopyMessage(message)
+                          setActionMessageId(null)
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
                       >
-                        {emoji} {users.length}
+                        <VaultIcon className="h-4 w-4 text-[#159a49]" /> Save a copy to Vault storage
                       </button>
-                    ))}
+                    ) : null}
+                    <div className="my-1 border-t border-black/5 dark:border-white/5" />
+                    <button
+                      onClick={() => {
+                        void deleteOne(message)
+                        setActionMessageId(null)
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-rose-500 hover:bg-rose-500/10"
+                    >
+                      <Trash2 className="h-4 w-4" /> Delete
+                    </button>
                   </div>
-                ) : null}
-
-                {!message.locked && !broadcastOnly ? (
-                  <><button type="button" onClick={() => setActionMessageId(actionMessageId === message.id ? null : message.id)} aria-label="Message actions" className={`grid h-7 w-7 place-items-center rounded-full text-black/35 transition hover:bg-black/5 hover:text-black/60 dark:text-white/35 dark:hover:bg-white/10 dark:hover:text-white/70 ${mine ? "self-end" : "self-start"}`}><MoreHorizontal className="h-4 w-4" /></button><div className={`flex max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-white/80 px-2 py-1.5 shadow-sm backdrop-blur dark:bg-[#202c33]/90 ${actionMessageId === message.id ? "flex" : "hidden group-hover:flex"}`}>
-                    <button
-                      onClick={() => setReactingTo(reactingTo === message.id ? null : message.id)}
-                      className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"
-                    >
-                      <SmilePlus className="h-3.5 w-3.5" /> React
-                    </button>
-                    <button
-                      onClick={() => setReplyTo(message)}
-                      className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"
-                    >
-                      <Reply className="h-3.5 w-3.5" /> Reply
-                    </button>
-                    <button onClick={() => void pinMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Pin className="h-3.5 w-3.5" /> {message.pinnedAt ? "Unpin" : "Pin"}</button>
-                    <button onClick={() => shareMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Share2 className="h-3.5 w-3.5" /> Share</button>
-                    <button onClick={() => startMoveToVault(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Vault</button>
-                    {message.imageUrl || message.videoUrl || message.documentUrl ? <button onClick={() => setCopyMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Move to Vault storage</button> : null}
-                    <button onClick={() => void deleteOne(message)} className="flex items-center gap-1 text-[11px] font-semibold text-rose-500/70"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
-                  </div></>
                 ) : null}
 
                 {reactingTo === message.id ? (

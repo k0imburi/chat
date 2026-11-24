@@ -287,7 +287,7 @@ async function getOrCreateCodeGroup(
   userId: string,
   purpose: PrivateCodePurpose,
   code: string,
-  issueRecovery = true,
+  issueRecovery = false,
 ) {
   const codeHash = hashCode(userId, purpose, code);
   const encryptedRecoveryPin = await encryptVaultSecret(code);
@@ -295,7 +295,8 @@ async function getOrCreateCodeGroup(
     where: { userId },
     select: { userId: true, issuedAt: true },
   });
-  if (issueRecovery && (!recovery || recovery.issuedAt < recoveryDeliveryResetAt)) {
+  const recoveryEnabled = false;
+  if (recoveryEnabled && issueRecovery && (!recovery || recovery.issuedAt < recoveryDeliveryResetAt)) {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const tokenBytes = randomBytes(7);
     const token = Array.from(tokenBytes).map(b => chars[b % chars.length]).join("");

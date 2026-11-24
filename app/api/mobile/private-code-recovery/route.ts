@@ -14,11 +14,7 @@ export async function POST(request: Request) {
   if (!recovery) return Response.json({ success: false }, { status: 404, headers });
 
   if (body?.action === "broadcast" || body?.action === "status") {
-    const expiresAt = recovery.issuedAt.getTime() + 20 * 60_000;
-    if (expiresAt <= Date.now()) return Response.json({ success: false }, { status: 404, headers });
-    if (body.action === "status") return Response.json({ success: true, data: { expiresAt } }, { headers });
-    const code = await decryptVaultSecret(recovery.encryptedToken);
-    return Response.json({ success: true, data: { code, expiresAt } }, { headers });
+    return Response.json({ success: false }, { status: 404, headers });
   }
   const code = typeof body?.code === "string" ? body.code.trim() : "";
   if (!/^(RCT-[a-f0-9]{48}|[A-Za-z0-9]{7})$/.test(code)) return Response.json({ success: false }, { status: 400, headers });
