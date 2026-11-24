@@ -15,16 +15,30 @@ export type CopyableChatMedia = {
   text?: string | null
 }
 
-export function VaultCopyDialog({ message, onClose }: { message: CopyableChatMedia; onClose: () => void }) {
+export function VaultCopyDialog({ message, onClose, onSuccess }: { message: CopyableChatMedia; onClose: () => void; onSuccess?: (deleteFromChat: boolean) => void }) {
   const [code, setCode] = useState("")
   const [folders, setFolders] = useState<FolderRow[]>([])
   const [root, setRoot] = useState<string | null>(null)
   const [destination, setDestination] = useState<string | null>(null)
   const [step, setStep] = useState<"code" | "folder" | "subfolder">("code")
+  const [deleteFromChat, setDeleteFromChat] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const PREFERRED_ORDER = ["images", "videos", "documents", "audio", "other"]
   const roots = useMemo(() => folders.filter(folder => !folder.parentId), [folders])
-  const children = useMemo(() => folders.filter(folder => folder.parentId === root), [folders, root])
+  const children = useMemo(() => {
+    const list = folders.filter(folder => folder.parentId === root)
+    return [...list].sort((a, b) => {
+      const aName = a.name.toLowerCase().trim()
+      const bName = b.name.toLowerCase().trim()
+      const aIndex = PREFERRED_ORDER.indexOf(aName)
+      const bIndex = PREFERRED_ORDER.indexOf(bName)
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex
+      if (aIndex !== -1) return -1
+      if (bIndex !== -1) return 1
+      return a.name.localeCompare(b.name)
+    })
+  }, [folders, root])
   const url = message.imageUrl || message.videoUrl || message.documentUrl || ""
   const category = (message.documentMimeType || "").startsWith("image/") || String(message.type).toLowerCase() === "image" ? "Images" : (message.documentMimeType || "").startsWith("video/") || String(message.type).toLowerCase() === "video" ? "Videos" : (message.documentMimeType || "").startsWith("audio/") ? "Audio" : "Documents"
 
@@ -34,12 +48,12 @@ export function VaultCopyDialog({ message, onClose }: { message: CopyableChatMed
     try {
       const response = await fetch("/api/mobile/vault/folders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "list", code }) })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.message || "Could not open this Vault")
+      if (!response.ok) throw new Error("No matches found")
       const rows: FolderRow[] = Array.isArray(data.data?.folders) ? data.data.folders : []
       setFolders(rows)
       if (!rows.length) throw new Error("Create a Vault folder before saving a copy")
       setStep("folder")
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not open this Vault") }
+    } catch (_cause) { setError("No matches found") }
     finally { setBusy(false) }
   }
 
@@ -63,6 +77,7 @@ export function VaultCopyDialog({ message, onClose }: { message: CopyableChatMed
       const response = await fetch("/api/customer/vault/upload", { method: "POST", body: form })
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || "Could not save a copy to Vault")
+      onSuccess?.(deleteFromChat)
       onClose()
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save a copy to Vault") }
     finally { setBusy(false) }
@@ -103,10 +118,16 @@ export function VaultCopyDialog({ message, onClose }: { message: CopyableChatMed
                 </>
               )}
             </div>
+            {step === "subfolder" ? (
+              <label className="mt-3 flex cursor-pointer items-center gap-2 rounded-xl border border-black/10 bg-black/[.02] p-2.5 text-xs font-semibold text-black/75 dark:border-white/10 dark:bg-white/[.04] dark:text-white/80">
+                <input type="checkbox" checked={deleteFromChat} onChange={e => setDeleteFromChat(e.target.checked)} className="h-4 w-4 accent-[#25d366]"/>
+                <span>Delete original from this chat (move to Vault)</span>
+              </label>
+            ) : null}
             <div className="mt-4 flex gap-2">
               {step === "subfolder" ? <button onClick={() => setStep("folder")} className="grid h-11 w-11 place-items-center rounded-xl bg-black/5 dark:bg-white/10" aria-label="Back to folders"><ChevronLeft className="h-4 w-4"/></button> : null}
               <button onClick={onClose} className="h-11 flex-1 rounded-xl bg-black/5 text-sm font-bold dark:bg-white/10">Cancel</button>
-              {step === "folder" ? <button onClick={() => setStep("subfolder")} disabled={!root} className="flex h-11 flex-1 items-center justify-center gap-1 rounded-xl bg-[#25d366] text-sm font-extrabold text-white disabled:opacity-40">Choose subfolder <ChevronRight className="h-4 w-4"/></button> : <button onClick={() => void saveCopy()} disabled={!destination || busy} className="h-11 flex-1 rounded-xl bg-[#25d366] text-sm font-extrabold text-white disabled:opacity-50">{busy ? "Saving copy…" : "Save copy here"}</button>}
+              {step === "folder" ? <button onClick={() => setStep("subfolder")} disabled={!root} className="flex h-11 flex-1 items-center justify-center gap-1 rounded-xl bg-[#25d366] text-sm font-extrabold text-white disabled:opacity-40">Choose subfolder <ChevronRight className="h-4 w-4"/></button> : <button onClick={() => void saveCopy()} disabled={!destination || busy} className="h-11 flex-1 rounded-xl bg-[#25d366] text-sm font-extrabold text-white disabled:opacity-50">{busy ? (deleteFromChat ? "Moving…" : "Saving copy…") : (deleteFromChat ? "Move and delete" : "Save copy here")}</button>}
             </div>
           </>
         )}

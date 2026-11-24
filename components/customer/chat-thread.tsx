@@ -171,6 +171,7 @@ export function ChatThread({
   const [menuOpen, setMenuOpen] = useState(false)
   const [vaultMessage, setVaultMessage] = useState<ChatMessage | null>(null)
   const [vaultCode, setVaultCode] = useState("")
+  const [vaultStep, setVaultStep] = useState<"code" | "choice">("code")
   const [copyMessage, setCopyMessage] = useState<ChatMessage | null>(null)
   const [privacyAction, setPrivacyAction] = useState<"hide_for_me" | "hide_for_all" | "unhide_for_me" | "unhide_for_all" | null>(null)
   const [privacyCode, setPrivacyCode] = useState("")
@@ -453,17 +454,30 @@ export function ChatThread({
     else void navigator.clipboard?.writeText([text, url].filter(Boolean).join("\n"))
   }
 
-  async function moveToVault() {
+  function startMoveToVault(message: ChatMessage) {
+    setVaultMessage(message)
+    setVaultCode("")
+    setVaultStep("code")
+  }
+
+  async function moveToVault(deleteFromChat = false) {
     if (!vaultMessage || vaultCode.length !== 4) return
+    const msg = vaultMessage
     try {
       const response = await fetch("/api/mobile/secure-folder", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ otherUserId, messageIds: [vaultMessage.id], code: vaultCode, confirmCode: vaultCode }),
+        body: JSON.stringify({ otherUserId, messageIds: [msg.id], code: vaultCode, confirmCode: vaultCode }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || "Could not move message to Vault")
-      setVaultMessage(null); setVaultCode(""); await refreshMessages()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not move message to Vault") }
+      if (deleteFromChat) {
+        await deleteOne(msg)
+      }
+      setVaultMessage(null); setVaultCode(""); setVaultStep("code"); await refreshMessages()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not move message to Vault")
+      setVaultMessage(null); setVaultCode(""); setVaultStep("code")
+    }
   }
 
   async function updatePrivacy() {
@@ -619,8 +633,8 @@ export function ChatThread({
                     </button>
                     <button onClick={() => void pinMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Pin className="h-3.5 w-3.5" /> {message.pinnedAt ? "Unpin" : "Pin"}</button>
                     <button onClick={() => shareMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Share2 className="h-3.5 w-3.5" /> Share</button>
-                    <button onClick={() => setVaultMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Vault</button>
-                    {message.imageUrl || message.videoUrl || message.documentUrl ? <button onClick={() => setCopyMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Save a copy</button> : null}
+                    <button onClick={() => startMoveToVault(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Vault</button>
+                    {message.imageUrl || message.videoUrl || message.documentUrl ? <button onClick={() => setCopyMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Move to Vault storage</button> : null}
                     <button onClick={() => void deleteOne(message)} className="flex items-center gap-1 text-[11px] font-semibold text-rose-500/70"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
                   </div></>
                 ) : null}
@@ -743,8 +757,52 @@ export function ChatThread({
           </form>
         </>
       )}
-      {copyMessage ? <VaultCopyDialog message={copyMessage} onClose={() => setCopyMessage(null)} /> : null}
-      {vaultMessage ? <CodeDialog title="Move message to Vault" description="Create or enter the 4-digit code used to find this message in Vault." code={vaultCode} setCode={setVaultCode} confirmLabel="Move to Vault" onCancel={() => { setVaultMessage(null); setVaultCode("") }} onConfirm={() => void moveToVault()} /> : null}
+      {copyMessage ? <VaultCopyDialog message={copyMessage} onClose={() => setCopyMessage(null)} onSuccess={(deleteOriginal) => { if (deleteOriginal && copyMessage) void deleteOne(copyMessage) }} /> : null}
+      {vaultMessage ? (
+        vaultStep === "code" ? (
+          <CodeDialog
+            title="Move message to Vault"
+            description="Create or enter the 4-digit code used to find this message in Vault."
+            code={vaultCode}
+            setCode={setVaultCode}
+            confirmLabel="Continue"
+            onCancel={() => { setVaultMessage(null); setVaultCode(""); setVaultStep("code") }}
+            onConfirm={() => setVaultStep("choice")}
+          />
+        ) : (
+          <div className="fixed inset-0 z-[90] grid place-items-center bg-black/55 p-4">
+            <div className="w-full max-w-sm rounded-[24px] bg-white p-5 text-black shadow-2xl dark:bg-[#202c33] dark:text-white">
+              <h2 className="text-lg font-black">Move to Vault</h2>
+              <p className="mt-2 text-sm leading-6 text-black/55 dark:text-white/55">
+                1 message will be stored securely in Vault. Choose whether to keep the original in this chat.
+              </p>
+              <div className="mt-5 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => void moveToVault(false)}
+                  className="flex h-11 w-full items-center justify-center rounded-xl border border-black/15 text-sm font-bold hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
+                >
+                  Move only (keep in chat)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void moveToVault(true)}
+                  className="flex h-11 w-full items-center justify-center rounded-xl bg-rose-600 text-sm font-bold text-white hover:bg-rose-700"
+                >
+                  Move and delete from chat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setVaultMessage(null); setVaultCode(""); setVaultStep("code") }}
+                  className="w-full pt-1 text-center text-xs text-black/45 hover:underline dark:text-white/45"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      ) : null}
       {privacyAction ? privacyAction.startsWith("unhide") ? <ConfirmDialog title={privacyAction === "unhide_for_all" ? "Unhide chat for both?" : "Unhide this chat?"} description={privacyAction === "unhide_for_all" ? "The other person must accept before the conversation becomes visible for both of you." : "This conversation will return to your normal chat list."} confirmLabel={privacyAction === "unhide_for_all" ? "Send request" : "Unhide"} onCancel={() => setPrivacyAction(null)} onConfirm={() => void updatePrivacy()} /> : <CodeDialog title={privacyAction === "hide_for_all" ? "Hide chat for both" : "Hide chat for me"} description={privacyAction === "hide_for_all" ? "The chat hides for you now and the other person receives a consent request." : "Enter a code to move this conversation to Hidden Chats."} code={privacyCode} setCode={setPrivacyCode} confirmLabel="Hide conversation" onCancel={() => { setPrivacyAction(null); setPrivacyCode("") }} onConfirm={() => void updatePrivacy()} /> : null}
     </section>
   )
