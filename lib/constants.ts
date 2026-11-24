@@ -40,6 +40,7 @@ export const NAV_ITEMS = [
   { title: "Explore Insights", url: "/explore-insights", icon: Flame },
   { title: "Verification Logs", url: "/verification-logs", icon: ShieldEllipsis },
   { title: "Payment Plans", url: "/payment-plans", icon: CreditCard },
+  { title: "Vault Storage", url: "/vault-storage", icon: Archive },
   { title: "Payment Reconciliation", url: "/payment-reconciliation", icon: ListChecks },
   { title: "Creator Verifications", url: "/creator-verifications", icon: FileCheck2 },
   { title: "Held Tips", url: "/held-tips", icon: ShieldQuestion },
@@ -77,6 +78,7 @@ export const NAV_GROUPS = [
       { title: "Wallets", url: "/wallets", icon: CircleDollarSign },
       { title: "Withdrawals", url: "/withdrawals", icon: Landmark },
       { title: "Payment Plans", url: "/payment-plans", icon: CreditCard },
+      { title: "Vault Storage", url: "/vault-storage", icon: Archive },
       { title: "Payment Reconciliation", url: "/payment-reconciliation", icon: ListChecks },
       { title: "Creator Verifications", url: "/creator-verifications", icon: FileCheck2 },
       { title: "Face Verifications", url: "/face-verifications", icon: ScanFace },
@@ -135,6 +137,7 @@ export const DEFAULT_PAGE_SIZE = 10
 
 export const SETTINGS_TABS = [
   { value: "general", label: "General" },
+  { value: "sign-in", label: "Sign-in providers" },
   { value: "features", label: "Features" },
   { value: "payments", label: "Payments" },
   { value: "storage", label: "Storage" },

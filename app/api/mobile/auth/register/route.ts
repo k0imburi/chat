@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma"
 const WELCOME_MESSAGE = "Welcome to ChatAndTip! 🎉\n\nYou're now part of a community where people connect in a whole new way.\n\nEvery conversation here is a chance to make someone's day a little brighter. Let's create something great together.\n\nThe ChatAndTip Team"
 
 const schema = z.object({
+  referralCode: z.string().max(32).optional(),
   fullName: z.string().min(2),
   email: z.string().email().optional(),
   password: z.string().min(6).optional(),

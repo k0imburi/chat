@@ -5,6 +5,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { Archive, ArrowLeft, Check, CheckCheck, ChevronDown, ImagePlus, Lock, MoreHorizontal, MoreVertical, Pin, Reply, Search, Send, Share2, ShieldCheck, SmilePlus, Trash2, X } from "lucide-react"
 import { chatSystemText } from "@/lib/chat-system-text"
+import { VaultCopyDialog } from "@/components/customer/vault-copy-dialog"
 
 export type ChatMessage = {
   id: string
@@ -170,6 +171,7 @@ export function ChatThread({
   const [menuOpen, setMenuOpen] = useState(false)
   const [vaultMessage, setVaultMessage] = useState<ChatMessage | null>(null)
   const [vaultCode, setVaultCode] = useState("")
+  const [copyMessage, setCopyMessage] = useState<ChatMessage | null>(null)
   const [privacyAction, setPrivacyAction] = useState<"hide_for_me" | "hide_for_all" | "unhide_for_me" | "unhide_for_all" | null>(null)
   const [privacyCode, setPrivacyCode] = useState("")
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
@@ -618,6 +620,7 @@ export function ChatThread({
                     <button onClick={() => void pinMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Pin className="h-3.5 w-3.5" /> {message.pinnedAt ? "Unpin" : "Pin"}</button>
                     <button onClick={() => shareMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Share2 className="h-3.5 w-3.5" /> Share</button>
                     <button onClick={() => setVaultMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Vault</button>
+                    {message.imageUrl || message.videoUrl || message.documentUrl ? <button onClick={() => setCopyMessage(message)} className="flex items-center gap-1 text-[11px] font-semibold text-black/40 dark:text-white/40"><Archive className="h-3.5 w-3.5" /> Save a copy</button> : null}
                     <button onClick={() => void deleteOne(message)} className="flex items-center gap-1 text-[11px] font-semibold text-rose-500/70"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
                   </div></>
                 ) : null}
@@ -740,6 +743,7 @@ export function ChatThread({
           </form>
         </>
       )}
+      {copyMessage ? <VaultCopyDialog message={copyMessage} onClose={() => setCopyMessage(null)} /> : null}
       {vaultMessage ? <CodeDialog title="Move message to Vault" description="Create or enter the 4-digit code used to find this message in Vault." code={vaultCode} setCode={setVaultCode} confirmLabel="Move to Vault" onCancel={() => { setVaultMessage(null); setVaultCode("") }} onConfirm={() => void moveToVault()} /> : null}
       {privacyAction ? privacyAction.startsWith("unhide") ? <ConfirmDialog title={privacyAction === "unhide_for_all" ? "Unhide chat for both?" : "Unhide this chat?"} description={privacyAction === "unhide_for_all" ? "The other person must accept before the conversation becomes visible for both of you." : "This conversation will return to your normal chat list."} confirmLabel={privacyAction === "unhide_for_all" ? "Send request" : "Unhide"} onCancel={() => setPrivacyAction(null)} onConfirm={() => void updatePrivacy()} /> : <CodeDialog title={privacyAction === "hide_for_all" ? "Hide chat for both" : "Hide chat for me"} description={privacyAction === "hide_for_all" ? "The chat hides for you now and the other person receives a consent request." : "Enter a code to move this conversation to Hidden Chats."} code={privacyCode} setCode={setPrivacyCode} confirmLabel="Hide conversation" onCancel={() => { setPrivacyAction(null); setPrivacyCode("") }} onConfirm={() => void updatePrivacy()} /> : null}
     </section>

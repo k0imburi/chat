@@ -1,7 +1,7 @@
 import 'server-only';
 import {prisma} from '@/lib/prisma';
 import {countryCode,ratesForCountry} from '@/lib/ad-pricing';
-import {serializeMobileUserWithLikes,languageTokens} from '@/lib/mobile-users';
+import {serializeMobileUserWithLikes,serializeVideo,languageTokens} from '@/lib/mobile-users';
 
 type Entry={user:Record<string,unknown>;video:Record<string,unknown>};
 
@@ -203,9 +203,9 @@ export async function promotionFeed(userId:string,organic:Entry[],random:()=>num
       const delivery=await tx.adDelivery.create({data:{campaignId:ad.id,viewerId:userId,country,day,
         pacingReservedMicros:pacing.reserve,auctionScore:pacing.score}});
       const owner=serializeMobileUserWithLikes(ad.owner,new Set(),new Set(),new Set());
-      const {gallery,...profile}=owner;
-      const video=(gallery as Array<Record<string,unknown>>).find(m=>m.id===ad.media!.id);
-      if(!video) continue;
+      const {gallery: _gallery,...profile}=owner;
+      // Sponsored media is deliberately excluded from profile galleries.
+      const video=serializeVideo(ad.media);
       result.push({user:profile,video:{...video,adCampaignId:ad.id,adDeliveryId:delivery.id,adWebsite:ad.websiteUrl,adCta:ad.ctaLabel,createdAt:null}});
       last=ad.id;gap=0;
     }

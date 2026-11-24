@@ -119,6 +119,7 @@ export async function consumeAndroidPurchase(productId: string, purchaseToken: s
 }
 
 type AndroidSubscriptionPurchase = {
+  obfuscatedExternalAccountId?: string
   paymentState?: number
   expiryTimeMillis?: string
   orderId?: string

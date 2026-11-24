@@ -34,7 +34,7 @@ function hasOverlap(a: Set<string>, b: Set<string>) {
   return false;
 }
 
-export async function getDiscoverFeed(currentUserId: string) {
+export async function getDiscoverFeed(currentUserId: string, excludedIds: Set<string> = new Set()) {
   const [currentUser, followRows, seenRows, savedRows, repostRows, hiddenRows] =
     await Promise.all([
       prisma.user.findUnique({
@@ -132,7 +132,8 @@ export async function getDiscoverFeed(currentUserId: string) {
           !v.adCampaignId && !v.copyrightStatus &&
           !v.reportStatus &&
           !v.isHiddenByOwner &&
-          !hiddenMediaIds.has(String(v.id || "")),
+          !hiddenMediaIds.has(String(v.id || "")) &&
+          !excludedIds.has(String(v.id || "")),
       );
       // Strip gallery from the user profile — the app only needs avatar/name,
       // not the full post list. Keeps the response payload small.
@@ -188,7 +189,7 @@ export async function getDiscoverFeed(currentUserId: string) {
     entries.map((entry) => String(entry.video.id || "")),
   );
   for (const repost of repostFeedRows) {
-    if (hiddenMediaIds.has(repost.mediaId)) continue;
+    if (hiddenMediaIds.has(repost.mediaId) || excludedIds.has(repost.mediaId)) continue;
     if (blockedIds.has(repost.userId) || blockedIds.has(repost.media.userId))
       continue;
     const serializedOwner = serializeMobileUserWithLikes(
@@ -362,8 +363,8 @@ export async function getDiscoverFeed(currentUserId: string) {
   return mixed.slice(0, FEED_LIMIT).map(({ user, video }) => ({ user, video }));
 }
 
-export async function getTrendingFeed(currentUserId?: string) {
-  const [users, savedRows, likedRows, repostRows, hiddenRows] =
+export async function getTrendingFeed(currentUserId?: string, excludedIds: Set<string> = new Set()) {
+  const [users, savedRows, likedRows, repostRows, hiddenRows, viewerBlocks] =
     await Promise.all([
       prisma.user.findMany({
         where: {
@@ -401,8 +402,12 @@ export async function getTrendingFeed(currentUserId?: string) {
             select: { mediaId: true },
           })
         : Promise.resolve([]),
+      currentUserId ? prisma.user.findUnique({ where: { id: currentUserId }, select: {
+        blockedUsers: { select: { blockedId: true } }, blockedByUsers: { select: { blockerId: true } },
+      } }) : Promise.resolve(null),
     ]);
 
+  const blockedIds = new Set([...(viewerBlocks?.blockedUsers ?? []).map(row => row.blockedId), ...(viewerBlocks?.blockedByUsers ?? []).map(row => row.blockerId)]);
   const savedMediaIds = new Set(savedRows.map((row) => row.mediaId));
   const likedMediaIds = new Set(
     likedRows
@@ -413,7 +418,7 @@ export async function getTrendingFeed(currentUserId?: string) {
   const hiddenMediaIds = new Set(hiddenRows.map((row) => row.mediaId));
 
   const now = Date.now();
-  const entries = users.flatMap((user) => {
+  const entries = users.filter(user => !blockedIds.has(user.id)).flatMap((user) => {
     const serialized = serializeMobileUserWithLikes(
       user,
       likedMediaIds,
@@ -429,7 +434,8 @@ export async function getTrendingFeed(currentUserId?: string) {
         !v.adCampaignId && !v.copyrightStatus &&
         !v.reportStatus &&
         !v.isHiddenByOwner &&
-        !hiddenMediaIds.has(String(v.id || "")),
+        !hiddenMediaIds.has(String(v.id || "")) &&
+          !excludedIds.has(String(v.id || "")),
     );
     const { gallery: _g, ...userProfile } = serialized;
     return videos.map((video) => {

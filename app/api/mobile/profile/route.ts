@@ -3,6 +3,7 @@ import { z } from "zod"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { findMobileUserById, serializeMobileUserWithCounts, updateMobileUserProfile } from "@/lib/mobile-users"
 import { InvalidUsernameError, UsernameTakenError } from "@/lib/username-rules"
+import { completeReferral } from '@/lib/vault-referrals'
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { emitChatRealtimeToUser } from "@/lib/realtime"
@@ -78,6 +79,12 @@ export async function PATCH(request: Request) {
       ...parsed,
       fullName: parsed.fullName ?? parsed.fullname,
     })
+    // A referral is earned only after the same requirements used by the app's onboarding.
+    if (user.accountType === 'INDIVIDUAL' && user.birthday && user.gender?.trim() &&
+        Number(user.latitude) !== 0 && Number(user.longitude) !== 0 &&
+        user.latitude != null && user.longitude != null && user.media.length > 0) {
+      await completeReferral(user.id)
+    }
     const serialized = await serializeMobileUserWithCounts(user)
     const ownerSerialized = user.accountType === "ENTITY"
       ? { ...serialized, email: user.email || "", phoneNumber: user.phoneNumber || "" }

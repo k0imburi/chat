@@ -16,6 +16,7 @@ import { z } from "zod"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { getPresignedUploadUrl } from "@/lib/r2"
 import { logError } from "@/lib/log-error"
+import { reserveVaultUpload } from '@/lib/vault-accounting'
 import { assertStorageAvailable } from "@/lib/storage-quota"
 
 const schema = z.object({
@@ -33,11 +34,15 @@ export async function POST(request: Request) {
 
   try {
     const body = schema.parse(await request.json())
-    if (body.size_bytes) await assertStorageAvailable(session.userId, body.size_bytes)
+    const vault = body.visibility === 'private' && body.dir_name === 'vault'
+    if (vault && !body.size_bytes) return NextResponse.json({success:false,error:'Upload size is required'}, {status:400})
+    if (!vault && body.size_bytes) await assertStorageAvailable(session.userId, body.size_bytes)
 
     const root = body.visibility === "private" ? "private" : "uploads"
     const prefix = `${root}/${session.userId}/${body.dir_name}`
     const result = await getPresignedUploadUrl(body.filename, prefix, 900, body.visibility)
+
+    if (vault) await reserveVaultUpload(session.userId, result.objectKey, body.size_bytes!)
 
     return NextResponse.json({
       success: true,
@@ -58,7 +63,7 @@ export async function POST(request: Request) {
     logError("/api/mobile/storage/presign", error)
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to generate upload URL" },
-      { status: 500 },
+      { status: typeof error === "object" && error && "status" in error ? Number(error.status) : 500 },
     )
   }
 }

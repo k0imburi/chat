@@ -13,6 +13,7 @@ import {
   PlusSquare,
   ShieldCheck,
   Search,
+  UserRound,
   Users,
 } from "lucide-react"
 import { MobileMenu } from "@/components/customer/mobile-menu"
@@ -27,7 +28,7 @@ const nav = [
   { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/sessions", label: "Sessions", icon: CalendarClock },
   { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/account", label: "Account", icon: null },
+  { href: "/account", label: "Account", icon: UserRound },
 ]
 const mobileNav = ["/", "/inbox", "/trending", "/alerts", "/account"]
 
@@ -192,7 +193,7 @@ export function FeedShell({
                   isActive ? "text-[#25d366]" : "text-black/50 dark:text-white/45"
                 }`}
               >
-                {item.icon ? (
+                {href !== "/account" ? (
                   <item.icon className="h-6 w-6" />
                 ) : (
                   <Image

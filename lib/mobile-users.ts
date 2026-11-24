@@ -22,6 +22,7 @@ type UserWithMedia = User & {
 
 type RegisterMobileUserInput = {
   fullName?: string;
+  referralCode?: string;
   email?: string;
   password?: string;
   phoneNumber?: string;
@@ -457,6 +458,16 @@ export function assertMobileUserCanAuthenticate(user: User) {
   }
 }
 
+async function attachReferralInTransaction(tx: Prisma.TransactionClient, code: string | undefined, userId: string) {
+  const normalized = code?.trim().toUpperCase();
+  if (!normalized) return;
+  const account = await tx.vaultReferralAccount.findUnique({ where: { code: normalized } });
+  if (!account || account.userId === userId) throw new Error("Referral code not found");
+  const owner = await tx.user.findUnique({where:{id:account.userId},select:{isActive:true,status:true}});
+  if (!owner?.isActive || ["BLOCKED", "HIDDEN"].includes(owner.status)) throw new Error("Referral code not available");
+  await tx.vaultReferral.create({data:{referrerUserId:account.userId,referredUserId:userId}});
+}
+
 export async function registerMobileUser(input: RegisterMobileUserInput) {
   if (input.email) {
     const existingEmail = await findMobileUserByEmail(input.email);
@@ -479,7 +490,8 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
     : null;
   const resolvedUsername = await resolveUsernameUpdate(null, input.username);
 
-  const created = (await prisma.user.create({
+  const created = await prisma.$transaction(async (tx) => {
+    const user = (await tx.user.create({
     data: {
       fullName: fallbackFullName(input),
       username: resolvedUsername,
@@ -522,6 +534,9 @@ export async function registerMobileUser(input: RegisterMobileUserInput) {
     },
     include: { media: true },
   })) as UserWithMedia;
+    await attachReferralInTransaction(tx, input.referralCode, user.id);
+    return user;
+  });
 
   return created;
 }
@@ -695,6 +710,8 @@ export async function upsertMobileProviderUser(
       },
       include: { media: true },
     })) as UserWithMedia;
+
+    await attachReferralInTransaction(tx, input.referralCode, created.id);
 
     await tx.providerAccount.create({
       data: {

@@ -1,3 +1,4 @@
+import { SignInProviderForm } from '@/components/sign-in-provider-form'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,6 +32,16 @@ export default async function SettingsPage() {
             </TabsTrigger>
           ))}
         </TabsList>
+
+        <TabsContent value="sign-in">
+          <Card className="rounded-lg">
+            <CardHeader><CardTitle>Sign-in providers</CardTitle></CardHeader>
+            <CardContent>
+              <p className="mb-4 text-sm text-muted-foreground">Enter the public provider identifiers. Only super administrators can save changes. Private keys and secrets must be kept in the deployment secret manager.</p>
+              <SignInProviderForm google={settings?.googleOAuthClientIds ?? ""} apple={settings?.appleOAuthAudiences ?? ""} />
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="general">
           <Card className="rounded-lg">

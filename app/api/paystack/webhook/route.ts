@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { allocateCredits, type CartItems } from "@/lib/mobile-credits"
 import { resolvePaystackConfig, verifyPaystackSignature } from "@/lib/paystack"
 import { logError } from "@/lib/log-error"
+import { fulfillVaultCheckout } from '@/lib/vault-checkout'
 import { fulfillEntityPlanPurchase } from "@/lib/entity-plan-checkout"
 
 export async function POST(request: Request) {
@@ -71,7 +72,9 @@ export async function POST(request: Request) {
     }
 
     const snapshot = purchase.pricingSnapshot as { kind?: string } | null
-    if (!purchase.allocated && snapshot?.kind === "ENTITY_PLAN") {
+    if (!purchase.allocated && snapshot?.kind === "VAULT_PLAN") {
+      await fulfillVaultCheckout(purchase.id)
+    } else if (!purchase.allocated && snapshot?.kind === "ENTITY_PLAN") {
       await fulfillEntityPlanPurchase(purchase.id)
     } else if (!purchase.allocated) {
       await allocateCredits({

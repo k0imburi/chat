@@ -8,6 +8,7 @@ import { normalizePhoneNumber } from "@/lib/sms"
 import { logError } from "@/lib/log-error"
 
 const schema = z.object({
+  referralCode: z.string().max(32).optional(),
   phoneNumber: z.string().min(9),
   code: z.string().min(4).max(8),
   deviceSystem: z.string().optional(),
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
     }
 
     const user = await upsertMobileProviderUser({
+      referralCode: parsed.referralCode,
       provider: LoginProvider.PHONE,
       providerUserId: normalizedPhone,
       phoneNumber: normalizedPhone,

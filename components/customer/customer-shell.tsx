@@ -1,7 +1,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import type { ReactNode } from "react"
-import { Bell, CalendarClock, Compass, FileText, Info, LifeBuoy, Megaphone, MessageCircle, PlusSquare, Search, ShieldCheck, Users } from "lucide-react"
+import { Bell, CalendarClock, Compass, FileText, Info, LifeBuoy, Megaphone, MessageCircle, PlusSquare, Search, ShieldCheck, UserRound, Users } from "lucide-react"
 import { MobileMenu } from "@/components/customer/mobile-menu"
 import { ModeToggle } from "@/components/customer/mode-toggle"
 import { LanguageSwitcher } from "@/components/customer/language-switcher"
@@ -14,7 +14,7 @@ const nav = [
   { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/sessions", label: "Sessions", icon: CalendarClock },
   { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/account", label: "Account", icon: null },
+  { href: "/account", label: "Account", icon: UserRound },
 ]
 const mobileNavHrefs = ["/", "/inbox", "/trending", "/alerts", "/account"]
 
@@ -113,7 +113,7 @@ export function CustomerShell({
                   isActive ? "text-[#25d366]" : "text-black/50 dark:text-white/50"
                 }`}
               >
-                {item.icon ? (
+                {href !== "/account" ? (
                   <item.icon className="h-6 w-6" />
                 ) : (
                   <Image

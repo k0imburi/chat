@@ -83,7 +83,7 @@ export function withChatIdentity<P extends Record<string, string>>(
       }
       const response = await handler(resolvedRequest, { params: Promise.resolve(params) });
       const body = await response.json();
-      return NextResponse.json(await protectChatPayload(session.userId, body), { status: response.status });
+      return NextResponse.json(await protectChatPayload(session.userId, body), { status: response.status, headers: response.headers });
     } catch {
       // Never fall back to an unsanitized response if identity resolution fails.
       return NextResponse.json({ success: false, message: "Unable to access conversation" }, { status: 503 });

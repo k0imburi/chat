@@ -7,7 +7,9 @@ import { mapMobileLoginProvider, serializeMobileUser, upsertMobileProviderUser }
 import { logError } from "@/lib/log-error"
 
 const schema = z.object({
+  referralCode: z.string().max(32).optional(),
   idToken: z.string().min(1),
+  nonce: z.string().min(1).max(256).optional(),
   fullName: z.string().min(2).optional(),
   deviceToken: z.string().optional(),
   deviceSystem: z.string().optional(),
@@ -33,13 +35,15 @@ export async function POST(request: Request) {
     const verified = await verifyMobileProviderToken({
       provider: parsed.loginProvider,
       idToken: parsed.idToken,
+      expectedNonce: parsed.nonce,
     })
 
     const user = await upsertMobileProviderUser({
+      referralCode: parsed.referralCode,
       provider: verified.provider,
       providerUserId: verified.providerUserId,
       verifiedEmail: verified.emailVerified ? verified.email : undefined,
-      email: verified.email,
+      email: verified.emailVerified ? verified.email : undefined,
       fullName: parsed.fullName,
       deviceToken: parsed.deviceToken,
       deviceSystem: parsed.deviceSystem,

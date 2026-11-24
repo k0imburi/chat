@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { getMessages, sendMessage, deleteMessage, markMessagesDelivered } from "@/lib/mobile-chats"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
+import { claimLegacyVaultUpload } from '@/lib/vault-accounting'
 import { logError } from "@/lib/log-error"
 
 const paramsSchema = z.object({
@@ -110,6 +111,11 @@ async function POSTHandler(request: Request, context: { params: Promise<{ otherU
   try {
     const params = paramsSchema.parse(await context.params)
     const body = bodySchema.parse(await request.json())
+    if (params.otherUserId === session.userId && body.textMsg === '__CHATANDTIP_VAULT_DIRECT_UPLOAD__') {
+      const key = body.imageObjectKey || body.videoObjectKey || body.documentObjectKey
+      if (!key) return NextResponse.json({success:false,message:'Vault upload is missing'}, {status:400})
+      await claimLegacyVaultUpload(session.userId,key)
+    }
     const data = await sendMessage({
       senderId: session.userId,
       albumId: body.albumId,
@@ -144,6 +150,7 @@ async function POSTHandler(request: Request, context: { params: Promise<{ otherU
     }
 
     const msg = error instanceof Error ? error.message : "Failed to send message"
+    if (typeof error === 'object' && error && 'status' in error && Number(error.status) === 413) return NextResponse.json({success:false,message:msg},{status:413})
     // Return 400 for known user-facing validation errors so clients can
     // surface them directly. Everything else is a 500.
     const USER_ERRORS = [

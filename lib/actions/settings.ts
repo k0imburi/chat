@@ -269,3 +269,19 @@ export async function createAdminUserAction(
     return errorResult(error, "Unable to create admin user.")
   }
 }
+
+export async function saveSignInProvidersAction(stateOrFormData: ActionResult | FormData, maybeFormData?: FormData) {
+  try {
+    const user = await requireSessionUser()
+    if (user.role !== UserRole.SUPER_ADMIN) throw new Error("Only a super administrator can change sign-in providers.")
+    const data = getActionFormData(stateOrFormData, maybeFormData)
+    const google = String(data.get("googleOAuthClientIds") || "").trim()
+    const apple = String(data.get("appleOAuthAudiences") || "").trim()
+    const split = (v: string) => v.split(",").map(x => x.trim()).filter(Boolean)
+    if (google.length > 4000 || split(google).some(x => !/^[a-zA-Z0-9-]+\.apps\.googleusercontent\.com$/.test(x))) throw new Error("Enter valid Google OAuth client IDs separated by commas.")
+    if (apple.length > 4000 || split(apple).some(x => !/^[A-Za-z0-9.-]+$/.test(x))) throw new Error("Enter valid Apple Services or app IDs separated by commas.")
+    await prisma.appSettings.upsert({ where: { id: 1 }, update: { googleOAuthClientIds: google || null, appleOAuthAudiences: apple || null }, create: { id: 1, googleOAuthClientIds: google || null, appleOAuthAudiences: apple || null } })
+    revalidatePath("/settings")
+    return successResult("Sign-in provider identifiers saved.")
+  } catch (error) { return errorResult(error, "Unable to save sign-in provider identifiers.") }
+}

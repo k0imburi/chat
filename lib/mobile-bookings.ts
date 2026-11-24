@@ -2,6 +2,7 @@ import "server-only"
 
 import { BookingStatus, BookingType, CreditKind, EarningSource, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { defaultAvailabilityWindows } from "@/lib/default-availability"
 import { createUserNotification } from "@/lib/mobile-notifications"
 import { sendEmail } from "@/lib/email"
 import { ON_ACCOUNT_VALUE_KES } from "@/lib/mobile-credits"
@@ -70,6 +71,7 @@ export async function replaceAvailability(userId: string, input: Array<{
     new Intl.DateTimeFormat("en", { timeZone: row.timezone }).format()
   }
   return prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { availabilityConfigured: true } })
     await tx.creatorAvailability.deleteMany({ where: { userId } })
     if (input.length) await tx.creatorAvailability.createMany({ data: input.map((r) => ({
       userId, ...r, voiceEnabled: r.voiceEnabled ?? true, videoEnabled: r.videoEnabled ?? true,
@@ -85,11 +87,11 @@ const SLOT_HOLDING_STATUSES = ["APPROVED", "LIVE"] as const
 
 export async function availableSlots(creatorId: string, type: BookingType, days = 14) {
   const creator = await prisma.user.findUnique({ where: { id: creatorId }, select: {
-    callsRestrictedUntil: true, accountType: true, entityCallDurationMinutes: true, entityCallBufferMinutes: true,
+    callsRestrictedUntil: true, accountType: true, entityCallDurationMinutes: true, entityCallBufferMinutes: true, availabilityConfigured: true,
   } })
   if (creator?.callsRestrictedUntil && creator.callsRestrictedUntil > new Date()) return []
   const sessionMinutes = creator?.accountType === "ENTITY" ? creator.entityCallDurationMinutes : SESSION_MINUTES
-  const bufferMinutes = creator?.accountType === "ENTITY"
+  const bufferMinutes = !creator?.availabilityConfigured ? 0 : creator.accountType === "ENTITY"
     ? Math.max(0, creator.entityCallBufferMinutes ?? 0)
     : BUFFER_MINUTES
   const now = new Date()
@@ -104,11 +106,14 @@ export async function availableSlots(creatorId: string, type: BookingType, days 
       select: { scheduledStart: true },
     }),
   ])
+  const effectiveWindows = creator && !creator.availabilityConfigured && windows.length === 0
+    ? defaultAvailabilityWindows()
+    : windows
   const takenStarts = new Set(taken.map((b) => b.scheduledStart.toISOString()))
   const slots: Array<{ start: string; end: string; timezone: string }> = []
   for (let offset = 0; offset < days; offset++) {
     const probe = addDays(now, offset)
-    for (const window of windows) {
+    for (const window of effectiveWindows) {
       const local = partsInZone(probe, window.timezone)
       if (local.weekday !== window.weekday) continue
       const dayStart = zonedDate(local.year, local.month, local.day, 0, window.timezone)
@@ -782,7 +787,7 @@ export async function reconcileBookings() {
       ),
       notifyBooking(
         b.customerId, b.creatorId, "Running late",
-        "The creator hasn't joined yet. Stay on the call.",
+        `${b.creator.fullName} hasn't joined yet. Stay on the call.`,
         b.id, b.customer.email,
       ),
     ])
@@ -931,7 +936,7 @@ export async function reconcileBookings() {
         b.id, b.customer.email,
       ),
       notifyBooking(
-        b.creatorId, b.customerId, "The user hasn't joined",
+        b.creatorId, b.customerId, `${b.customer.fullName} hasn't joined`,
         "Stay on the call — it still counts.",
         b.id, b.creator.email,
       ),

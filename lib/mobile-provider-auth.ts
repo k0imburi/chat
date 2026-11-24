@@ -3,6 +3,7 @@ import "server-only"
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose"
 import { LoginProvider } from "@prisma/client"
 import { env } from "@/lib/env"
+import { prisma } from "@/lib/prisma"
 
 const googleJwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"))
 const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"))
@@ -34,7 +35,8 @@ function readBooleanClaim(payload: JWTPayload, key: string) {
 }
 
 async function verifyGoogleIdToken(idToken: string): Promise<VerifiedProviderIdentity> {
-  const audiences = parseCsv(env.GOOGLE_OAUTH_CLIENT_IDS)
+  const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { googleOAuthClientIds: true } })
+  const audiences = parseCsv(settings?.googleOAuthClientIds || env.GOOGLE_OAUTH_CLIENT_IDS)
   if (audiences.length === 0) {
     throw new Error("Google sign-in is not configured on the server")
   }
@@ -57,8 +59,9 @@ async function verifyGoogleIdToken(idToken: string): Promise<VerifiedProviderIde
   }
 }
 
-async function verifyAppleIdentityToken(identityToken: string): Promise<VerifiedProviderIdentity> {
-  const audiences = parseCsv(env.APPLE_OAUTH_AUDIENCES)
+async function verifyAppleIdentityToken(identityToken: string, expectedNonce?: string): Promise<VerifiedProviderIdentity> {
+  const settings = await prisma.appSettings.findUnique({ where: { id: 1 }, select: { appleOAuthAudiences: true } })
+  const audiences = parseCsv(settings?.appleOAuthAudiences || env.APPLE_OAUTH_AUDIENCES)
   if (audiences.length === 0) {
     throw new Error("Apple sign-in is not configured on the server")
   }
@@ -68,6 +71,7 @@ async function verifyAppleIdentityToken(identityToken: string): Promise<Verified
     audience: audiences,
   })
 
+  if (expectedNonce && payload.nonce !== expectedNonce) throw new Error("Apple sign-in nonce did not match")
   const providerUserId = payload.sub
   if (!providerUserId) {
     throw new Error("Apple identity token is missing a subject")
@@ -84,10 +88,11 @@ async function verifyAppleIdentityToken(identityToken: string): Promise<Verified
 export async function verifyMobileProviderToken(input: {
   provider: LoginProvider
   idToken: string
+  expectedNonce?: string
 }) {
   if (input.provider === LoginProvider.GOOGLE) {
     return verifyGoogleIdToken(input.idToken)
   }
 
-  return verifyAppleIdentityToken(input.idToken)
+  return verifyAppleIdentityToken(input.idToken, input.expectedNonce)
 }

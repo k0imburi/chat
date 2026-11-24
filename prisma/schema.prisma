@@ -272,6 +272,7 @@ enum VerificationPurpose {
 }
 
 model User {
+  privateCodeRecovery PrivateCodeRecovery? 
   id                        String                   @id @default(cuid())
   externalId                String?                  @unique
   fullName                  String
@@ -338,6 +339,7 @@ model User {
   // Creator preference: approve incoming booking proposals automatically
   // instead of leaving them PROPOSED for a manual tap. Off by default, since
   // auto-committing someone's time is not a safe assumption to make for them.
+  availabilityConfigured    Boolean                  @default(false)
   autoAcceptBookings        Boolean                  @default(false)
   activeStrikeCount         Int                      @default(0)
   media                     UserMedia[]
@@ -1172,7 +1174,15 @@ model ChatParticipant {
   @@index([userId, otherUserId])
 }
 
+model PrivateCodeRecovery {
+  userId String @id
+  encryptedToken String @db.Text
+  issuedAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 model ChatPrivateCodeGroup {
+  encryptedRecoveryPin String? @db.Text
   id          String                @id @default(cuid())
   userId      String
   purpose     PrivateCodePurpose
@@ -1181,6 +1191,7 @@ model ChatPrivateCodeGroup {
   user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   hiddenChats UserHiddenChat[]
   messages    SecureFolderMessage[]
+  folders     VaultFolder[]
 
   @@unique([userId, purpose, codeHash])
   @@index([userId, purpose])
@@ -1221,7 +1232,22 @@ model ChatHideRequest {
   @@index([expiresAt, status])
 }
 
+model VaultFolder {
+  id          String @id @default(cuid())
+  codeGroupId String
+  parentId    String?
+  name        String @db.VarChar(255)
+  systemKey   String? @db.VarChar(32)
+  createdAt   DateTime @default(now())
+  codeGroup   ChatPrivateCodeGroup @relation(fields: [codeGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([codeGroupId, systemKey])
+  @@index([codeGroupId, parentId])
+}
+
 model SecureFolderMessage {
+  folderId    String?
+  displayName String? @db.VarChar(255)
   id          String               @id @default(cuid())
   ownerId     String
   messageId   String
@@ -1651,6 +1677,8 @@ model Asset {
 }
 
 model AppSettings {
+  googleOAuthClientIds          String?  @db.Text
+  appleOAuthAudiences          String?  @db.Text
   id                           Int      @id @default(1)
   appName                      String   @default("ChatAndTip")
   maxVideosUpload              Int      @default(10)
@@ -1798,4 +1826,87 @@ model ContactMessage {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+model QrSignInChallenge {
+  id             String    @id @default(cuid())
+  pollHash       String    @db.VarChar(64)
+  approvalHash   String    @db.VarChar(64)
+  approvedUserId String?
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  @@index([expiresAt])
+}
+
+// Referral and vault entitlements are isolated from ordinary chat/post storage.
+model VaultReferralAccount {
+  userId String @id @db.VarChar(191)
+  code String @unique @db.VarChar(24)
+  bonusAwardedAt DateTime?
+  celebrationSeenAt DateTime?
+  createdAt DateTime @default(now())
+}
+
+model VaultReferral {
+  id String @id @default(cuid())
+  referrerUserId String @db.VarChar(191)
+  referredUserId String @unique @db.VarChar(191)
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([referrerUserId, completedAt])
+}
+
+model VaultStoragePlan {
+  id String @id @default(cuid())
+  name String @db.VarChar(100)
+  capacityBytes BigInt
+  interval String @db.VarChar(16)
+  priceCents Int?
+  currency String @default("USD") @db.VarChar(3)
+  appleProductId String? @unique @db.VarChar(191)
+  googleProductId String? @unique @db.VarChar(191)
+  active Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([capacityBytes, interval])
+}
+
+model VaultStorageEntitlement {
+  id String @id @default(cuid())
+  userId String @db.VarChar(191)
+  planId String @db.VarChar(191)
+  capacityBytes BigInt
+  provider String @db.VarChar(24)
+  providerReference String @unique @db.VarChar(191)
+  providerData String? @db.Text
+  lastVerifiedAt DateTime?
+  status String @db.VarChar(24)
+  startsAt DateTime
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, expiresAt])
+}
+
+model VaultUploadLedger {
+  id String @id @default(cuid())
+  userId String @db.VarChar(191)
+  objectKey String @db.VarChar(1024)
+  objectKeyHash String @unique @db.Char(64)
+  sizeBytes BigInt
+  state String @db.VarChar(24)
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, state])
+}
+
+model VaultStoreConfig {
+  id Int @id @default(1)
+  appleIssuerId String? @db.VarChar(191)
+  appleKeyId String? @db.VarChar(191)
+  applePrivateKeyEncrypted String? @db.Text
+  androidAppLinkSha256 String? @db.Text
+  updatedAt DateTime @updatedAt
 }

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import {
   AccountType,
   ChatHideRequestAction,
@@ -10,7 +10,9 @@ import {
   PrivateCodePurpose,
   Prisma,
 } from "@prisma/client";
+import { encryptVaultSecret } from "@/lib/vault-secrets";
 import { env } from "@/lib/env";
+import { isWebVaultMedia } from "@/lib/vault-media-storage";
 import { prisma } from "@/lib/prisma";
 import { getSignedPrivateR2DownloadUrl } from "@/lib/r2";
 import { serializeMobileUser } from "@/lib/mobile-users";
@@ -276,19 +278,80 @@ function hashCode(userId: string, purpose: PrivateCodePurpose, code: string) {
     .digest("hex");
 }
 
+// Reissue the private broadcast once on the next private save for accounts
+// enrolled before this rollout. Preserve their recovery token and private data.
+const recoveryDeliveryResetAt = new Date("2026-11-24T09:00:58.000Z");
+
 async function getOrCreateCodeGroup(
   tx: Prisma.TransactionClient,
   userId: string,
   purpose: PrivateCodePurpose,
   code: string,
+  issueRecovery = true,
 ) {
   const codeHash = hashCode(userId, purpose, code);
+  const encryptedRecoveryPin = await encryptVaultSecret(code);
+  const recovery = await tx.privateCodeRecovery.findUnique({
+    where: { userId },
+    select: { userId: true, issuedAt: true },
+  });
+  if (issueRecovery && (!recovery || recovery.issuedAt < recoveryDeliveryResetAt)) {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const tokenBytes = randomBytes(7);
+    const token = Array.from(tokenBytes).map(b => chars[b % chars.length]).join("");
+    await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { id: true } });
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+    const broadcastUser = await tx.user.findUnique({
+      where: { externalId: "system:chatandtip" },
+      select: { id: true },
+    });
+    if (broadcastUser) {
+      const participant = await tx.chatParticipant.findFirst({
+      where: { userId, otherUserId: broadcastUser.id, thread: { kind: "BROADCAST" } },
+      });
+      const thread = participant ?? await tx.chatThread.create({
+        data: {
+          kind: "BROADCAST",
+          broadcastOnly: true,
+          initiatorId: broadcastUser.id,
+          lastMessageText: "ChatAndTip",
+          lastMessageAt: new Date(),
+          participants: {
+            create: [
+              { userId, otherUserId: broadcastUser.id },
+              { userId: broadcastUser.id, otherUserId: userId },
+            ],
+          },
+        },
+      });
+      const enrolled = await tx.privateCodeRecovery.findUnique({ where: { userId } });
+      if (!enrolled || enrolled.issuedAt < recoveryDeliveryResetAt) {
+        await tx.chatMessage.create({
+          data: {
+            threadId: "threadId" in thread ? thread.threadId : thread.id,
+            senderId: broadcastUser.id,
+            type: "SYSTEM",
+            text: "Open this broadcast for account messages.",
+          },
+        });
+      }
+    }
+    await tx.privateCodeRecovery.upsert({
+      where: { userId },
+      create: { userId, encryptedToken: await encryptVaultSecret(token) },
+      update: {},
+    });
+    await tx.privateCodeRecovery.updateMany({
+      where: { userId, issuedAt: { lt: recoveryDeliveryResetAt } },
+      data: { issuedAt: new Date() },
+    });
+  }
   return tx.chatPrivateCodeGroup.upsert({
     where: {
       userId_purpose_codeHash: { userId, purpose, codeHash },
     },
-    create: { userId, purpose, codeHash },
-    update: {},
+    create: { userId, purpose, codeHash, encryptedRecoveryPin },
+    update: { encryptedRecoveryPin },
     select: { id: true },
   });
 }
@@ -650,6 +713,7 @@ export async function moveMessagesToSecureFolder(input: {
   messageIds: string[];
   code: string;
   confirmCode: string;
+  folderId?: string;
 }) {
   if (input.code !== input.confirmCode) throw new ChatPrivacyError("The codes do not match.");
   if (!input.messageIds.length || input.messageIds.length > 100) {
@@ -666,11 +730,18 @@ export async function moveMessagesToSecureFolder(input: {
 
   return prisma.$transaction(async (tx) => {
     const group = await getOrCreateCodeGroup(tx, input.userId, PrivateCodePurpose.SECURE_FOLDER, input.code);
+    if (input.folderId) {
+      const destination = await tx.vaultFolder.findFirst({ where: { id: input.folderId, codeGroupId: group.id } });
+      if (!destination) throw new ChatPrivacyError("Folder not found in this vault.", 404);
+    }
+    const existing = await tx.secureFolderMessage.findMany({ where: { ownerId: input.userId, messageId: { in: input.messageIds } }, select: { codeGroupId: true } });
+    if (existing.some(row => row.codeGroupId !== group.id)) throw new ChatPrivacyError("One or more items are unavailable in this vault.", 404);
     await tx.secureFolderMessage.createMany({
       data: messages.map(({ id }) => ({
         ownerId: input.userId,
         messageId: id,
         codeGroupId: group.id,
+        folderId: input.folderId || null,
       })),
       skipDuplicates: true,
     });
@@ -735,6 +806,8 @@ export async function listSecureFolderMessages(userId: string, code: string) {
     return {
       id: row.id,
       movedAt: row.movedAt,
+      folderId: row.folderId,
+      displayName: row.displayName,
       vaultDirectUpload:
         message.thread.kind === ChatThreadKind.SELF &&
         (message.text === "__CHATANDTIP_VAULT_DIRECT_UPLOAD__" ||
@@ -746,7 +819,7 @@ export async function listSecureFolderMessages(userId: string, code: string) {
         type: message.type,
         text: message.text,
         sentAt: message.sentAt,
-        documentName: message.documentName,
+        documentName: row.displayName ?? message.documentName,
         documentMimeType: message.documentMimeType,
         documentSizeBytes: message.documentSizeBytes,
         imageUrl: message.imageObjectKey
@@ -762,7 +835,8 @@ export async function listSecureFolderMessages(userId: string, code: string) {
           ? await getSignedPrivateR2DownloadUrl(message.documentObjectKey, 3600, true)
           : null,
       },
-      peer: peer ? serializeMobileUser(peer as never) : null,
+      // Keep the canonical userId and the legacy Vault id alias in sync.
+      peer: peer ? { ...serializeMobileUser(peer as never), id: peer.id } : null,
     };
   }));
 }
@@ -827,14 +901,16 @@ export async function changeSecureFolderCode(userId: string, currentCode: string
     where: { userId_purpose_codeHash: { userId, purpose: PrivateCodePurpose.SECURE_FOLDER, codeHash: currentHash } },
   });
   if (!current) throw new ChatPrivacyError("Current Vault code is incorrect.", 400);
-  const nextHash = hashCode(userId, PrivateCodePurpose.SECURE_FOLDER, nextCode);
-  const next = await prisma.chatPrivateCodeGroup.upsert({
-    where: { userId_purpose_codeHash: { userId, purpose: PrivateCodePurpose.SECURE_FOLDER, codeHash: nextHash } },
-    create: { userId, purpose: PrivateCodePurpose.SECURE_FOLDER, codeHash: nextHash },
-    update: {},
-  });
-  if (current.id === next.id) throw new ChatPrivacyError("Choose a different code.", 400);
+  if (currentCode === nextCode) throw new ChatPrivacyError("Choose a different code.", 400);
   await prisma.$transaction(async (tx) => {
+    // Preserve the complete folder tree when changing an entire vault to a new code.
+    const nextHash = hashCode(userId, PrivateCodePurpose.SECURE_FOLDER, nextCode);
+    const target = await tx.chatPrivateCodeGroup.findUnique({ where: { userId_purpose_codeHash: { userId, purpose: PrivateCodePurpose.SECURE_FOLDER, codeHash: nextHash } } });
+    if (!peerUserId && !messageId && !target) {
+      await tx.chatPrivateCodeGroup.update({ where: { id: current.id }, data: { codeHash: nextHash, encryptedRecoveryPin: await encryptVaultSecret(nextCode) } });
+      return;
+    }
+    const next = await getOrCreateCodeGroup(tx, userId, PrivateCodePurpose.SECURE_FOLDER, nextCode);
     await tx.secureFolderMessage.updateMany({
       where: {
         ownerId: userId,
@@ -845,7 +921,7 @@ export async function changeSecureFolderCode(userId: string, currentCode: string
             ? { message: { thread: { participants: { some: { userId: peerUserId } } } } }
             : {}),
       },
-      data: { codeGroupId: next.id },
+      data: { codeGroupId: next.id, folderId: null },
     });
     const remaining = await tx.secureFolderMessage.count({
       where: { ownerId: userId, codeGroupId: current.id },
@@ -857,14 +933,17 @@ export async function changeSecureFolderCode(userId: string, currentCode: string
   return { changed: true };
 }
 
-export async function removeSecureFolderMessage(userId: string, messageId: string) {
+export async function removeSecureFolderMessage(userId: string, messageId: string, code: string) {
+  const codeHash = hashCode(userId, PrivateCodePurpose.SECURE_FOLDER, code);
   return prisma.$transaction(async (tx) => {
     const entry = await tx.secureFolderMessage.findFirst({
-      where: { ownerId: userId, messageId },
-      include: { message: { select: { threadId: true } } },
+      where: { ownerId: userId, messageId, codeGroup: { userId, purpose: PrivateCodePurpose.SECURE_FOLDER, codeHash } },
+      include: { message: { select: { threadId: true, imageObjectKey: true, videoObjectKey: true, documentObjectKey: true } } },
     });
     if (!entry) return { removed: false };
     await tx.secureFolderMessage.delete({ where: { id: entry.id } });
+    const keys = [entry.message.imageObjectKey, entry.message.videoObjectKey, entry.message.documentObjectKey].filter((key): key is string => !!key);
+    if (keys.length) await tx.vaultUploadLedger.deleteMany({where:{userId,objectKey:{in:keys}}});
     await tx.chatParticipant.updateMany({
       where: { userId, threadId: entry.message.threadId },
       data: { clearedAt: null, archived: false },
@@ -873,11 +952,12 @@ export async function removeSecureFolderMessage(userId: string, messageId: strin
   });
 }
 
-export async function deleteSecureFolderMessage(userId: string, messageId: string) {
+export async function deleteSecureFolderMessage(userId: string, messageId: string, code: string) {
+  const codeHash = hashCode(userId, PrivateCodePurpose.SECURE_FOLDER, code);
   return prisma.$transaction(async (tx) => {
     const entry = await tx.secureFolderMessage.findFirst({
-      where: { ownerId: userId, messageId },
-      include: { message: { select: { id: true, deletedForUserIds: true } } },
+      where: { ownerId: userId, messageId, codeGroup: { userId, purpose: PrivateCodePurpose.SECURE_FOLDER, codeHash } },
+      include: { message: { select: { id: true, deletedForUserIds: true, imageObjectKey: true, videoObjectKey: true, documentObjectKey: true } } },
     });
     if (!entry) return { removed: false };
 
@@ -891,6 +971,8 @@ export async function deleteSecureFolderMessage(userId: string, messageId: strin
       });
     }
     await tx.secureFolderMessage.delete({ where: { id: entry.id } });
+    const keys = [entry.message.imageObjectKey, entry.message.videoObjectKey, entry.message.documentObjectKey].filter((key): key is string => !!key);
+    if (keys.length) await tx.vaultUploadLedger.deleteMany({where:{userId,objectKey:{in:keys}}});
     return { removed: true };
   });
 }
@@ -1057,4 +1139,152 @@ export async function pinChatMessage(
 
 export function isPrivateMessageType(type: ChatMessageType) {
   return type !== ChatMessageType.SYSTEM;
+}
+
+
+// Folder identifiers are opaque references, never authorization. Every read and
+// write is scoped to the authenticated owner AND the hash of the supplied code.
+const vaultCategories = ["Images", "Videos", "Documents", "Audio", "Other"] as const;
+function vaultCategory(message: { type: string; documentMimeType?: string | null }) {
+  if (message.type === "IMAGE") return "Images";
+  if (message.type === "VIDEO") return "Videos";
+  if (message.type === "AUDIO" || message.documentMimeType?.startsWith("audio/")) return "Audio";
+  if (message.type === "DOCUMENT") return "Documents";
+  return "Other";
+}
+function cleanVaultName(value: unknown) {
+  if (typeof value !== "string") throw new ChatPrivacyError("Enter a name.");
+  const name = value.trim();
+  if (!name || name === "." || name === ".." || name.length > 255 || /[/\\\x00-\x1f\x7f]/.test(name)) {
+    throw new ChatPrivacyError("Use a name of 1–255 characters without slashes or control characters.");
+  }
+  return name;
+}
+async function ensureVaultFolders(tx: Prisma.TransactionClient, codeGroupId: string) {
+  const folders = await tx.vaultFolder.findMany({ where: { codeGroupId } });
+  let defaultRoot = folders.find(folder => folder.systemKey === "default");
+  if (!defaultRoot) {
+    defaultRoot = await tx.vaultFolder.create({
+      data: { id: "vf_" + randomBytes(16).toString("hex"), codeGroupId, systemKey: "default", name: "Folder 1", parentId: null },
+    });
+    folders.push(defaultRoot);
+  }
+  // Preserve user renames of the default folder; only newly created roots start as Folder 1.
+  const roots = folders.filter(folder => folder.parentId === null);
+  for (const root of roots) {
+    for (const category of vaultCategories) {
+      let child = folders.find(folder => folder.parentId === root.id && folder.name.toLocaleLowerCase() === category.toLocaleLowerCase());
+      if (!child) {
+        const key = root.id === defaultRoot.id
+          ? category
+          : `c_${root.id.slice(-8)}_${category.toLowerCase().slice(0, 3)}`;
+        child = await tx.vaultFolder.create({
+          data: { id: "vf_" + randomBytes(16).toString("hex"), codeGroupId, parentId: root.id, systemKey: key, name: category },
+        });
+        folders.push(child);
+      } else if (!child.systemKey) {
+        const key = root.id === defaultRoot.id
+          ? category
+          : `c_${root.id.slice(-8)}_${category.toLowerCase().slice(0, 3)}`;
+        child = await tx.vaultFolder.update({ where: { id: child.id }, data: { systemKey: key } });
+        folders[folders.findIndex(folder => folder.id === child!.id)] = child;
+      }
+    }
+  }
+  // Chat messages stay in Saved conversations. Only direct Vault uploads use
+  // the folder tree; do not assign hidden chat messages to media categories.
+  return folders;
+}
+export type VaultFolderOperation = {
+  code: string; action: "list" | "initialize" | "create" | "renameFolder" | "renameItem" | "moveItems";
+  folderId?: string; parentId?: string | null; name?: string; itemIds?: string[];
+};
+export async function manageVaultFolders(userId: string, input: VaultFolderOperation) {
+  const codeHash = hashCode(userId, PrivateCodePurpose.SECURE_FOLDER, input.code);
+  return prisma.$transaction(async tx => {
+    // Serializes defaults, name collision checks and folder writes for this owner.
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+    let group = await tx.chatPrivateCodeGroup.findUnique({ where: { userId_purpose_codeHash: { userId, purpose: PrivateCodePurpose.SECURE_FOLDER, codeHash } }, select: { id: true } });
+    if (!group) {
+      if (input.action !== "create" && input.action !== "initialize") throw new ChatPrivacyError("Vault not found.", 404);
+      group = await getOrCreateCodeGroup(tx, userId, PrivateCodePurpose.SECURE_FOLDER, input.code, false);
+    }
+    const scope = { ownerId: userId, codeGroupId: group.id };
+    const folders = await ensureVaultFolders(tx, group.id);
+    const folder = (id?: string | null) => {
+      const found = folders.find(f => f.id === id);
+      if (!found) throw new ChatPrivacyError("Folder not found in this vault.", 404);
+      return found;
+    };
+    if (input.action === "list" || input.action === "initialize") return { folders };
+    if (input.action === "create" || input.action === "renameFolder") {
+      const name = cleanVaultName(input.name);
+      const current = input.action === "renameFolder" ? folder(input.folderId) : null;
+      const parentId = current ? current.parentId : input.parentId || null;
+      if (parentId) folder(parentId);
+      if (folders.some(f => f.parentId === parentId && f.id !== current?.id && f.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw new ChatPrivacyError("A folder with that name already exists here.", 409);
+      const saved = current
+        ? await tx.vaultFolder.update({ where: { id: current.id, codeGroupId: group.id }, data: { name } })
+        : await tx.vaultFolder.create({ data: { codeGroupId: group.id, parentId, name } });
+      if (!current && parentId === null) {
+        await tx.vaultFolder.createMany({ data: vaultCategories.map(category => ({
+          id: "vf_" + randomBytes(16).toString("hex"), codeGroupId: group.id,
+          parentId: saved.id,
+          systemKey: `c_${saved.id.slice(-8)}_${category.toLowerCase().slice(0, 3)}`,
+          name: category,
+        })) });
+      }
+      return { folder: saved };
+    }
+    const ids = [...new Set(input.itemIds ?? [])];
+    if (!ids.length || ids.length > 100) throw new ChatPrivacyError("Select between 1 and 100 items.");
+    const items = await tx.secureFolderMessage.findMany({ where: { ...scope, id: { in: ids } }, select: { id: true } });
+    if (items.length !== ids.length) throw new ChatPrivacyError("One or more items are unavailable in this vault.", 404);
+    if (input.action === "renameItem") {
+      if (ids.length !== 1) throw new ChatPrivacyError("Rename one item at a time.");
+      await tx.secureFolderMessage.updateMany({ where: { ...scope, id: ids[0] }, data: { displayName: cleanVaultName(input.name) } });
+    } else if (input.action === "moveItems") {
+      const destination = folder(input.folderId);
+      await tx.secureFolderMessage.updateMany({ where: { ...scope, id: { in: ids } }, data: { folderId: destination.id } });
+    } else throw new ChatPrivacyError("Unknown action.");
+    return { updated: ids.length };
+  }, { timeout: 60000 });
+}
+
+export async function saveVaultUpload(userId: string, input: { code: string; objectKey: string; name: string; folderId?: string; thumbnailKey?: string }) {
+  hashCode(userId, PrivateCodePurpose.SECURE_FOLDER, input.code);
+  const name = cleanVaultName(input.name);
+  if (!input.objectKey.startsWith(`private/${userId}/vault/`) && !isWebVaultMedia(input.objectKey)) throw new ChatPrivacyError("Upload not available.", 404);
+  if (input.thumbnailKey && !input.thumbnailKey.startsWith(`private/${userId}/`)) throw new ChatPrivacyError("Upload not available.", 404);
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+    const asset = await tx.asset.findUnique({ where: { objectKey: input.objectKey } });
+    const ledger = await tx.vaultUploadLedger.findFirst({ where: { userId, objectKey: input.objectKey, state: "COMMITTED" } });
+    if (!asset || asset.visibility !== "private" || !ledger) throw new ChatPrivacyError("Confirm the upload before saving it.", 400);
+    if (input.thumbnailKey && !await tx.asset.findFirst({ where: { objectKey: input.thumbnailKey, visibility: "private" } })) throw new ChatPrivacyError("Thumbnail not available.", 404);
+    const group = await getOrCreateCodeGroup(tx, userId, PrivateCodePurpose.SECURE_FOLDER, input.code);
+    const folders = await ensureVaultFolders(tx, group.id);
+    const mime = asset.contentType ?? "application/octet-stream";
+    const type = mime.startsWith("image/") ? ChatMessageType.IMAGE : mime.startsWith("video/") ? ChatMessageType.VIDEO : ChatMessageType.DOCUMENT;
+    const destination = input.folderId ? folders.find(f => f.id === input.folderId) : folders.find(f => f.systemKey === vaultCategory({type, documentMimeType: mime}));
+    if (!destination) throw new ChatPrivacyError("Folder not found in this vault.", 404);
+    const existing = await tx.secureFolderMessage.findFirst({ where: { ownerId: userId, message: { OR: [{imageObjectKey: input.objectKey}, {videoObjectKey: input.objectKey}, {documentObjectKey: input.objectKey}] } } });
+    if (existing) {
+      if (existing.codeGroupId !== group.id) throw new ChatPrivacyError("Upload not available in this vault.", 404);
+      return { messageId: existing.messageId, itemId: existing.id };
+    }
+    let thread = await tx.chatThread.findFirst({ where: { kind: ChatThreadKind.SELF, participants: { some: { userId, otherUserId: userId } } }, select: { id: true } });
+    if (!thread) thread = await tx.chatThread.create({ data: { kind: ChatThreadKind.SELF, initiatorId: userId, participants: { create: { userId, otherUserId: userId, clearedAt: new Date() } } }, select: { id: true } });
+    const message = await tx.chatMessage.create({ data: {
+      threadId: thread.id, senderId: userId, type, text: "__CHATANDTIP_VAULT_DIRECT_UPLOAD__",
+      documentName: name, documentMimeType: mime, documentSizeBytes: asset.sizeBytes,
+      imageObjectKey: type === ChatMessageType.IMAGE ? input.objectKey : null,
+      videoObjectKey: type === ChatMessageType.VIDEO ? input.objectKey : null,
+      documentObjectKey: type === ChatMessageType.DOCUMENT ? input.objectKey : null,
+      thumbnailObjectKey: input.thumbnailKey || null,
+    } });
+    const item = await tx.secureFolderMessage.create({ data: { ownerId: userId, codeGroupId: group.id, messageId: message.id, folderId: destination.id, displayName: name } });
+    // No ordinary chat preview, unread counter, push or realtime message is emitted.
+    return { messageId: message.id, itemId: item.id };
+  }, { timeout: 60000 });
 }

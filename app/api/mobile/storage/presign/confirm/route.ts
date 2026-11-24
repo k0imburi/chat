@@ -21,6 +21,7 @@ import { mp4Faststart, isMP4Buffer } from "@/lib/mp4-faststart"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { HeadObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3"
+import { commitVaultUpload } from '@/lib/vault-accounting'
 import { assertStorageAvailable } from "@/lib/storage-quota"
 
 const schema = z.object({
@@ -57,8 +58,11 @@ export async function POST(request: Request) {
         { status: 404 },
       )
     }
+    const vault = body.visibility === 'private' && body.object_key.startsWith(`private/${session.userId}/vault/`)
+    if (body.dir_name === 'vault' && !vault) return NextResponse.json({success:false,error:'Invalid vault upload'}, {status:403})
     const existing = await prisma.asset.findUnique({ where: { objectKey: body.object_key }, select: { sizeBytes: true } })
-    await assertStorageAvailable(session.userId, Math.max(0, sizeBytes - Number(existing?.sizeBytes ?? 0)))
+    if (vault) await commitVaultUpload(session.userId, body.object_key, sizeBytes)
+    else await assertStorageAvailable(session.userId, Math.max(0, sizeBytes - Number(existing?.sizeBytes ?? 0)))
 
     // ── Resolve public URL (client may send null if publicBaseUrl wasn't configured) ──
     const resolvedPublicUrl = body.visibility === "private"
@@ -86,7 +90,7 @@ export async function POST(request: Request) {
     // Most modern iOS/Android recordings are already faststart, so this
     // is a no-op for the majority of uploads.  We don't await it so the
     // client gets a fast response immediately.
-    if (body.content_type === "video/mp4" || body.content_type === "video/quicktime") {
+    if (body.visibility !== "private" && (body.content_type === "video/mp4" || body.content_type === "video/quicktime")) {
       runFaststartIfNeeded(client, settings, body.object_key, body.content_type, asset.id).catch(
         (err) => logError(`faststart background job [${body.object_key}]`, err),
       )
@@ -109,7 +113,7 @@ export async function POST(request: Request) {
     logError("/api/mobile/storage/presign/confirm", error)
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to confirm upload" },
-      { status: 500 },
+      { status: typeof error === "object" && error && "status" in error ? Number(error.status) : 500 },
     )
   }
 }

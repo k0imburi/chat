@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getMobileSessionFromRequest } from "@/lib/mobile-session"
 import { prisma } from "@/lib/prisma"
 import { replaceAvailability } from "@/lib/mobile-bookings"
+import { defaultAvailabilitySlots } from "@/lib/default-availability"
 
 export async function GET(request: Request) {
   const session = await getMobileSessionFromRequest(request)
@@ -9,14 +10,17 @@ export async function GET(request: Request) {
   const userId = new URL(request.url).searchParams.get("userId") || session.userId
   const [data, user] = await Promise.all([
     prisma.creatorAvailability.findMany({ where: { userId, isActive: true }, orderBy: [{ weekday: "asc" }, { startMinute: "asc" }] }),
-    prisma.user.findUnique({ where: { id: userId }, select: { accountType: true, entityCallDurationMinutes: true, entityCallBufferMinutes: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { accountType: true, entityCallDurationMinutes: true, entityCallBufferMinutes: true, availabilityConfigured: true } }),
   ])
+  const rows = user && !user.availabilityConfigured && data.length === 0
+    ? defaultAvailabilitySlots()
+    : data
   return NextResponse.json({
     success: true,
-    data: data.map((row) => ({
+    data: rows.map((row) => ({
       ...row,
       sessionMinutes: user?.accountType === "ENTITY" ? user.entityCallDurationMinutes : 15,
-      bufferMinutes: user?.accountType === "ENTITY" ? user.entityCallBufferMinutes : 10,
+      bufferMinutes: user && !user.availabilityConfigured ? 0 : user?.accountType === "ENTITY" ? user.entityCallBufferMinutes : 10,
     })),
   })
 }

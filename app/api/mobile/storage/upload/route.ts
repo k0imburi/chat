@@ -6,12 +6,13 @@ import { mp4Faststart, isMP4Buffer } from "@/lib/mp4-faststart"
 import { prisma } from "@/lib/prisma"
 import { logError } from "@/lib/log-error"
 import { PutObjectCommand } from "@aws-sdk/client-s3"
+import { reserveVaultUpload, commitVaultUpload, releaseVaultReservation } from '@/lib/vault-accounting'
 import { assertStorageAvailable } from "@/lib/storage-quota"
 import { chatPhotoPrefix, encryptChatPhoto } from "@/lib/chat-photo-storage"
 import { env } from "@/lib/env"
 import { vaultMediaEncryptionHeaders, vaultWebMediaPrefix } from "@/lib/vault-media-storage"
 
-/** 100 MB — platform-wide media cap */
+/** 100 MB cap for non-Vault media; Vault files use the account quota. */
 const MAX_BYTES = 100 * 1024 * 1024
 
 /**
@@ -51,17 +52,19 @@ export async function POST(request: Request) {
     const contentType = resolveContentType(file.name, file.type)
     const isPhoto = /^image\/(jpeg|png|gif|webp|heic|heif|bmp|tiff|avif)$/.test(contentType)
     const isVideo = /^video\/(mp4|quicktime|webm|x-m4v|ogg)$/.test(contentType)
-    if (privateUpload && (!file.size || !(privatePhoto && isPhoto || vaultMedia && (isPhoto || isVideo)))) {
+    if (privateUpload && (!file.size || !(privatePhoto && isPhoto || vaultMedia))) {
       return NextResponse.json({ success: false, error: "Choose a supported photo or video." }, { status: 400 })
     }
-    const maxBytes = privateUpload && isPhoto ? 25 * 1024 * 1024 : MAX_BYTES
+    // Vault file size is limited by the user's remaining Vault allowance.
+    // Other private uploads retain their smaller platform file cap.
+    const maxBytes = vaultMedia ? Number.MAX_SAFE_INTEGER : privateUpload && !isVideo ? 25 * 1024 * 1024 : MAX_BYTES
     if (file.size > maxBytes) {
       return NextResponse.json(
         { success: false, error: `File exceeds the ${maxBytes / 1024 / 1024} MB limit` },
         { status: 413 },
       )
     }
-    await assertStorageAvailable(session.userId, file.size)
+    if (!vaultMedia) await assertStorageAvailable(session.userId, file.size)
 
     // ── Buffer the upload ─────────────────────────────────────────────────
     // Use Uint8Array view to avoid the Buffer<ArrayBuffer> vs Buffer<ArrayBufferLike>
@@ -96,6 +99,8 @@ export async function POST(request: Request) {
       ? encryptChatPhoto(buffer, objectKey, contentType, env.JWT_SECRET)
       : buffer
 
+    if (vaultMedia) await reserveVaultUpload(session.userId, objectKey, buffer.length)
+    try {
     await client.send(
       new PutObjectCommand({
         Bucket: bucket,
@@ -112,6 +117,12 @@ export async function POST(request: Request) {
         },
       }),
     )
+
+    if (vaultMedia) await commitVaultUpload(session.userId, objectKey, buffer.length)
+    } catch (error) {
+      if (vaultMedia) await releaseVaultReservation(session.userId, objectKey)
+      throw error
+    }
 
     const url = privateUpload ? null : getPublicUrl(objectKey, settings.publicBaseUrl)
 

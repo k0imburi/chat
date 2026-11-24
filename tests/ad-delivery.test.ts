@@ -7,7 +7,7 @@ async function load(entry:string,db:any){
   const result=await build({entryPoints:[entry],bundle:true,write:false,platform:'node',format:'cjs',packages:'external',plugins:[{name:'test',setup(b){
     b.onResolve({filter:/^(server-only|@\/lib\/)/},({path})=>path.endsWith('ad-pricing')?{path:`${process.cwd()}/lib/ad-pricing.ts`}:{path,namespace:'test'});
     b.onLoad({filter:/.*/,namespace:'test'},({path})=>({contents:path.endsWith('prisma')?'export const prisma=__db;':path.endsWith('mobile-users')?
-      'export const languageTokens=s=>new Set([s]);export const serializeMobileUserWithLikes=u=>({userId:u.id,gallery:u.media});':path.endsWith('stripe')?'export const resolveStripeConfig=()=>({enabled:false});':path.endsWith('paystack')?
+      'export const languageTokens=s=>new Set([s]);export const serializeMobileUserWithLikes=u=>({userId:u.id,gallery:[]});export const serializeVideo=m=>({...m});':path.endsWith('stripe')?'export const resolveStripeConfig=()=>({enabled:false});':path.endsWith('paystack')?
       'export const resolvePaystackConfig=async()=>({enabled:true,secretKey:"test"});export const initializePaystackTransaction=async()=>({authorizationUrl:""});':''}));
   }}]});
   const module={exports:{} as any};new Function('require','module','exports','__db',result.outputFiles[0].text)(createRequire(`${process.cwd()}/package.json`),module,module.exports,db);return module.exports;
@@ -136,7 +136,7 @@ test('Ads Center refresh reconciles a missed Paystack webhook for a depleted cam
 test('feed spaces ads after five organic posts without treating feed construction as an impression',async()=>{
   const deliveries:any[]=[];const state={id:'state',lastAdId:null};
   const ads=['A','B'].map(id=>({id,status:'ACTIVE',reviewStatus:'APPROVED',checkoutPaid:true,
-    owner:{id:'owner',media:[{id:`media${id}`}]},media:{id:`media${id}`},fundedMicros:1000000n,spentMicros:0n,
+    owner:{id:'owner',media:[{id:`media${id}`}]},media:{id:`media${id}`,adCtaColor:'#FF9800'},fundedMicros:1000000n,spentMicros:0n,
     budgetMicros:1000000n,dailyBudgetMicros:120000n,pacingTokensMicros:10000n,pacingSpentMicros:0n,
     pacingUpdatedAt:new Date(),pacingDay:new Date().toISOString().slice(0,10),timezoneOffsetMinutes:0,
     rate:1.5,bidMultiplier:1,impressions:0,clicks:0,likes:0,comments:0,shares:0,
@@ -153,6 +153,8 @@ test('feed spaces ads after five organic posts without treating feed constructio
   const result=await api.promotionFeed('viewer',Array.from({length:40},(_,i)=>({user:{userId:'creator'},video:{id:`p${i}`}})),()=>0);
   let gap=0,last='';for(const entry of result){if(entry.video.adCampaignId){assert.ok(gap>=5);assert.notEqual(entry.video.adCampaignId,last);last=entry.video.adCampaignId;gap=0;}else gap++;}
   assert.equal(deliveries.length,8);assert.equal(result[5].video.adCampaignId,'A');
+  assert.equal(result[5].video.id,'mediaA'); // Ads do not appear in the owner gallery.
+  assert.equal(result[5].video.adCtaColor,'#FF9800');
   assert.equal(exposureBatches.length,1);assert.equal(exposureBatches[0].length,40);
 });
 test('weighted ad order randomizes campaigns while favoring stronger bids',async()=>{
